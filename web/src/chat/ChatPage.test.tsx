@@ -316,6 +316,74 @@ describe("AI search chat page", () => {
     await waitFor(() => expect(input).toHaveValue(""));
   });
 
+  it("renders real execution steps and Todo progress before folding under the answer", async () => {
+    const user = userEvent.setup();
+    let releaseAnswer: () => void = () => undefined;
+    let releaseCompletion: () => void = () => undefined;
+    const final: ConversationResponse = {
+      status: "ok",
+      text: "最终安全答案",
+      citations: [],
+      action_results: [],
+      thread_id: "thread-1",
+      error_code: null,
+    };
+    const sendStream = vi.fn(async (
+      _conversationId: string,
+      _input: { message_id: string; text: string },
+      onEvent: (event: ConversationStreamEvent) => void,
+    ) => {
+      onEvent({
+        type: "started", request_id: "request-steps", message_id: "new-id", sequence: 1,
+        activity: "preparing",
+      });
+      onEvent({
+        type: "step_started", request_id: "request-steps", message_id: "new-id", sequence: 2,
+        step_id: "step-1", step_code: "searching_library",
+      });
+      onEvent({
+        type: "step_completed", request_id: "request-steps", message_id: "new-id", sequence: 3,
+        step_id: "step-1", step_code: "searching_library", step_outcome: "completed", result_count: 5,
+      });
+      onEvent({
+        type: "plan_updated", request_id: "request-steps", message_id: "new-id", sequence: 4,
+        plan: [
+          { id: "find", title: "检索相关视频", status: "completed" },
+          { id: "answer", title: "整理回答", status: "in_progress" },
+        ],
+      });
+      await new Promise<void>((resolve) => { releaseAnswer = resolve; });
+      onEvent({
+        type: "text_delta", request_id: "request-steps", message_id: "new-id", sequence: 5,
+        text: "正文开始",
+      });
+      await new Promise<void>((resolve) => { releaseCompletion = resolve; });
+      onEvent({
+        type: "completed", request_id: "request-steps", message_id: "new-id", sequence: 6,
+        activity: "completed", response: final,
+      });
+      return final;
+    });
+    renderPage({ sendStream });
+
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.type(input, "展示执行过程");
+    await user.click(screen.getByRole("button", { name: /发送问题/ }));
+
+    expect(await screen.findAllByText("找到 5 个相关片段")).toHaveLength(2);
+    expect(screen.getByRole("region", { name: "本轮计划" })).toBeInTheDocument();
+    expect(screen.getByText("检索相关视频")).toBeInTheDocument();
+    expect(screen.getByText("整理回答")).toBeInTheDocument();
+    const timeline = screen.getByText(/执行过程 · 1 个步骤/).closest("details");
+    expect(timeline).toHaveAttribute("open");
+
+    releaseAnswer();
+    expect(await screen.findByText("正文开始")).toBeInTheDocument();
+    await waitFor(() => expect(timeline).not.toHaveAttribute("open"));
+    releaseCompletion();
+  });
+
   it("flushes same-turn SSE activity and text before the terminal event", async () => {
     const user = userEvent.setup();
     let activityWasPaintable = false;

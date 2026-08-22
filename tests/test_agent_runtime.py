@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
-from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RequestUsage
 
@@ -24,6 +24,7 @@ from app.agent.runtime import (
 from app.agent.actions import ActionOutcome
 from app.agent.services import EmbeddingUnavailable, ItemDetails, RetrievalUnavailable
 from app.agent.types import AgentAnswer, AgentRequest, AnswerDraft, AnswerSection, Citation
+from app.agent.streaming import public_step_code
 from app.channels.types import TenantContext
 from app.config import Settings
 from app.diagnostics import RequestDiagnostics
@@ -210,6 +211,186 @@ async def test_runtime_records_failed_tool_boundary_without_query(caplog):
     tool = [value for value in payloads if value.get("tool_name") == "search_segments"]
     assert [value["tool_outcome"] for value in tool] == ["started", "failed"]
     assert "PRIVATE query" not in json.dumps(payloads)
+
+
+@pytest.mark.asyncio
+async def test_primary_stream_projects_real_tool_boundaries_without_raw_payloads():
+    citation = Citation(
+        item_id=2,
+        segment_id=3,
+        title="Only source",
+        excerpt="actual evidence",
+        url="https://example.test/source",
+    )
+    services = FakeServices([citation])
+
+    async def primary(messages, _info):
+        returns = [
+            part
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, ToolReturnPart)
+        ]
+        if not returns:
+            yield {
+                0: DeltaToolCall(
+                    "search_segments",
+                    json.dumps({"query": "PRIVATE_QUERY_SENTINEL"}),
+                    tool_call_id="provider-search-id",
+                )
+            }
+            return
+        if len(returns) == 1:
+            yield {
+                0: DeltaToolCall(
+                    "get_neighbors",
+                    json.dumps({"segment_id": 3}),
+                    tool_call_id="provider-neighbor-id",
+                )
+            }
+            return
+        yield "answer [S3]"
+
+    runtime = KnowledgeAgent(
+        FunctionModel(stream_function=primary),
+        replace(Settings(), agent_timeout_seconds=2),
+        lambda _: services,
+        composer_model=composer_for(3),
+    )
+
+    events = [event async for event in runtime.stream(request())]
+    steps = [
+        (event.type, event.step_id, event.step_code, event.step_outcome, event.result_count)
+        for event in events
+        if event.type in {"step_started", "step_completed"}
+    ]
+    assert steps == [
+        ("step_started", "step-1", "searching_library", None, None),
+        ("step_completed", "step-1", "searching_library", "completed", 1),
+        ("step_started", "step-2", "reading_context", None, None),
+        ("step_completed", "step-2", "reading_context", "completed", 1),
+    ]
+    assert services.calls == ["search_segments", "get_neighbors"]
+    assert sum(event.type == "completed" for event in events) == 1
+    assert "PRIVATE_QUERY_SENTINEL" not in repr(events)
+    assert "provider-search-id" not in repr(events)
+
+
+@pytest.mark.asyncio
+async def test_primary_stream_serializes_same_response_tool_boundaries():
+    citation = Citation(
+        item_id=2,
+        segment_id=3,
+        title="Only source",
+        excerpt="actual evidence",
+        url="https://example.test/source",
+    )
+
+    async def primary(messages, _info):
+        returns = [
+            part
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, ToolReturnPart)
+        ]
+        if not returns:
+            # PydanticAI publishes both call events before either result event,
+            # including under sequential tool execution.
+            yield {
+                0: DeltaToolCall(
+                    "search_segments",
+                    json.dumps({"query": "same response"}),
+                    tool_call_id="provider-search-id",
+                ),
+                1: DeltaToolCall(
+                    "get_neighbors",
+                    json.dumps({"segment_id": 3}),
+                    tool_call_id="provider-neighbor-id",
+                ),
+            }
+            return
+        yield "answer [S3]"
+
+    runtime = KnowledgeAgent(
+        FunctionModel(stream_function=primary),
+        replace(Settings(), agent_timeout_seconds=2),
+        lambda _: FakeServices([citation]),
+        composer_model=composer_for(3),
+    )
+
+    events = [event async for event in runtime.stream(request())]
+    steps = [
+        (event.type, event.step_id, event.step_code, event.step_outcome)
+        for event in events
+        if event.type in {"step_started", "step_completed"}
+    ]
+    assert steps == [
+        ("step_started", "step-1", "searching_library", None),
+        ("step_completed", "step-1", "searching_library", "completed"),
+        ("step_started", "step-2", "reading_context", None),
+        ("step_completed", "step-2", "reading_context", "failed"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_primary_stream_consumer_close_cleans_up_provider_context():
+    citation = Citation(
+        item_id=2,
+        segment_id=3,
+        title="Only source",
+        excerpt="actual evidence",
+        url="https://example.test/source",
+    )
+    second_request_started = asyncio.Event()
+    provider_closed = asyncio.Event()
+    never_finish = asyncio.Event()
+
+    async def primary(messages, _info):
+        returns = [
+            part
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, ToolReturnPart)
+        ]
+        if not returns:
+            yield {
+                0: DeltaToolCall(
+                    "search_segments",
+                    json.dumps({"query": "cleanup"}),
+                    tool_call_id="cleanup-search",
+                )
+            }
+            return
+        second_request_started.set()
+        try:
+            await never_finish.wait()
+            yield "unreachable"
+        finally:
+            provider_closed.set()
+
+    runtime = KnowledgeAgent(
+        FunctionModel(stream_function=primary),
+        replace(Settings(), agent_timeout_seconds=10),
+        lambda _: FakeServices([citation]),
+        composer_model=composer_for(3),
+    )
+    stream = runtime.stream(request())
+
+    started = await asyncio.wait_for(anext(stream), timeout=1)
+    completed = await asyncio.wait_for(anext(stream), timeout=1)
+    assert (started.type, completed.type) == ("step_started", "step_completed")
+    await asyncio.wait_for(second_request_started.wait(), timeout=1)
+
+    await stream.aclose()
+
+    await asyncio.wait_for(provider_closed.wait(), timeout=1)
+
+
+def test_unknown_tool_name_projects_to_generic_public_step():
+    assert public_step_code("PRIVATE_INTERNAL_TOOL") == "working"
 
 
 def test_model_tool_schemas_never_expose_trusted_identifiers():

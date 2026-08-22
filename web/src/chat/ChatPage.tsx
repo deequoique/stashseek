@@ -22,6 +22,12 @@ import type {
 } from "../api/contracts";
 import { ApiError } from "../api/client";
 import { RouteLink } from "../app/RouteTransition";
+import {
+  ExecutionTimeline,
+  executionStepCopy,
+  type ExecutionPlanItem,
+  type ExecutionStep,
+} from "./ExecutionTimeline";
 import { MarkdownAnswer } from "./MarkdownAnswer";
 
 interface ChatPageProps {
@@ -153,6 +159,8 @@ export function ChatPage({
   const [pendingAnswer, setPendingAnswer] = useState("");
   const [pendingCitations, setPendingCitations] = useState<ConversationCitation[]>([]);
   const [pendingSections, setPendingSections] = useState<PendingSection[]>([]);
+  const [pendingExecutionSteps, setPendingExecutionSteps] = useState<ExecutionStep[]>([]);
+  const [pendingPlan, setPendingPlan] = useState<ExecutionPlanItem[]>([]);
   const [pendingStatus, setPendingStatus] = useState<"streaming" | "failed">("streaming");
   const [openMenuThreadId, setOpenMenuThreadId] = useState<string | null>(null);
   const [confirmingThreadId, setConfirmingThreadId] = useState<string | null>(null);
@@ -206,6 +214,34 @@ export function ChatPage({
           flushSync(() => {
             if (event.type === "started" || event.type === "activity") {
               setPendingActivity(activityCopy(event));
+            } else if (event.type === "step_started" && event.step_id && event.step_code) {
+              const step: ExecutionStep = {
+                stepId: event.step_id,
+                code: event.step_code,
+                outcome: "running",
+              };
+              setPendingExecutionSteps((current) => [...current, step]);
+              setPendingActivity(executionStepCopy(step));
+            } else if (
+              event.type === "step_completed"
+              && event.step_id
+              && event.step_code
+              && event.step_outcome
+            ) {
+              const completed: ExecutionStep = {
+                stepId: event.step_id,
+                code: event.step_code,
+                outcome: event.step_outcome,
+                ...(event.result_count === null || event.result_count === undefined
+                  ? {}
+                  : { resultCount: event.result_count }),
+              };
+              setPendingExecutionSteps((current) => current.map((step) => (
+                step.stepId === completed.stepId ? completed : step
+              )));
+              setPendingActivity(executionStepCopy(completed));
+            } else if (event.type === "plan_updated" && event.plan) {
+              setPendingPlan(event.plan);
             } else if (event.type === "section_started" && event.section_id) {
               setPendingSections((current) => [
                 ...current.filter((section) => section.sectionId !== event.section_id),
@@ -275,6 +311,8 @@ export function ChatPage({
       setPendingAnswer("");
       setPendingCitations([]);
       setPendingSections([]);
+      setPendingExecutionSteps([]);
+      setPendingPlan([]);
       setPendingActivity("正在准备回答…");
       setPendingStatus("streaming");
       await Promise.all([
@@ -287,6 +325,9 @@ export function ChatPage({
         setPendingStatus("failed");
         setPendingSections([]);
         setPendingCitations([]);
+        setPendingExecutionSteps((current) => current.map((step) => (
+          step.outcome === "running" ? { ...step, outcome: "failed" } : step
+        )));
         setPendingActivity(
           error.code === "cancelled"
             ? "请求已取消"
@@ -301,6 +342,8 @@ export function ChatPage({
       setPendingAnswer("");
       setPendingCitations([]);
       setPendingSections([]);
+      setPendingExecutionSteps([]);
+      setPendingPlan([]);
       setPendingStatus("failed");
     },
   });
@@ -321,7 +364,11 @@ export function ChatPage({
       setSelectedConversationId(null);
       setPendingQuestion(null);
       setPendingAnswer("");
+      setPendingCitations([]);
+      setPendingSections([]);
       setPendingActivity("正在准备回答…");
+      setPendingExecutionSteps([]);
+      setPendingPlan([]);
       setPendingStatus("streaming");
       await queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
@@ -387,6 +434,8 @@ export function ChatPage({
     setPendingAnswer("");
     setPendingCitations([]);
     setPendingSections([]);
+    setPendingExecutionSteps([]);
+    setPendingPlan([]);
     setPendingActivity("正在准备回答…");
     setPendingStatus("streaming");
     setSelectedThreadId(null);
@@ -402,6 +451,8 @@ export function ChatPage({
     setPendingAnswer("");
     setPendingCitations([]);
     setPendingSections([]);
+    setPendingExecutionSteps([]);
+    setPendingPlan([]);
     setPendingActivity("正在准备回答…");
     setPendingStatus("streaming");
     sendMessage.mutate({ conversationId: selectedConversationId, text });
@@ -595,6 +646,11 @@ export function ChatPage({
                   <article className={`chat-message chat-message--assistant chat-message--${pendingStatus}`}>
                     <p className="eyebrow">资料库助手</p>
                     <p aria-live="polite" role={pendingStatus === "failed" ? "alert" : "status"}>{pendingActivity}</p>
+                    <ExecutionTimeline
+                      steps={pendingExecutionSteps}
+                      plan={pendingPlan}
+                      answerStarted={pendingSections.length > 0 || Boolean(pendingAnswer)}
+                    />
                     {pendingSections.map((section) => (
                       <section className="chat-pending-section" key={section.sectionId} aria-label={section.status === "unsupported" ? "证据不足部分" : "正在生成回答部分"}>
                         <MarkdownAnswer>{section.text}</MarkdownAnswer>

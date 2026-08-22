@@ -138,19 +138,41 @@ curl -sS -b "$COOKIE_JAR" -X POST \
 `request_id`、`message_id` 和从 1 开始递增的 `sequence`：
 
 ```text
-started → activity(retrieving|planning_answer) →
-section_started → text_delta* → section_completed → completed
+started → activity(retrieving) →
+(step_started → step_completed → plan_updated?)* →
+activity(planning_answer) → section_started → text_delta* → section_completed → completed
 ```
+
+主 Agent 的工具循环会在真实运行时边界产生短暂的执行时间线。`step_started` 与
+`step_completed` 使用服务端生成的 `step_id` 配对，并携带闭集 `step_code`、固定
+结果状态（`completed`、`failed` 或 `skipped`）和有界的结果数量。常见步骤包括
+`searching_library`（搜索资料库）、`reading_context`（读取相关上下文）、
+`checking_source`（核对来源）、`reviewing_library`（查看资料库）以及
+`handling_save`/`managing_library`。未知或未来工具只投影为 `working`，不会暴露
+内部工具名称、参数、返回正文、异常消息或内部 ID。
+
+实际使用 Todo 时，成功的 `todo_write` 会发送 `plan_updated`，内容是最多 6 项、
+经过服务端校验的短计划快照（`id`、`title`、`status`）。没有使用 Todo 的请求不会
+伪造计划事件。Todo 是可公开的计划 artifact，不是 provider thinking 或隐藏推理。
+执行时间线只存在于当前流式请求，不写入对话历史。
 
 `section_started` 会先携带本轮已校验的 `citation_ids` 和来源元数据；正文
 `text_delta` 必须带对应 `section_id`。`unsupported` section 只发送服务器固定的
 证据不足文案，不调用正文模型。异常终态为 `error` 或 `cancelled`，并带固定的安全错误摘要；
-技术中断可先发送 `section_aborted`。`activity` 只来自受控阶段标签；provider 内容、
-工具参数、原始日志和隐藏推理不会进入事件。客户端应按 `request_id` 校验并忽略重复/过期
-sequence，遇到缺口或连接中断显示失败状态，不要静默重发同一消息。将
+技术中断可先发送 `section_aborted`；开放中的执行步骤会先以固定 `failed` 终态关闭。
+同一时间最多一个开放步骤和一个开放 answer section，二者不得重叠。`activity` 只来自受控
+阶段标签；provider 内容、primary prose/thinking、工具参数、原始结果和日志不会进入事件。
+客户端应按 `request_id` 校验并忽略重复/过期 sequence，拒绝步骤错配、未知 code、缺口与
+非法生命周期；连接中断显示失败状态，不要静默重发同一消息。将
 `AGENT_STREAMING_ENABLED` 设为 `false`、`0`、`no` 或 `off`
 时该路径返回 `406 streaming_disabled`，浏览器只做一次原 JSON endpoint 降级；原
 `/messages` 路径始终保留给不支持 SSE 的客户端。
+
+客户端必须保持一个最多一个打开步骤的状态机：`step_started` 后只能收到同一
+`step_id`/`step_code` 的一次 `step_completed`；终态前若步骤仍打开，服务端会先以
+固定的 `failed` 结果关闭它。重复序号可幂等忽略，序号缺口、结果无对应开始、
+步骤代码不一致、终态后的事件、跨请求或跨消息事件都应失败关闭。步骤和计划投影
+同样不包含 provider thinking、系统提示词、模型原文或原始工具 payload。
 
 ### 系统命令不是 HTTP endpoint
 

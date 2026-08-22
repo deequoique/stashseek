@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.agent.types import AgentAnswer
-from app.agent.streaming import AgentStreamEvent
+from app.agent.streaming import AgentPlanItem, AgentStreamEvent
 from app.agent.types import Citation
 from app.config import Settings
 from app.models import AppUser, ChannelIdentity, WebAuthChallenge, WebSession
@@ -115,6 +115,42 @@ class _CompletedOnlyChannel(_ChannelService):
         )
 
 
+class _StepStreamingChannel(_ChannelService):
+    async def handle_stream(self, envelope):
+        self.envelopes.append(envelope)
+        yield AgentStreamEvent(
+            "step_started",
+            envelope.request_id,
+            envelope.message_id,
+            step_id="step-1",
+            step_code="searching_library",
+        )
+        yield AgentStreamEvent(
+            "step_completed",
+            envelope.request_id,
+            envelope.message_id,
+            step_id="step-1",
+            step_code="searching_library",
+            step_outcome="completed",
+            result_count=5,
+        )
+        yield AgentStreamEvent(
+            "plan_updated",
+            envelope.request_id,
+            envelope.message_id,
+            plan=(
+                AgentPlanItem("find", "检索相关视频", "completed"),
+                AgentPlanItem("answer", "整理回答", "in_progress"),
+            ),
+        )
+        yield AgentStreamEvent(
+            "completed",
+            envelope.request_id,
+            envelope.message_id,
+            answer=self.answer,
+        )
+
+
 def _section_started(envelope, *, request_id: str | None = None):
     citation = Citation(
         item_id=7,
@@ -159,6 +195,18 @@ class _OpenSectionSlowChannel(_ChannelService):
         self.envelopes.append(envelope)
         yield _section_started(envelope)
         await asyncio.sleep(0.05)
+
+
+class _OpenStepEofChannel(_ChannelService):
+    async def handle_stream(self, envelope):
+        self.envelopes.append(envelope)
+        yield AgentStreamEvent(
+            "step_started",
+            envelope.request_id,
+            envelope.message_id,
+            step_id="step-1",
+            step_code="searching_library",
+        )
 
 
 def _settings(**overrides) -> Settings:
@@ -362,6 +410,54 @@ async def test_stream_provider_fallback_keeps_one_delta_with_handle_stream():
 
 
 @pytest.mark.asyncio
+async def test_stream_projects_safe_execution_steps_and_plan():
+    settings = _settings()
+    channel = _StepStreamingChannel()
+    client, origin, csrf, _ = await _authenticated_client(settings, channel)
+    try:
+        response = await client.post(
+            "/api/v1/conversations/browser-thread/messages/stream",
+            json={"message_id": "message-steps", "text": "hello"},
+            headers={**origin, "X-CSRF-Token": csrf},
+        )
+        events = [
+            json.loads(line.removeprefix("data: "))
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+
+        assert response.status_code == 200
+        assert [event["type"] for event in events] == [
+            "started",
+            "activity",
+            "step_started",
+            "step_completed",
+            "plan_updated",
+            "text_delta",
+            "completed",
+        ]
+        assert events[2] == {
+            "type": "step_started",
+            "request_id": events[0]["request_id"],
+            "message_id": "message-steps",
+            "sequence": 3,
+            "step_id": "step-1",
+            "step_code": "searching_library",
+            "citation_ids": [],
+            "citations": [],
+        }
+        assert events[3]["step_outcome"] == "completed"
+        assert events[3]["result_count"] == 5
+        assert events[4]["plan"] == [
+            {"id": "find", "title": "检索相关视频", "status": "completed"},
+            {"id": "answer", "title": "整理回答", "status": "in_progress"},
+        ]
+        assert [event["sequence"] for event in events] == list(range(1, len(events) + 1))
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_stream_rejects_internal_correlation_mismatch_after_aborting_section():
     settings = _settings()
     channel = _MismatchedCorrelationChannel()
@@ -411,6 +507,37 @@ async def test_stream_eof_after_open_section_aborts_before_error():
         assert events[-1]["type"] == "error"
     finally:
         await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_stream_eof_closes_open_step_before_error():
+    settings = _settings()
+    channel = _OpenStepEofChannel()
+    client, origin, csrf, _ = await _authenticated_client(settings, channel)
+    try:
+        response = await client.post(
+            "/api/v1/conversations/browser-thread/messages/stream",
+            json={"message_id": "message-step-eof", "text": "hello"},
+            headers={**origin, "X-CSRF-Token": csrf},
+        )
+        events = [
+            json.loads(line.removeprefix("data: "))
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        assert [event["type"] for event in events[-3:]] == [
+            "step_started",
+            "step_completed",
+            "error",
+        ]
+        assert events[-2]["step_outcome"] == "failed"
+    finally:
+        await client.aclose()
+
+
+def test_plan_item_rejects_server_owned_data():
+    with pytest.raises(ValueError):
+        AgentPlanItem("read", "读取 item_id=7 的 raw payload", "in_progress")
 
 
 @pytest.mark.asyncio
