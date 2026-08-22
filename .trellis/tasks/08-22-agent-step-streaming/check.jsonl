@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify cancellation, timeout, disconnect, open-step closure, section abort, and persistence failure behavior."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Audit SSE/DOM/production-log sentinel leakage and allow-listed lifecycle diagnostics."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Review accessibility, semantic timeline markup, mobile layout, disclosure behavior, and reduced motion."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Verify generated OpenAPI types remain canonical and runtime event narrowing matches the server validator."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Perform full-path review across Agent events, Channel persistence, SSE, parser state, and UI terminal cleanup."}
+{"file":".trellis/tasks/08-22-agent-step-streaming/research/current-streaming-gap-and-runtime-events.md","reason":"Check that implementation uses the verified single-run event seam and continues dropping raw model/provider events."}
+{"file":".trellis/spec/backend/agent-execution-streaming.md","reason":"Verify the final single-run tool lifecycle, public step vocabulary, SSE state machines, cleanup, and transient timeline contract."}

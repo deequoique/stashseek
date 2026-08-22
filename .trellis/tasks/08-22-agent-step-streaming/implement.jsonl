@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/error-handling.md","reason":"Preserve section/stream abort, failure terminal, and no-partial-persistence semantics while adding tool steps."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Keep production diagnostics free of questions, Todo titles, tool payloads, evidence, provider events, and exception messages."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Follow the existing browser state boundaries when adding transient execution timeline state."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Implement the timeline as semantic, accessible presentation using the existing stylesheet and safe rendering rules."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Extend the Pydantic/OpenAPI/generated TypeScript stream contract without handwritten duplicate lifecycle types."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Coordinate the Agent runtime, SSE state machine, generated contract, frontend parser, and UI as one cross-layer change."}
+{"file":".trellis/tasks/08-22-agent-step-streaming/research/current-streaming-gap-and-runtime-events.md","reason":"Use the verified current gap and local PydanticAI run_stream_events behavior as the implementation evidence."}
+{"file":".trellis/spec/backend/agent-execution-streaming.md","reason":"Preserve the executable single-run event projection and cross-layer stream state-machine contract captured during implementation."}
