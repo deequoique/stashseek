@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
-- **Last Active**: 2026-08-17
+- **Total Sessions**: 17
+- **Last Active**: 2026-08-22
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~455 | Active |
+| `journal-1.md` | ~477 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-08-22 | 逐步可见的 Agent 流式输出 | `fa3423e`, `77bc57a` | `dev` |
 | 16 | 2026-08-17 | Modularize bounded Agent runtime | `38e0804` | `dev` |
 | 15 | 2026-08-10 | Fix YouTube worker trusted CA initialization | `544b809`, `2be7c71` | `codex/youtube-subtitle-ca-fix` |
 | 14 | 2026-08-10 | Web email auth contract and full-browser readiness | `b883b27`, `1ae3d9f`, `424e7f5` | `codex/web-email-auth-contract-fix` |

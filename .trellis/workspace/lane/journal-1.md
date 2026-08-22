@@ -453,3 +453,25 @@ Split runtime.py into state, builder, tool policy/registrations, answer pipeline
 ### Status
 
 [OK] **Completed**
+
+
+## Session 17: 逐步可见的 Agent 流式输出
+
+**Date**: 2026-08-22
+**Task**: 逐步可见的 Agent 流式输出
+**Branch**: `dev`
+
+### Summary
+
+实现安全的 Agent 执行步骤流、前端临时时间线、严格生命周期校验与完整测试文档；工具参数、结果、推理及供应商标识保持私有。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fa3423e` | (see git log) |
+| `77bc57a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
