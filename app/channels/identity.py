@@ -453,6 +453,12 @@ def _merge_tenants(db: Session, source_user_id: int, target_user_id: int) -> Non
             .where(WebSession.app_user_id == target_user_id)
             .values(app_user_id=source_user_id, revoked_at=current)
         )
+        # Import lazily to avoid the identity -> web_auth -> identity module
+        # cycle. Failure must abort the transaction: committing revocation
+        # without scheduling cache invalidation could briefly revive a session.
+        from app.web_auth import mark_web_session_cache_invalidation
+
+        mark_web_session_cache_invalidation(db)
     if has_mcp_grants:
         db.execute(
             update(McpAccessGrant)

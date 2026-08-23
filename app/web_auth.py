@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import re
 import secrets
 import smtplib
 import ssl
+import weakref
 from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -20,7 +22,7 @@ from email.message import EmailMessage
 from typing import Protocol
 
 import httpx
-from sqlalchemy import func, select, update
+from sqlalchemy import event, func, select, update
 from sqlalchemy.orm import Session
 
 from app.channels.identity import ensure_explicit_identity
@@ -269,6 +271,8 @@ class AuthenticatedWebSession:
     tenant: TenantContext
     expires_at: datetime
     public_id: str
+    # Internal only: used by the request-scoped CSRF boundary and cache.
+    csrf_token_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -278,10 +282,293 @@ class VerifiedWebLogin:
     session: AuthenticatedWebSession
 
 
+class RedisSessionCache:
+    """Small fail-open-to-Postgres, never-fail-open-to-auth Redis cache.
+
+    Redis stores only a versioned, bounded projection under a SHA-256 token
+    digest. A cache miss, timeout, or malformed value always returns ``None``
+    so the authoritative database resolver remains in charge of admission.
+    """
+
+    _GENERATION_KEY = "notebook-agent:web-session:generation"
+    _KEY_PREFIX = "notebook-agent:web-session:v1"
+    _VERSION = 1
+    _MAX_PAYLOAD_BYTES = 4096
+    _PAYLOAD_FIELDS = frozenset(
+        {
+            "version",
+            "session_id",
+            "public_id",
+            "app_user_id",
+            "channel_identity_id",
+            "channel",
+            "account_id",
+            "external_user_id",
+            "csrf_token_hash",
+            "expires_at",
+        }
+    )
+    _LOOKUP_SCRIPT = """
+local generation = redis.call('GET', KEYS[1])
+if not generation then return {} end
+local value = redis.call('GET', ARGV[1] .. ':' .. generation .. ':' .. ARGV[2])
+if not value then return {generation} end
+return {generation, value}
+"""
+    _STORE_SCRIPT = """
+local generation = redis.call('GET', KEYS[1])
+if not generation or generation ~= ARGV[1] then return 0 end
+redis.call('SET', ARGV[2] .. ':' .. generation .. ':' .. ARGV[3], ARGV[4], 'EX', ARGV[5])
+return 1
+"""
+
+    def __init__(self, redis_client, *, ttl_seconds: int = 60) -> None:
+        if ttl_seconds < 0:
+            raise ValueError("session cache TTL must be non-negative")
+        self._redis = redis_client
+        self._ttl_seconds = ttl_seconds
+        self._generation: int | None = None
+        self._generation_bump_required = False
+
+    @property
+    def enabled(self) -> bool:
+        return self._ttl_seconds > 0
+
+    @staticmethod
+    def _decode(value):
+        if isinstance(value, bytes):
+            return value.decode("utf-8")
+        return value
+
+    def _ensure_generation(self) -> int:
+        current = self._decode(self._redis.get(self._GENERATION_KEY))
+        if current is None:
+            try:
+                self._redis.set(self._GENERATION_KEY, "1", nx=True)
+            except TypeError:
+                # Minimal test doubles may not implement NX; a subsequent
+                # read still makes the value authoritative for this process.
+                self._redis.set(self._GENERATION_KEY, "1")
+            current = self._decode(self._redis.get(self._GENERATION_KEY))
+        generation = int(current)
+        if generation < 1:
+            raise ValueError("invalid session cache generation")
+        return generation
+
+    def _current_generation(self) -> int:
+        if self._generation_bump_required:
+            try:
+                generation = int(self._redis.incr(self._GENERATION_KEY))
+                if generation < 1:
+                    raise ValueError("invalid session cache generation")
+                self._generation = generation
+                self._generation_bump_required = False
+                return generation
+            except Exception:
+                raise
+        generation = self._ensure_generation()
+        self._generation = generation
+        return generation
+
+    def _key(self, token_digest: str, generation: int) -> str:
+        if not re.fullmatch(r"[0-9a-f]{64}", token_digest):
+            raise ValueError("invalid session digest")
+        return f"{self._KEY_PREFIX}:{generation}:{token_digest}"
+
+    def generation(self) -> int:
+        """Return the generation used for a cold fill, or raise on Redis failure."""
+
+        return self._current_generation()
+
+    def _project(self, raw, *, now: datetime) -> AuthenticatedWebSession:
+        if isinstance(raw, bytes) and len(raw) > self._MAX_PAYLOAD_BYTES:
+            raise ValueError("invalid session cache payload")
+        value = self._decode(raw)
+        if not isinstance(value, str) or len(value.encode("utf-8")) > self._MAX_PAYLOAD_BYTES:
+            raise ValueError("invalid session cache payload")
+        payload = json.loads(value)
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != self._PAYLOAD_FIELDS
+            or type(payload.get("version")) is not int
+            or payload["version"] != self._VERSION
+        ):
+            raise ValueError("invalid session cache version")
+        for field in ("session_id", "app_user_id", "channel_identity_id"):
+            if type(payload[field]) is not int or payload[field] <= 0:
+                raise ValueError("invalid session cache identifier")
+        expires_value = payload["expires_at"]
+        if not isinstance(expires_value, str):
+            raise ValueError("invalid session cache expiry")
+        expires_at = datetime.fromisoformat(expires_value)
+        if expires_at.tzinfo is None:
+            raise ValueError("invalid session cache expiry")
+        if _utc(expires_at) <= now:
+            raise ValueError("expired session cache payload")
+        external_user_id = payload["external_user_id"]
+        if (
+            not isinstance(external_user_id, str)
+            or external_user_id != external_user_id.strip().casefold()
+            or not _EMAIL_RE.fullmatch(external_user_id)
+        ):
+            raise ValueError("invalid session cache principal")
+        tenant = TenantContext(
+            payload["app_user_id"],
+            payload["channel_identity_id"],
+            payload["channel"],
+            payload["account_id"],
+            external_user_id,
+        )
+        public_id = payload["public_id"]
+        csrf_hash = payload["csrf_token_hash"]
+        if (
+            not isinstance(public_id, str)
+            or not 1 <= len(public_id) <= 200
+            or not isinstance(csrf_hash, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", csrf_hash)
+            or tenant.channel != WEB_CHANNEL
+            or tenant.account_id != WEB_ACCOUNT_ID
+        ):
+            raise ValueError("invalid session cache projection")
+        return AuthenticatedWebSession(
+            payload["session_id"], tenant, expires_at, public_id, csrf_hash
+        )
+
+    def lookup(
+        self,
+        token_digest: str,
+        *,
+        now: datetime,
+    ) -> tuple[int | None, AuthenticatedWebSession | None]:
+        """Read generation and projection in one bounded Redis round trip."""
+
+        if not self.enabled:
+            return None, None
+        self._key(token_digest, 1)
+        try:
+            if self._generation_bump_required:
+                self._current_generation()
+            result = self._redis.eval(
+                self._LOOKUP_SCRIPT,
+                1,
+                self._GENERATION_KEY,
+                self._KEY_PREFIX,
+                token_digest,
+            )
+            if not isinstance(result, (list, tuple)) or not result:
+                self._generation_bump_required = True
+                return self._current_generation(), None
+            if len(result) not in {1, 2}:
+                raise ValueError("invalid session cache lookup result")
+            generation = int(self._decode(result[0]))
+            if generation < 1:
+                raise ValueError("invalid session cache generation")
+            self._generation = generation
+            if len(result) == 1:
+                return generation, None
+            return generation, self._project(result[1], now=now)
+        except Exception:
+            self._generation_bump_required = True
+            return None, None
+
+    def get(
+        self,
+        token_digest: str,
+        *,
+        now: datetime,
+        generation: int | None = None,
+    ) -> AuthenticatedWebSession | None:
+        if not self.enabled:
+            return None
+        if generation is None:
+            _, session = self.lookup(token_digest, now=now)
+            return session
+        try:
+            raw = self._decode(self._redis.get(self._key(token_digest, generation)))
+            if raw is None:
+                return None
+            return self._project(raw, now=now)
+        except Exception:
+            self._generation_bump_required = True
+            return None
+
+    def put(
+        self,
+        token_digest: str,
+        session: AuthenticatedWebSession,
+        *,
+        now: datetime,
+        generation: int | None = None,
+    ) -> None:
+        if not self.enabled:
+            return
+        try:
+            if self._generation_bump_required:
+                # An outage, corruption, or failed invalidation occurred after
+                # this cold fill began. Bump before any hit can resume, and
+                # discard the fill because its database snapshot may predate
+                # the security change that requested invalidation.
+                self._current_generation()
+                return
+            generation = generation if generation is not None else self._current_generation()
+            ttl = min(self._ttl_seconds, max(1, int((_utc(session.expires_at) - now).total_seconds())))
+            payload = {
+                "version": self._VERSION,
+                "session_id": session.session_id,
+                "public_id": session.public_id,
+                "app_user_id": session.tenant.app_user_id,
+                "channel_identity_id": session.tenant.channel_identity_id,
+                "channel": session.tenant.channel,
+                "account_id": session.tenant.account_id,
+                "external_user_id": session.tenant.external_user_id,
+                "csrf_token_hash": session.csrf_token_hash,
+                "expires_at": _utc(session.expires_at).isoformat(),
+            }
+            stored = self._redis.eval(
+                self._STORE_SCRIPT,
+                1,
+                self._GENERATION_KEY,
+                str(generation),
+                self._KEY_PREFIX,
+                token_digest,
+                json.dumps(payload, separators=(",", ":")),
+                ttl,
+            )
+            if int(stored) == 1:
+                self._generation = generation
+                self._generation_bump_required = False
+        except Exception:
+            self._generation_bump_required = True
+
+    def invalidate_all(self) -> bool:
+        if not self.enabled:
+            return True
+        try:
+            # Incrementing makes every previous digest key unreachable without
+            # enumerating tokens or storing raw credentials.
+            generation = int(self._redis.incr(self._GENERATION_KEY))
+            if generation < 1:
+                raise ValueError("invalid session cache generation")
+            self._generation = generation
+            self._generation_bump_required = False
+            return True
+        except Exception:
+            self._generation_bump_required = True
+            return False
+
+
 class WebAuthService:
-    def __init__(self, session_factory: Callable[[], Session], settings: Settings, sender: EmailSender, limiter: LoginRateLimiter) -> None:
+    _cache_instances: weakref.WeakSet[RedisSessionCache] = weakref.WeakSet()
+
+    def __init__(self, session_factory: Callable[[], Session], settings: Settings, sender: EmailSender, limiter: LoginRateLimiter, *, session_cache: RedisSessionCache | None = None) -> None:
         self._session_factory, self._settings = session_factory, settings
         self._sender, self._limiter = sender, limiter
+        self._session_cache = session_cache
+        if session_cache is not None:
+            self._cache_instances.add(session_cache)
+        self._last_used_interval = timedelta(
+            seconds=max(60, session_cache._ttl_seconds if session_cache is not None else 60)
+        )
         if not settings.web_auth_secret:
             raise ValueError("WEB_AUTH_SECRET is required for Web authentication")
         self._secret = settings.web_auth_secret.encode()
@@ -362,7 +649,11 @@ class WebAuthService:
                 raw,
                 csrf,
                 AuthenticatedWebSession(
-                    session.id, tenant, session.expires_at, session.public_id
+                    session.id,
+                    tenant,
+                    _utc(session.expires_at),
+                    session.public_id,
+                    session.csrf_token_hash,
                 ),
             )
 
@@ -372,51 +663,79 @@ class WebAuthService:
         except ValueError:
             raise InvalidSession() from None
         current = _utc(now)
-        with self._session_factory() as db:
-            session = db.scalar(select(WebSession).where(WebSession.token_hash == digest))
-            if session is None or not hmac.compare_digest(session.token_hash, digest) or session.revoked_at is not None or _utc(session.expires_at) <= current:
-                raise InvalidSession()
-            if session.channel_identity_id is None:
-                raise InvalidSession()
-            user = db.get(AppUser, session.app_user_id)
-            identity = db.get(ChannelIdentity, session.channel_identity_id)
-            if user is None or identity is None or user.disabled_at is not None or identity.disabled_at is not None or identity.app_user_id != user.id or identity.channel != WEB_CHANNEL:
-                raise InvalidSession()
-            session.last_used_at = current
-            db.commit()
-            return AuthenticatedWebSession(
-                session.id,
-                TenantContext(
-                    user.id,
-                    identity.id,
-                    identity.channel,
-                    identity.account_id,
-                    identity.external_user_id,
-                ),
-                session.expires_at,
-                session.public_id,
+        cache_generation: int | None = None
+        if self._session_cache is not None:
+            cache_generation, cached = self._session_cache.lookup(
+                digest,
+                now=current,
             )
+            if cached is not None:
+                return cached
+        with self._session_factory() as db:
+            row = db.execute(
+                select(WebSession, AppUser, ChannelIdentity)
+                .join(AppUser, AppUser.id == WebSession.app_user_id)
+                .join(ChannelIdentity, ChannelIdentity.id == WebSession.channel_identity_id)
+                .where(
+                    WebSession.token_hash == digest,
+                    WebSession.revoked_at.is_(None),
+                    WebSession.expires_at > current,
+                    AppUser.disabled_at.is_(None),
+                    ChannelIdentity.disabled_at.is_(None),
+                    ChannelIdentity.app_user_id == AppUser.id,
+                    ChannelIdentity.channel == WEB_CHANNEL,
+                    ChannelIdentity.account_id == WEB_ACCOUNT_ID,
+                )
+            ).first()
+            if row is None:
+                raise InvalidSession()
+            session, user, identity = row
+            if (
+                session.last_used_at is None
+                or current - _utc(session.last_used_at) >= self._last_used_interval
+            ):
+                session.last_used_at = current
+                db.commit()
+            else:
+                db.rollback()
+            resolved = AuthenticatedWebSession(
+                session.id,
+                TenantContext(user.id, identity.id, identity.channel, identity.account_id, identity.external_user_id),
+                _utc(session.expires_at),
+                session.public_id,
+                session.csrf_token_hash,
+            )
+            if self._session_cache is not None:
+                self._session_cache.put(
+                    digest,
+                    resolved,
+                    now=current,
+                    generation=cache_generation,
+                )
+            return resolved
 
     def validate_csrf(
         self, raw_token: str, raw_csrf_token: str, *, now: datetime | None = None
     ) -> None:
+        current = _utc(now)
         try:
-            token_hash = _token_hash(raw_token)
+            resolved = self.resolve_session(raw_token, now=current)
+        except InvalidSession:
+            raise
+        self.validate_csrf_for_session(resolved, raw_csrf_token)
+
+    @staticmethod
+    def validate_csrf_for_session(
+        session: AuthenticatedWebSession, raw_csrf_token: str
+    ) -> None:
+        try:
             csrf_hash = _token_hash(raw_csrf_token)
         except ValueError:
             raise InvalidSession() from None
-        current = _utc(now)
-        with self._session_factory() as db:
-            session = db.scalar(
-                select(WebSession).where(WebSession.token_hash == token_hash)
-            )
-            if (
-                session is None
-                or session.revoked_at is not None
-                or _utc(session.expires_at) <= current
-                or not hmac.compare_digest(session.csrf_token_hash, csrf_hash)
-            ):
-                raise InvalidSession()
+        if not session.csrf_token_hash or not hmac.compare_digest(
+            session.csrf_token_hash, csrf_hash
+        ):
+            raise InvalidSession()
 
     def revoke_session(self, raw_token: str, *, now: datetime | None = None) -> None:
         digest = _token_hash(raw_token)
@@ -425,10 +744,13 @@ class WebAuthService:
             if session is not None:
                 session.revoked_at = session.revoked_at or _utc(now)
                 db.commit()
+        if self._session_cache is not None:
+            self._session_cache.invalidate_all()
 
     @staticmethod
     def revoke_user_sessions(db: Session, app_user_id: int, *, now: datetime | None = None) -> None:
         db.execute(update(WebSession).where(WebSession.app_user_id == app_user_id, WebSession.revoked_at.is_(None)).values(revoked_at=_utc(now)))
+        mark_web_session_cache_invalidation(db)
 
     def _code_hash(self, challenge_id: int, code: str) -> str:
         return hmac.new(self._secret, f"{challenge_id}:{code}".encode(), hashlib.sha256).hexdigest()
@@ -469,6 +791,39 @@ def revoke_web_sessions(db: Session, app_user_id: int, *, now: datetime | None =
     WebAuthService.revoke_user_sessions(db, app_user_id, now=now)
 
 
+def invalidate_web_session_cache() -> None:
+    """Invalidate all registered session projections after security changes."""
+
+    for cache in WebAuthService._cache_instances:
+        cache.invalidate_all()
+
+
+def mark_web_session_cache_invalidation(db: Session) -> None:
+    """Schedule a generation bump after the current transaction commits."""
+
+    db.info["web_session_cache_invalidation"] = True
+
+
+@event.listens_for(Session, "after_commit")
+def _invalidate_web_session_cache_after_commit(db: Session) -> None:
+    # ``after_commit`` also fires when a SAVEPOINT is released. Identity
+    # linking performs its merge in a nested transaction, but revocation is
+    # not authoritative until the outer transaction commits. Invalidating at
+    # SAVEPOINT release permits a concurrent cold fill to repopulate the new
+    # generation before the outer commit.
+    if db.in_nested_transaction():
+        return
+    if db.info.pop("web_session_cache_invalidation", False):
+        invalidate_web_session_cache()
+
+
+@event.listens_for(Session, "after_rollback")
+def _clear_web_session_cache_invalidation_after_rollback(db: Session) -> None:
+    if db.in_nested_transaction():
+        return
+    db.info.pop("web_session_cache_invalidation", None)
+
+
 def build_email_auth_service(
     settings: Settings, session_factory=None
 ) -> WebAuthService:
@@ -496,18 +851,27 @@ def build_email_auth_service(
         raise RuntimeError("Web authentication email sender is unavailable")
     else:
         sender = InMemoryEmailSender()
+    session_cache: RedisSessionCache | None = None
     if settings.notebook_agent_env == "production":
         try:
             import redis
 
-            limiter: LoginRateLimiter = RedisLoginRateLimiter(
-                redis.Redis.from_url(
+            redis_client = redis.Redis.from_url(
                     settings.redis_url,
                     socket_connect_timeout=1,
                     socket_timeout=1,
-                ),
+                )
+            limiter = RedisLoginRateLimiter(
+                redis_client,
                 settings,
             )
+            session_cache = RedisSessionCache(
+                redis_client,
+                ttl_seconds=settings.web_session_cache_ttl_seconds,
+            )
+            # Every process generation starts cold so entries from a previous
+            # deployment cannot authorize a session after code/config changes.
+            session_cache.invalidate_all()
         except Exception:
             class _ClosedLimiter:
                 def allow(
@@ -518,4 +882,4 @@ def build_email_auth_service(
             limiter = _ClosedLimiter()
     else:
         limiter = InMemoryLoginRateLimiter(settings)
-    return WebAuthService(factory, settings, sender, limiter)
+    return WebAuthService(factory, settings, sender, limiter, session_cache=session_cache)

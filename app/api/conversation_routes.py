@@ -30,7 +30,8 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyCookie
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy.orm import aliased
 
 from app.agent.types import AgentAnswer
 from app.agent.streaming import AgentStreamEvent, AgentPlanItem
@@ -623,15 +624,18 @@ def build_conversation_router(
             )
         return citations
 
-    def _thread_item(thread: ConversationThread, latest_turn: ConversationTurn | None) -> ConversationHistoryItemResponse:
-        prompt = latest_turn.user_text.strip() if latest_turn is not None else ""
-        title = prompt[:80] or "新对话"
-        preview = (latest_turn.assistant_text.strip() if latest_turn is not None else "")[:160]
+    def _thread_item_projection(
+        thread: ConversationThread,
+        user_text: str | None,
+        assistant_text: str | None,
+    ) -> ConversationHistoryItemResponse:
+        prompt = user_text.strip() if isinstance(user_text, str) else ""
+        answer = assistant_text.strip() if isinstance(assistant_text, str) else ""
         return ConversationHistoryItemResponse(
             thread_id=thread.public_id,
             conversation_id=thread.external_conversation_id,
-            title=title,
-            preview=preview,
+            title=prompt[:80] or "新对话",
+            preview=answer[:160],
             updated_at=thread.updated_at,
         )
 
@@ -702,29 +706,67 @@ def build_conversation_router(
                         ),
                     )
                 )
-            threads = list(
-                db.scalars(
-                    statement.order_by(
-                        ConversationThread.updated_at.desc(), ConversationThread.id.desc()
-                    ).limit(limit + 1)
+            # Materialize the tenant-scoped page first. Ranking completed turns
+            # against the whole table is constant-query but still makes a small
+            # sidebar page pay for every tenant's history.
+            page_threads = (
+                statement.order_by(
+                    ConversationThread.updated_at.desc(),
+                    ConversationThread.id.desc(),
+                )
+                .limit(limit + 1)
+                .cte("conversation_page")
+            )
+            page_thread = aliased(ConversationThread, page_threads)
+            latest_completed_turn = (
+                select(
+                    ConversationTurn.thread_id.label("latest_thread_id"),
+                    ConversationTurn.user_text.label("latest_user_text"),
+                    ConversationTurn.assistant_text.label("latest_assistant_text"),
+                    func.row_number()
+                    .over(
+                        partition_by=ConversationTurn.thread_id,
+                        order_by=(
+                            ConversationTurn.created_at.desc(),
+                            ConversationTurn.id.desc(),
+                        ),
+                    )
+                    .label("latest_rank"),
+                )
+                .join(
+                    page_threads,
+                    page_threads.c.id == ConversationTurn.thread_id,
+                )
+                .where(ConversationTurn.status == "completed")
+                .subquery()
+            )
+            rows = list(
+                db.execute(
+                    select(
+                        page_thread,
+                        latest_completed_turn.c.latest_user_text,
+                        latest_completed_turn.c.latest_assistant_text,
+                    )
+                    .outerjoin(
+                        latest_completed_turn,
+                        and_(
+                            latest_completed_turn.c.latest_thread_id == page_thread.id,
+                            latest_completed_turn.c.latest_rank == 1,
+                        ),
+                    )
+                    .order_by(
+                        page_thread.updated_at.desc(), page_thread.id.desc()
+                    )
                 )
             )
-            page_threads = threads[:limit]
-            items = []
-            for thread in page_threads:
-                latest_turn = db.scalar(
-                    select(ConversationTurn)
-                    .where(
-                        ConversationTurn.thread_id == thread.id,
-                        ConversationTurn.status == "completed",
-                    )
-                    .order_by(ConversationTurn.created_at.desc(), ConversationTurn.id.desc())
-                    .limit(1)
-                )
-                items.append(_thread_item(thread, latest_turn))
+            page_rows = rows[:limit]
+            items = [
+                _thread_item_projection(thread, user_text, assistant_text)
+                for thread, user_text, assistant_text in page_rows
+            ]
             return ConversationHistoryPageResponse(
                 items=items,
-                next_cursor=page_threads[-1].public_id if len(threads) > limit else None,
+                next_cursor=page_rows[-1][0].public_id if len(rows) > limit else None,
             )
 
     @router.get(

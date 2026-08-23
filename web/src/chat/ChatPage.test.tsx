@@ -188,6 +188,187 @@ describe("AI search chat page", () => {
     expect(reset).toHaveBeenCalledWith("new-id");
   });
 
+  it("keeps the terminal answer visible until the transcript refetch converges", async () => {
+    const user = userEvent.setup();
+    let fetchTurnsCall = 0;
+    let releaseTranscript: (value: ConversationTurns) => void = () => undefined;
+    const persistedTurns: ConversationTurns = {
+      thread_id: "thread-1",
+      conversation_id: "conversation-1",
+      turns: [
+        ...turns.turns!,
+        {
+          user_text: "流式问题",
+          assistant_text: "最终安全答案",
+          status: "ok",
+          error_code: null,
+          citations: [],
+          action_results: [],
+          created_at: "2026-08-10T10:01:00Z",
+        },
+      ],
+    };
+    const fetchTurns = vi.fn().mockImplementation(() => {
+      fetchTurnsCall += 1;
+      if (fetchTurnsCall === 1) return Promise.resolve(turns);
+      return new Promise<ConversationTurns>((resolve) => { releaseTranscript = resolve; });
+    });
+    const sendStream = vi.fn(async (
+      _conversationId: string,
+      _input: { message_id: string; text: string },
+      onEvent: (event: ConversationStreamEvent) => void,
+    ) => {
+      onEvent({
+        type: "completed",
+        request_id: "request-handoff",
+        message_id: "new-id",
+        sequence: 1,
+        activity: "completed",
+        response: {
+          status: "ok",
+          text: "最终安全答案",
+          citations: [],
+          action_results: [],
+          thread_id: "thread-1",
+          error_code: null,
+        },
+      });
+      return {
+        status: "ok",
+        text: "最终安全答案",
+        citations: [],
+        action_results: [],
+        thread_id: "thread-1",
+        error_code: null,
+      };
+    });
+    renderPage({ fetchTurns, sendStream });
+
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.type(input, "流式问题");
+    await user.click(screen.getByRole("button", { name: /发送问题/ }));
+
+    expect(await screen.findByText("最终安全答案")).toBeInTheDocument();
+    await waitFor(() => expect(fetchTurnsCall).toBe(2));
+    expect(screen.getAllByText("最终安全答案")).toHaveLength(1);
+
+    releaseTranscript(persistedTurns);
+    await waitFor(() => expect(screen.getAllByText("最终安全答案")).toHaveLength(1));
+    expect(screen.queryByText("回答已生成，但对话记录同步较慢")).not.toBeInTheDocument();
+  });
+
+  it("does not mistake an older identical turn for the pending durable turn", async () => {
+    const user = userEvent.setup();
+    const repeatedTurns: ConversationTurns = {
+      thread_id: "thread-1",
+      conversation_id: "conversation-1",
+      turns: [{
+        user_text: "重复问题",
+        assistant_text: "重复答案",
+        status: "ok",
+        error_code: null,
+        citations: [],
+        action_results: [],
+        created_at: "2026-08-10T10:00:00Z",
+      }],
+    };
+    const convergedTurns: ConversationTurns = {
+      ...repeatedTurns,
+      turns: [
+        ...repeatedTurns.turns!,
+        {
+          user_text: "重复问题",
+          assistant_text: "重复答案\n\n来源：\n- 新来源",
+          status: "ok",
+          error_code: null,
+          citations: [],
+          action_results: [],
+          created_at: "2026-08-10T10:01:00Z",
+        },
+      ],
+    };
+    const prefixCollisionTurns: ConversationTurns = {
+      ...repeatedTurns,
+      turns: [
+        ...repeatedTurns.turns!,
+        {
+          user_text: "重复问题",
+          assistant_text: "重复答案但不是同一份终态",
+          status: "ok",
+          error_code: null,
+          citations: [],
+          action_results: [],
+          created_at: "2026-08-10T10:00:30Z",
+        },
+      ],
+    };
+    const fetchTurns = vi.fn()
+      .mockResolvedValueOnce(repeatedTurns)
+      .mockResolvedValueOnce(prefixCollisionTurns)
+      .mockResolvedValueOnce(convergedTurns);
+    const sendStream = vi.fn(async (
+      _conversationId: string,
+      _input: { message_id: string; text: string },
+      onEvent: (event: ConversationStreamEvent) => void,
+    ) => {
+      const response: ConversationResponse = {
+        status: "ok",
+        text: "重复答案",
+        citations: [],
+        action_results: [],
+        thread_id: "thread-1",
+        error_code: null,
+      };
+      onEvent({
+        type: "completed",
+        request_id: "request-repeat",
+        message_id: "new-id",
+        sequence: 1,
+        activity: "completed",
+        response,
+      });
+      return response;
+    });
+    renderPage({ fetchTurns, sendStream });
+
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.type(input, "重复问题");
+    await user.click(screen.getByRole("button", { name: /发送问题/ }));
+
+    expect(await screen.findByText(/回答已生成，但对话记录同步较慢/)).toBeInTheDocument();
+    expect(screen.getAllByText("重复答案")).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: "重试同步" }));
+
+    await waitFor(() => expect(screen.queryByText(/回答已生成，但对话记录同步较慢/)).not.toBeInTheDocument());
+    expect(screen.getAllByText("重复答案")).toHaveLength(2);
+  });
+
+  it("enables the composer after reset without waiting for sidebar convergence", async () => {
+    const user = userEvent.setup();
+    let historyCall = 0;
+    let releaseHistory: (value: ConversationHistoryPage) => void = () => undefined;
+    const fetchHistory = vi.fn().mockImplementation(() => {
+      historyCall += 1;
+      if (historyCall === 1) return Promise.resolve(history);
+      return new Promise<ConversationHistoryPage>((resolve) => { releaseHistory = resolve; });
+    });
+    const reset = vi.fn().mockResolvedValue({
+      status: "ok", text: "", citations: [], action_results: [], thread_id: "thread-new", error_code: null,
+    });
+    renderPage({ fetchHistory, reset });
+
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "新建检索" }));
+    await waitFor(() => expect(reset).toHaveBeenCalledWith("new-id"));
+    await waitFor(() => expect(input).toBeEnabled());
+    await waitFor(() => expect(historyCall).toBe(2));
+
+    releaseHistory(history);
+  });
+
   it("fills the composer from a concrete example question", async () => {
     const user = userEvent.setup();
     renderPage({

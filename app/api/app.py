@@ -373,6 +373,7 @@ def create_app(
                     request,
                     services.web_auth,
                     expected_origin or "",
+                    session_resolver=services.session_resolver,
                 )
                 if error is not None:
                     response = error
@@ -482,6 +483,9 @@ def create_app(
             )
 
         def authenticated_session(request: Request):
+            cached = getattr(request.state, "authenticated_session", None)
+            if cached is not None:
+                return cached
             resolver = services.session_resolver
             if resolver is None:
                 raise HTTPException(status_code=503, detail="request_failed")
@@ -493,7 +497,9 @@ def create_app(
                     headers={"WWW-Authenticate": "Session"},
                 )
             try:
-                return resolver(raw_token)
+                resolved = resolver(raw_token)
+                request.state.authenticated_session = resolved
+                return resolved
             except (WebAuthError, InvalidSession) as exc:
                 raise HTTPException(
                     status_code=401,
@@ -568,6 +574,8 @@ def _validate_protected_mutation(
     request: Request,
     web_auth: Any,
     expected_origin: str,
+    *,
+    session_resolver: Callable[[str], Any] | None = None,
 ) -> JSONResponse | None:
     if (
         request.headers.get("origin") != expected_origin
@@ -584,10 +592,17 @@ def _validate_protected_mutation(
     ):
         return _error_response("csrf_invalid", 403)
     try:
-        web_auth.resolve_session(session_token)
-        web_auth.validate_csrf(session_token, header_csrf)
-    except WebAuthError as exc:
-        status = 401 if exc.code == "session_invalid" else 403
+        resolver = session_resolver or web_auth.resolve_session
+        resolved = resolver(session_token)
+        validate_for_session = getattr(web_auth, "validate_csrf_for_session", None)
+        if callable(validate_for_session):
+            validate_for_session(resolved, header_csrf)
+        else:
+            web_auth.validate_csrf(session_token, header_csrf)
+        request.state.authenticated_session = resolved
+    except (WebAuthError, InvalidSession) as exc:
+        error_code = getattr(exc, "code", getattr(exc, "error_code", "session_invalid"))
+        status = 401 if error_code in {"session_invalid", "invalid_session"} else 403
         code = "session_invalid" if status == 401 else "csrf_invalid"
         return _error_response(code, status)
     return None
