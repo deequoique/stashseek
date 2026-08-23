@@ -900,3 +900,16 @@ def test_start_is_idempotent_before_prepare(monkeypatch, capsys):
     monkeypatch.setattr(deployment, "_prepare", lambda *_args: pytest.fail("must not prepare twice"))
     deployment.start(None, foreground=False)
     assert "already running" in capsys.readouterr().out
+
+
+def test_first_run_docs_load_launcher_environment_for_operator_cli():
+    root = Path(__file__).parents[1]
+    tutorial = (root / "docs/tutorials/first-run.md").read_text(encoding="utf-8")
+    mcp_guide = (root / "docs/how-to/connect-mcp-client.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert ".venv/bin/dotenv -f .env.runtime run --no-override" in tutorial
+    assert "notebook_run .venv/bin/python -m app.cli users create" in tutorial
+    assert "notebook_run .venv/bin/python -m app.cli mcp-grant issue" in tutorial
+    assert '"command": "/absolute/path/to/notebook-agent/.venv/bin/dotenv"' in mcp_guide
