@@ -475,3 +475,41 @@ Split runtime.py into state, builder, tool policy/registrations, answer pipeline
 ### Status
 
 [OK] **Completed**
+
+
+## Session 18: Fix conversation continuity and list latency
+
+**Date**: 2026-08-23
+**Task**: Fix conversation continuity and list latency
+**Branch**: `dev`
+
+### Summary
+
+Preserved terminal streamed answers through transcript convergence, made new conversations immediately usable, replaced conversation-list N+1 queries, and added secure Redis-backed opaque Session caching with request-scoped auth reuse.
+
+### Main Changes
+
+- Added generation-safe bounded Redis Session projection caching while keeping PostgreSQL authoritative.
+- Replaced per-thread latest-turn reads with one paged set-based projection.
+- Kept terminal answers visible until durable transcript handoff and decoupled new-conversation readiness from sidebar refresh.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `569ff9f` | (see git log) |
+| `11cf7ae` | (see git log) |
+| `58a70d8` | (see git log) |
+
+### Testing
+
+- [OK] 54 focused backend tests and 140 frontend tests passed; TypeScript, ESLint, Vite, OpenAPI, Alembic and Trellis checks passed.
+- [OK] Local Mailpit HTTPS timing improved from about 3 seconds to a warm median of about 1.03 seconds; SQL execution measured 0.073 ms.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- No push performed; monitor remote Neon latency and only consider connection-topology changes with separate approval.
