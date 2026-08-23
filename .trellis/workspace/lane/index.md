@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 18
+- **Total Sessions**: 19
 - **Last Active**: 2026-08-23
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~515 | Active |
+| `journal-1.md` | ~549 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 19 | 2026-08-23 | Rewrite product README and user documentation | `0c169ae`, `5d58134` | `dev` |
 | 18 | 2026-08-23 | Fix conversation continuity and list latency | `569ff9f`, `11cf7ae`, `58a70d8` | `dev` |
 | 17 | 2026-08-22 | 逐步可见的 Agent 流式输出 | `fa3423e`, `77bc57a` | `dev` |
 | 16 | 2026-08-17 | Modularize bounded Agent runtime | `38e0804` | `dev` |

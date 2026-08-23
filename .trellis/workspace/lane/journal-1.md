@@ -513,3 +513,37 @@ Preserved terminal streamed answers through transcript convergence, made new con
 ### Next Steps
 
 - No push performed; monitor remote Neon latency and only consider connection-topology changes with separate approval.
+
+
+## Session 19: Rewrite product README and user documentation
+
+**Date**: 2026-08-23
+**Task**: Rewrite product README and user documentation
+**Branch**: `dev`
+
+### Summary
+
+Reframed Notebook Agent around its product value, added public product screenshots and a four-step user journey, reorganized user documentation with Diataxis, and preserved production deployment runbooks.
+
+### Main Changes
+
+- Rewrote English and Chinese README files as product landing pages with live demo links and public screenshots.
+- Reorganized docs into tutorials, how-to guides, reference, explanation, and production operations.
+- Restored the Debian/Nginx atomic frontend deployment and rollback contract under the new operations path.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0c169ae` | (see git log) |
+| `5d58134` | (see git log) |
+
+### Testing
+
+- [OK] 138 deployment, MCP, notification, and split-frontend tests passed.
+- [OK] 145 Web auth, source connector, and browser-companion tests passed.
+- [OK] All local links and image targets in 32 Markdown files resolved; git diff checks passed.
+
+### Status
+
+[OK] **Completed**
