@@ -247,6 +247,9 @@ function streamErrorPayload(response: Response): Promise<{ code: string; message
 const STREAM_EVENT_TYPES = new Set([
   "started",
   "activity",
+  "step_started",
+  "step_completed",
+  "plan_updated",
   "section_started",
   "text_delta",
   "section_completed",
@@ -255,6 +258,18 @@ const STREAM_EVENT_TYPES = new Set([
   "error",
   "cancelled",
 ]);
+const STREAM_STEP_CODES = new Set([
+  "updating_plan",
+  "searching_library",
+  "reading_context",
+  "checking_source",
+  "reviewing_library",
+  "checking_item",
+  "handling_save",
+  "managing_library",
+  "working",
+]);
+const STREAM_STEP_OUTCOMES = new Set(["completed", "failed", "skipped"]);
 const STREAM_ACTIVITY_VALUES = new Set([
   "preparing",
   "retrieving",
@@ -270,6 +285,11 @@ const STREAM_EVENT_KEYS = new Set([
   "message_id",
   "sequence",
   "activity",
+  "step_id",
+  "step_code",
+  "step_outcome",
+  "result_count",
+  "plan",
   "text",
   "response",
   "error_code",
@@ -280,6 +300,19 @@ const STREAM_EVENT_KEYS = new Set([
   "citations",
   "reason",
 ]);
+
+function isPlanItem(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const item = value as { id?: unknown; title?: unknown; status?: unknown };
+  return Object.keys(value).every((key) => ["id", "title", "status"].includes(key))
+    && typeof item.id === "string"
+    && /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(item.id)
+    && typeof item.title === "string"
+    && item.title.trim().length > 0
+    && item.title.length <= 120
+    && typeof item.status === "string"
+    && ["pending", "in_progress", "completed", "blocked"].includes(item.status);
+}
 
 function isConversationResponse(value: unknown): value is ConversationResponse {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
@@ -318,6 +351,24 @@ function isStreamEvent(value: unknown): value is ConversationStreamEvent {
     && (event.activity === undefined
       || event.activity === null
       || (typeof event.activity === "string" && STREAM_ACTIVITY_VALUES.has(event.activity)))
+    && (event.step_id === undefined
+      || event.step_id === null
+      || (typeof event.step_id === "string" && event.step_id.length > 0 && event.step_id.length <= 64))
+    && (event.step_code === undefined
+      || event.step_code === null
+      || (typeof event.step_code === "string" && STREAM_STEP_CODES.has(event.step_code)))
+    && (event.step_outcome === undefined
+      || event.step_outcome === null
+      || (typeof event.step_outcome === "string" && STREAM_STEP_OUTCOMES.has(event.step_outcome)))
+    && (event.result_count === undefined
+      || event.result_count === null
+      || (typeof event.result_count === "number"
+        && Number.isInteger(event.result_count)
+        && event.result_count >= 0
+        && event.result_count <= 10_000))
+    && (event.plan === undefined
+      || event.plan === null
+      || (Array.isArray(event.plan) && event.plan.length <= 6 && event.plan.every(isPlanItem)))
     && (event.text === undefined || event.text === null || typeof event.text === "string")
     && (event.message === undefined || event.message === null || typeof event.message === "string")
     && (event.section_id === undefined
@@ -444,19 +495,20 @@ export async function streamConversationMessage(
   let openSectionId: string | null = null;
   let sectionLifecycleSeen = false;
   let sectionAborted = false;
+  let openStepId: string | null = null;
+  let openStepCode: string | null = null;
+  const stepIds = new Set<string>();
   const sectionIds = new Set<string>();
   const citationIds = new Set<number>();
   const sectionStatuses = new Map<string, "grounded" | "unsupported">();
   let readerDone = false;
 
   const acceptRecord = (record: string): void => {
-    // A terminal event closes the public protocol.  A proxy or server may
-    // have already buffered a trailing record in the same network chunk; it
-    // must not turn a successfully completed answer into a protocol error or
-    // reach the UI a second time.
-    if (terminal) return;
     const raw = parseSseRecord(record);
     if (raw === null) return;
+    if (terminal) {
+      throw new ConversationStreamError("stream_protocol_error", "流式终态后出现了额外事件");
+    }
     if (!isStreamEvent(raw)) throw new ConversationStreamError("stream_protocol_error", "流式响应格式无效");
     if (requestId === null) requestId = raw.request_id;
     if (raw.request_id !== requestId) throw new ConversationStreamError("stream_protocol_error", "流式响应标识不一致");
@@ -477,8 +529,51 @@ export async function streamConversationMessage(
     const sectionId = raw.section_id ?? null;
     const ids = raw.citation_ids ?? [];
     const sources = raw.citations ?? [];
-    if (raw.type === "section_started") {
-      if (!sectionId || !raw.status || openSectionId !== null || sectionIds.has(sectionId)) {
+    const hasStepPayload = raw.step_id !== undefined && raw.step_id !== null
+      || raw.step_code !== undefined && raw.step_code !== null
+      || raw.step_outcome !== undefined && raw.step_outcome !== null
+      || raw.result_count !== undefined && raw.result_count !== null;
+    if (raw.type === "step_started") {
+      if (
+        !raw.step_id
+        || !raw.step_code
+        || openStepId !== null
+        || openSectionId !== null
+        || stepIds.has(raw.step_id)
+        || raw.step_outcome !== undefined && raw.step_outcome !== null
+        || raw.result_count !== undefined && raw.result_count !== null
+        || raw.plan !== undefined && raw.plan !== null
+      ) {
+        throw new ConversationStreamError("stream_protocol_error", "流式步骤开始事件无效");
+      }
+      openStepId = raw.step_id;
+      openStepCode = raw.step_code;
+      stepIds.add(raw.step_id);
+    } else if (raw.type === "step_completed") {
+      if (
+        !raw.step_id
+        || !raw.step_code
+        || !raw.step_outcome
+        || raw.step_id !== openStepId
+        || raw.step_code !== openStepCode
+        || raw.plan !== undefined && raw.plan !== null
+      ) {
+        throw new ConversationStreamError("stream_protocol_error", "流式步骤完成事件无效");
+      }
+      openStepId = null;
+      openStepCode = null;
+    } else if (raw.type === "plan_updated") {
+      if (!Array.isArray(raw.plan) || hasStepPayload || openStepId !== null || openSectionId !== null) {
+        throw new ConversationStreamError("stream_protocol_error", "流式计划事件无效");
+      }
+      const planIds = raw.plan.map((item) => item.id);
+      if (new Set(planIds).size !== planIds.length) {
+        throw new ConversationStreamError("stream_protocol_error", "流式计划包含重复步骤");
+      }
+    } else if (hasStepPayload || raw.plan !== undefined && raw.plan !== null) {
+      throw new ConversationStreamError("stream_protocol_error", "流式事件携带了越界步骤数据");
+    } else if (raw.type === "section_started") {
+      if (!sectionId || !raw.status || openStepId !== null || openSectionId !== null || sectionIds.has(sectionId)) {
         throw new ConversationStreamError("stream_protocol_error", "流式分段开始事件无效");
       }
       if (raw.status === "grounded" && ids.length === 0) {
@@ -530,8 +625,8 @@ export async function streamConversationMessage(
       openSectionId = null;
       sectionAborted = true;
     } else if (raw.type === "completed" || raw.type === "error" || raw.type === "cancelled") {
-      if (openSectionId !== null) {
-        throw new ConversationStreamError("stream_protocol_error", "流式响应仍有未完成分段");
+      if (openStepId !== null || openSectionId !== null) {
+        throw new ConversationStreamError("stream_protocol_error", "流式响应仍有未完成步骤");
       }
       if (raw.type === "completed" && sectionAborted) {
         throw new ConversationStreamError("stream_protocol_error", "中断的流式响应不得成功完成");
@@ -571,15 +666,11 @@ export async function streamConversationMessage(
         if (!match || match.index === undefined) break;
         acceptRecord(buffer.slice(0, match.index));
         buffer = buffer.slice(match.index + match[0].length);
-        if (terminal) {
-          buffer = "";
-          break;
-        }
         boundary = buffer.search(/\r?\n\r?\n/);
       }
     }
     buffer += decoder.decode();
-    if (!terminal && buffer.trim()) acceptRecord(buffer);
+    if (buffer.trim()) acceptRecord(buffer);
   } catch (error) {
     if (isAbortError(error)) {
       throw new ConversationStreamError("cancelled", "请求已取消");

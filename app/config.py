@@ -512,6 +512,9 @@ class Settings:
     web_session_ttl_seconds: int = field(
         default_factory=lambda: _env_int("WEB_SESSION_TTL_SECONDS", 30 * 24 * 60 * 60)
     )
+    web_session_cache_ttl_seconds: int = field(
+        default_factory=lambda: _env_int("WEB_SESSION_CACHE_TTL_SECONDS", 60)
+    )
     web_auth_code_ttl_seconds: int = field(
         default_factory=lambda: _env_int("WEB_AUTH_CODE_TTL_SECONDS", 600)
     )
@@ -600,8 +603,12 @@ class Settings:
             any(value <= 0 for value in positive_web_values)
             or self.resend_timeout_seconds <= 0
             or self.smtp_timeout_seconds <= 0
+            or self.web_session_cache_ttl_seconds < 0
         ):
-            raise ValueError("Web authentication durations and limits must be positive")
+            raise ValueError(
+                "Web authentication durations and limits must be positive; "
+                "the Session cache TTL may be zero"
+            )
         for extension_origin in self.browser_companion_allowed_origins:
             if extension_origin == "chrome-extension://*":
                 if (

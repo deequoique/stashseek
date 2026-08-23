@@ -453,3 +453,63 @@ Split runtime.py into state, builder, tool policy/registrations, answer pipeline
 ### Status
 
 [OK] **Completed**
+
+
+## Session 17: 逐步可见的 Agent 流式输出
+
+**Date**: 2026-08-22
+**Task**: 逐步可见的 Agent 流式输出
+**Branch**: `dev`
+
+### Summary
+
+实现安全的 Agent 执行步骤流、前端临时时间线、严格生命周期校验与完整测试文档；工具参数、结果、推理及供应商标识保持私有。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fa3423e` | (see git log) |
+| `77bc57a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 18: Fix conversation continuity and list latency
+
+**Date**: 2026-08-23
+**Task**: Fix conversation continuity and list latency
+**Branch**: `dev`
+
+### Summary
+
+Preserved terminal streamed answers through transcript convergence, made new conversations immediately usable, replaced conversation-list N+1 queries, and added secure Redis-backed opaque Session caching with request-scoped auth reuse.
+
+### Main Changes
+
+- Added generation-safe bounded Redis Session projection caching while keeping PostgreSQL authoritative.
+- Replaced per-thread latest-turn reads with one paged set-based projection.
+- Kept terminal answers visible until durable transcript handoff and decoupled new-conversation readiness from sidebar refresh.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `569ff9f` | (see git log) |
+| `11cf7ae` | (see git log) |
+| `58a70d8` | (see git log) |
+
+### Testing
+
+- [OK] 54 focused backend tests and 140 frontend tests passed; TypeScript, ESLint, Vite, OpenAPI, Alembic and Trellis checks passed.
+- [OK] Local Mailpit HTTPS timing improved from about 3 seconds to a warm median of about 1.03 seconds; SQL execution measured 0.073 ms.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- No push performed; monitor remote Neon latency and only consider connection-topology changes with separate approval.

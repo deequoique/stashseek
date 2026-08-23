@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
-from collections.abc import AsyncIterator
-from typing import Any, Callable, Literal
+from collections.abc import AsyncIterator, Callable
+from typing import Any, Literal
 
 from pydantic_ai import UsageLimits
 from pydantic_ai.exceptions import (
@@ -14,8 +14,15 @@ from pydantic_ai.exceptions import (
     UnexpectedModelBehavior,
     UsageLimitExceeded,
 )
-from pydantic_ai.messages import ModelMessagesTypeAdapter
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+    ModelMessagesTypeAdapter,
+    RetryPromptPart,
+)
 from pydantic_ai.models import Model
+from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.usage import RunUsage
 
 from app.agent.actions import ActionInputMismatch, AgentActionRuntime, AgentActionServices
@@ -32,17 +39,14 @@ from app.agent.autonomy import RecoveryLedger, RecoveryPolicy, TodoValidationErr
 from app.agent.context import TurnContext
 from app.agent.provider import composer_model_settings
 from app.agent.response import ResponseEnvelope
-from app.agent.runtime_state import (
-    AgentDeps,
-    AgentExecution,
-)
+from app.agent.runtime_state import AgentDeps, AgentExecution, ToolProgressObservation
 from app.agent.services import (
     EmbeddingUnavailable,
     KnowledgeNotFound,
     KnowledgeServices,
     RetrievalUnavailable,
 )
-from app.agent.streaming import AgentStreamEvent
+from app.agent.streaming import AgentPlanItem, AgentStreamEvent, public_step_code
 from app.agent.types import AgentAnswer, AgentRequest
 from app.config import Settings
 from app.diagnostics import RequestDiagnostics, classify_usage_limit
@@ -97,6 +101,166 @@ class _PrimaryResult:
     value: Any
 
 
+@dataclass
+class _PrimaryStreamProjector:
+    """Project only real PydanticAI tool boundaries into safe Agent events."""
+
+    request: AgentRequest
+    deps: AgentDeps
+    emit: Callable[[AgentStreamEvent], None]
+    next_step_number: int = 0
+    open_steps: dict[str, tuple[str, str]] | None = None
+    consumed_observations: set[int] | None = None
+    last_plan: tuple[AgentPlanItem, ...] = ()
+
+    def __post_init__(self) -> None:
+        self.open_steps = {}
+        self.consumed_observations = set()
+
+    def _event(self, **kwargs: Any) -> AgentStreamEvent:
+        return AgentStreamEvent(
+            type=kwargs.pop("type"),
+            request_id=self.request.request_id,
+            message_id=self.request.message_id,
+            **kwargs,
+        )
+
+    def _observations_for(self, tool_name: str) -> list[ToolProgressObservation]:
+        return [
+            observation
+            for observation in self.deps.tool_observations
+            if observation.tool_name == tool_name
+        ]
+
+    def _terminal_observation(
+        self, tool_name: str
+    ) -> ToolProgressObservation | None:
+        assert self.consumed_observations is not None
+        observations = self._observations_for(tool_name)
+        # A tool may emit a start and terminal observation synchronously before
+        # FunctionToolResultEvent reaches the consumer. Pair the earliest
+        # unconsumed terminal with this provider call, preserving call order.
+        for observation in observations:
+            if (
+                observation.outcome != "started"
+                and observation.call_index not in self.consumed_observations
+            ):
+                self.consumed_observations.add(observation.call_index)
+                return observation
+        return None
+
+    def _emit_next_step(self) -> None:
+        """Expose only the first provider call awaiting a result.
+
+        PydanticAI emits every ``FunctionToolCallEvent`` in one model response
+        before it emits their results, even when tool execution is configured
+        as sequential.  Buffering later calls preserves the public one-open-
+        step contract without pretending that overlapping work occurred.
+        """
+
+        assert self.open_steps is not None
+        if not self.open_steps:
+            return
+        _, (step_id, tool_name) = next(iter(self.open_steps.items()))
+        self.emit(
+            self._event(
+                type="step_started",
+                step_id=step_id,
+                step_code=public_step_code(tool_name),
+            )
+        )
+
+    @staticmethod
+    def _safe_plan(deps: AgentDeps) -> tuple[AgentPlanItem, ...]:
+        snapshot = deps.todo_store.snapshot if deps.todo_store is not None else None
+        if snapshot is None:
+            return ()
+        # TurnTodoStore has already applied the same validation at the model
+        # boundary. Copy only its closed fields into the transient event DTO.
+        return tuple(
+            AgentPlanItem(item.id, item.title, item.status)
+            for item in snapshot.items[:6]
+        )
+
+    def on_event(self, event: object) -> None:
+        if isinstance(event, FunctionToolCallEvent):
+            part = event.part
+            tool_name = part.tool_name if isinstance(part.tool_name, str) else ""
+            assert self.open_steps is not None
+            self.next_step_number += 1
+            step_id = f"step-{self.next_step_number}"
+            provider_id = str(part.tool_call_id or step_id)
+            if provider_id in self.open_steps:
+                raise RuntimeError("primary Agent reused a tool call id")
+            expose_now = not self.open_steps
+            self.open_steps[provider_id] = (step_id, tool_name)
+            if expose_now:
+                self._emit_next_step()
+            return
+
+        if not isinstance(event, FunctionToolResultEvent):
+            # Provider text/thinking/part deltas and metadata intentionally do
+            # not cross the Agent-to-channel boundary.
+            return
+
+        part = event.part
+        tool_name = part.tool_name if isinstance(part.tool_name, str) else ""
+        provider_id = str(part.tool_call_id or "")
+        assert self.open_steps is not None
+        active_provider_id = next(iter(self.open_steps), None)
+        state = self.open_steps.get(provider_id)
+        if state is None and len(self.open_steps) == 1:
+            # Defensive pairing for providers that omit a call id. The
+            # primary runtime is sequential, so only one open step is legal.
+            provider_id, state = next(iter(self.open_steps.items()))
+        elif state is None and self.open_steps:
+            raise RuntimeError("primary Agent returned an ambiguous tool result")
+        if state is not None and provider_id != active_provider_id:
+            raise RuntimeError("primary Agent returned tool results out of order")
+        if state is None:
+            # A malformed/unknown provider boundary still gets a complete
+            # generic step so the public client never receives a result-only
+            # lifecycle. No args, result content, or raw name are read.
+            self.next_step_number += 1
+            step_id = f"step-{self.next_step_number}"
+            code = public_step_code(tool_name)
+            self.emit(self._event(type="step_started", step_id=step_id, step_code=code))
+        else:
+            self.open_steps.pop(provider_id, None)
+            step_id, tool_name = state
+            code = public_step_code(tool_name)
+
+        observation = self._terminal_observation(tool_name)
+        if observation is None:
+            # Validation/unknown-tool failures may not reach AgentDeps. The
+            # part class is a closed framework type and is safe as a last
+            # resort; its content remains unread.
+            outcome = "failed" if isinstance(part, RetryPromptPart) else "completed"
+            result_count = None
+        else:
+            outcome = {
+                "succeeded": "completed",
+                "failed": "failed",
+                "skipped": "skipped",
+            }.get(observation.outcome, "failed")
+            result_count = observation.result_count
+        self.emit(
+            self._event(
+                type="step_completed",
+                step_id=step_id,
+                step_code=code,
+                step_outcome=outcome,
+                result_count=result_count,
+            )
+        )
+        if tool_name == "todo_write" and outcome == "completed":
+            plan = self._safe_plan(self.deps)
+            if plan != self.last_plan:
+                self.last_plan = plan
+                self.emit(self._event(type="plan_updated", plan=plan))
+        self._emit_next_step()
+
+
 class KnowledgeAgent:
     """Run the bounded Agent and convert every outcome to a fail-closed answer."""
 
@@ -114,6 +278,13 @@ class KnowledgeAgent:
         self._agent = build_agent(
             model,
             tool_timeout=settings.agent_tool_timeout_seconds,
+        )
+        # FunctionModel is widely used by the offline suite and explicitly
+        # requires a stream_function for streamed model requests. Detect that
+        # capability before execution so compatibility never retries a model
+        # call after a failed streaming attempt.
+        self._primary_event_stream_available = not (
+            isinstance(model, FunctionModel) and model.stream_function is None
         )
         answer_model = composer_model or model
         self._composer = build_composer(
@@ -244,7 +415,38 @@ class KnowledgeAgent:
             parsed.semantic_remainder,
             parsed.has_supported_urls and parsed.has_semantic_text,
         )
-        primary = await self._run_primary_agent(request, deps, diagnostics)
+        # Each bounded tool call can produce start + terminal + at most one
+        # plan snapshot. Size the queue from the configured hard limit so the
+        # background run never becomes an unbounded producer.
+        primary_queue: asyncio.Queue[AgentStreamEvent | object] = asyncio.Queue(
+            maxsize=max(4, self._settings.agent_tool_calls_limit * 3 + 2)
+        )
+        primary_done = object()
+
+        async def run_primary_stream() -> AgentExecution | _PrimaryResult:
+            try:
+                return await self._run_primary_agent(
+                    request,
+                    deps,
+                    diagnostics,
+                    event_sink=primary_queue.put_nowait,
+                )
+            finally:
+                primary_queue.put_nowait(primary_done)
+
+        primary_task = asyncio.create_task(run_primary_stream())
+        try:
+            while True:
+                stream_event = await primary_queue.get()
+                if stream_event is primary_done:
+                    break
+                yield stream_event  # type: ignore[misc]
+            primary = await primary_task
+        except BaseException:
+            if not primary_task.done():
+                primary_task.cancel()
+                await asyncio.gather(primary_task, return_exceptions=True)
+            raise
         if isinstance(primary, AgentExecution):
             execution = self._attach_read_observations(primary, deps)
             if execution.answer.text:
@@ -354,6 +556,7 @@ class KnowledgeAgent:
         request: AgentRequest,
         deps: AgentDeps,
         diagnostics: RequestDiagnostics,
+        event_sink: Callable[[AgentStreamEvent], None] | None = None,
     ) -> AgentExecution | _PrimaryResult:
         usage = RunUsage()
         attempts = 0
@@ -372,18 +575,35 @@ class KnowledgeAgent:
             history = ModelMessagesTypeAdapter.validate_python(list(request.history))
             async with asyncio.timeout(self._settings.agent_timeout_seconds):
                 with self._agent.parallel_tool_call_execution_mode("sequential"):
-                    result = await self._agent.run(
-                        request.question,
-                        deps=deps,
-                        message_history=history,
-                        usage_limits=UsageLimits(
+                    run_kwargs = {
+                        "deps": deps,
+                        "message_history": history,
+                        "usage_limits": UsageLimits(
                             request_limit=self._settings.agent_request_limit,
                             tool_calls_limit=self._settings.agent_tool_calls_limit,
                             output_tokens_limit=self._settings.agent_output_token_limit,
                         ),
-                        usage=usage,
-                        model_settings=record_model_attempt,
-                    )
+                        "usage": usage,
+                        "model_settings": record_model_attempt,
+                    }
+                    if event_sink is None or not self._primary_event_stream_available:
+                        result = await self._agent.run(
+                            request.question,
+                            **run_kwargs,
+                        )
+                    else:
+                        projector = _PrimaryStreamProjector(request, deps, event_sink)
+                        result = None
+                        async with self._agent.run_stream_events(
+                            request.question,
+                            **run_kwargs,
+                        ) as events:
+                            async for runtime_event in events:
+                                projector.on_event(runtime_event)
+                                if isinstance(runtime_event, AgentRunResultEvent):
+                                    result = runtime_event.result
+                        if result is None:
+                            raise RuntimeError("primary run did not produce a result")
             return _PrimaryResult(result)
         except TimeoutError:
             diagnostics.event("agent_failed", error_code="timeout", agent_phase="retrieval")

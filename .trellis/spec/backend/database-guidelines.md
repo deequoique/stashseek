@@ -109,9 +109,68 @@ The direct credential exists only for bounded migration admission.
 
 ## Query Patterns
 
-<!-- How should queries be written? Batch operations? -->
+## Scenario: Project paged parent rows with their latest child row
 
-(To be filled by the team)
+### 1. Scope / Trigger
+
+Use for bounded lists that need one latest child per parent, such as
+conversation threads with their latest completed turn.
+
+### 2. Signatures
+
+```text
+page CTE = tenant filters + cursor predicate + stable order + limit + 1
+latest child = JOIN page CTE + row_number(partition by parent_id, stable DESC order)
+result = page LEFT JOIN latest child WHERE rank = 1
+```
+
+### 3. Contracts
+
+- Materialize the tenant-owned parent page before ranking child rows.
+- Preserve lexicographic cursor order and the `limit + 1` sentinel.
+- Filter child lifecycle before ranking; keep empty parents via `LEFT JOIN`.
+- First page uses one query. Cursor pages may add one constant ownership query.
+  Query count cannot grow with page size.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| 0 / 1 / maximum rows | Same projection-query count. |
+| No eligible child | Return empty-parent fallback. |
+| Newer ineligible child | Project latest eligible child. |
+| Foreign cursor | Return bounded not-found. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: rank completed turns joined to the paged tenant CTE.
+- Base: an empty page still executes one bounded projection.
+- Bad: one latest-child query per parent, or rank the entire child table before
+  applying the parent page.
+
+### 6. Tests Required
+
+- Count SQL for 0, 1, maximum page size, and cursor pagination.
+- Assert ordering, tenant isolation, empty parent, completed-only latest child,
+  projection truncation, and next cursor.
+- Inspect PostgreSQL SQL/`EXPLAIN`; add an index only from measured evidence.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+for thread in threads:
+    latest = db.scalar(select(Turn).where(Turn.thread_id == thread.id).limit(1))
+```
+
+#### Correct
+
+```python
+page = tenant_threads.order_by(updated_at.desc(), id.desc()).limit(limit + 1).cte()
+latest = ranked_completed_turns.join(page, page.c.id == Turn.thread_id).subquery()
+rows = db.execute(select(page, latest).outerjoin(latest, latest.c.rank == 1))
+```
 
 ---
 

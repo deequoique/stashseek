@@ -24,6 +24,92 @@
   addresses. Session DTOs expose `authenticated`, `login_channel`, and
   `expires_at`, never tenant, user, identity, or session IDs.
 
+## Scenario: Resolve opaque browser Sessions with bounded Redis caching
+
+### 1. Scope / Trigger
+
+Apply whenever changing browser Session resolution, CSRF, logout/revocation,
+account disable/merge, Redis composition, or an authenticated route dependency.
+
+### 2. Signatures
+
+```python
+resolve_session(raw_token: str) -> AuthenticatedWebSession
+validate_csrf_for_session(session: AuthenticatedWebSession, raw_csrf: str) -> None
+mark_web_session_cache_invalidation(db: Session) -> None
+```
+
+```dotenv
+WEB_SESSION_CACHE_TTL_SECONDS=60  # 0 means PostgreSQL-only
+```
+
+### 3. Contracts
+
+- PostgreSQL is authoritative. Cold resolution is one joined query over
+  `WebSession`, `AppUser`, and `ChannelIdentity`, enforcing expiry, revocation,
+  enabled state, ownership, and the exact `web/web` namespace.
+- Redis stores a versioned projection under `generation + SHA-256(token)`.
+  Never cache or log raw Session/CSRF credentials. TTL is bounded by both the
+  configured TTL and Session lifetime.
+- One Redis lookup atomically returns generation and projection. Reject
+  unknown/extra fields, invalid types or namespace, naive/expired timestamps,
+  malformed CSRF hashes, and payloads over 4 KiB.
+- Miss/error falls back to PostgreSQL. A cold fill uses compare-generation
+  semantics. After Redis outage or failed invalidation, bump generation before
+  accepting future hits and discard possibly stale in-flight fills.
+- Middleware stores the validated projection on `request.state`; CSRF and route
+  dependencies reuse it. Throttle `last_used_at` instead of writing per request.
+- Security mutations mark invalidation in their database transaction, but bump
+  Redis only after the outermost commit. SAVEPOINT release is not authoritative.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Valid cache hit | Authenticate without database SELECT. |
+| Miss/corrupt/timeout | Run joined authoritative query; never authenticate malformed data. |
+| Invalid Session/user/identity | Return bounded `session_invalid`; do not fill Redis. |
+| CSRF mismatch | Return bounded `csrf_invalid`; do not resolve twice. |
+| Generation changes during cold query | Discard fill. |
+| Redis invalidation fails | Database remains authoritative; bump before future hits. |
+| Nested commit then outer rollback | Do not invalidate; clear marker on outer rollback. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: one request resolves once, validates CSRF from that projection, and the
+  route consumes the same projection.
+- Base: TTL `0` uses the joined PostgreSQL resolver with identical security.
+- Bad: use Redis as identity authority, cache raw tokens, repopulate an old
+  generation after logout, or invalidate on SAVEPOINT release.
+
+### 6. Tests Required
+
+- Assert warm hit = one Redis lookup and zero database SELECTs; cold miss = one
+  joined SELECT.
+- Cover malformed/oversize payload, expiry, outage/recovery, generation race,
+  startup bump, logout/revoke/disable/merge, nested transaction, and TTL `0`.
+- Count one Session resolution for unsafe routes and email logout; keep CSRF
+  failures fail-closed.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+session = resolve_session(raw_cookie)
+validate_csrf(raw_cookie, raw_csrf)  # resolves again
+cache.set(raw_cookie, session)
+```
+
+#### Correct
+
+```python
+session = resolve_session(raw_cookie)
+request.state.authenticated_session = session
+validate_csrf_for_session(session, raw_csrf)
+cache.put(token_digest, session, generation=observed_generation)
+```
+
 ## Tenant and transport boundaries
 
 - Authenticated conversation adapters preserve the resolved tenant's complete

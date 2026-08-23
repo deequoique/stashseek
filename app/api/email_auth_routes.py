@@ -45,6 +45,8 @@ class EmailAuthBoundary(Protocol):
 
     def validate_csrf(self, raw_token: str, raw_csrf_token: str) -> None: ...
 
+    def validate_csrf_for_session(self, session, raw_csrf_token: str) -> None: ...
+
     def revoke_session(self, raw_token: str) -> None: ...
 
 
@@ -85,6 +87,12 @@ class EmailWebAuthAdapter:
     def validate_csrf(self, raw_token: str, raw_csrf_token: str) -> None:
         try:
             self._service.validate_csrf(raw_token, raw_csrf_token)
+        except InvalidSession:
+            raise WebAuthError("csrf_invalid") from None
+
+    def validate_csrf_for_session(self, session, raw_csrf_token: str) -> None:
+        try:
+            self._service.validate_csrf_for_session(session, raw_csrf_token)
         except InvalidSession:
             raise WebAuthError("csrf_invalid") from None
 
@@ -275,8 +283,12 @@ def build_email_auth_router(
         ):
             return _error("csrf_invalid", 403)
         try:
-            email_auth.resolve_session(raw_session)
-            email_auth.validate_csrf(raw_session, header_csrf)
+            resolved = email_auth.resolve_session(raw_session)
+            validate_for_session = getattr(email_auth, "validate_csrf_for_session", None)
+            if callable(validate_for_session):
+                validate_for_session(resolved, header_csrf)
+            else:
+                email_auth.validate_csrf(raw_session, header_csrf)
             email_auth.revoke_session(raw_session)
         except (InvalidSession, WebAuthError):
             return _error("session_invalid", 401)

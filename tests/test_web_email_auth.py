@@ -96,6 +96,15 @@ def _app():
         sender,
         InMemoryLoginRateLimiter(settings),
     )
+    resolve_calls = []
+    authoritative_resolve = auth.resolve_session
+
+    def resolve_session(raw_token: str):
+        resolve_calls.append(raw_token)
+        return authoritative_resolve(raw_token)
+
+    auth.resolve_session = resolve_session
+
     library = _Library()
     app = create_app(
         services=WebApiServices(
@@ -105,7 +114,7 @@ def _app():
             transcript=_Unused(),
             email_auth=auth,
             channel_service=None,
-            session_resolver=auth.resolve_session,
+            session_resolver=resolve_session,
             session_factory=factory,
             settings=settings,
         ),
@@ -116,6 +125,7 @@ def _app():
     )
     app.state.email_auth = auth
     app.state.email_auth_factory = factory
+    app.state.resolve_calls = resolve_calls
     return app, sender, library
 
 
@@ -134,6 +144,71 @@ async def _login(client: httpx.AsyncClient, sender: InMemoryEmailSender, email: 
         json={"email": email, "code": code},
     )
     return verified
+
+
+@pytest.mark.asyncio
+async def test_email_logout_reuses_one_authoritative_session_resolution():
+    app, sender, _ = _app()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url=ORIGIN
+    ) as client:
+        verified = await _login(client, sender, "known@example.test")
+        assert verified.status_code == 200
+        csrf = client.cookies.get(CSRF_COOKIE_NAME)
+        app.state.resolve_calls.clear()
+
+        response = await client.delete(
+            "/api/v1/auth/session",
+            headers={"Origin": ORIGIN, "X-CSRF-Token": csrf},
+        )
+
+    assert response.status_code == 204
+    assert len(app.state.resolve_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_protected_mutation_reuses_boundary_session_in_route_dependency():
+    app, sender, _ = _app()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url=ORIGIN
+    ) as client:
+        verified = await _login(client, sender, "known@example.test")
+        assert verified.status_code == 200
+        csrf = client.cookies.get(CSRF_COOKIE_NAME)
+        app.state.resolve_calls.clear()
+
+        response = await client.post(
+            "/api/v1/conversations/conversation-id/messages",
+            headers={"Origin": ORIGIN, "X-CSRF-Token": csrf},
+            json={"message_id": "message-id", "text": "question"},
+        )
+
+    assert response.status_code == 503
+    assert len(app.state.resolve_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_protected_mutation_maps_raw_session_resolver_failure_to_401():
+    app, _, _ = _app()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url=ORIGIN
+    ) as client:
+        response = await client.post(
+            "/api/v1/conversations/conversation-id/messages",
+            headers={
+                "Origin": ORIGIN,
+                "X-CSRF-Token": "matching-csrf",
+                "Cookie": (
+                    f"{SESSION_COOKIE_NAME}=invalid-session; "
+                    f"{CSRF_COOKIE_NAME}=matching-csrf"
+                ),
+            },
+            json={"message_id": "message-id", "text": "question"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "session_invalid"
+    assert len(app.state.resolve_calls) == 1
 
 
 @pytest.mark.asyncio

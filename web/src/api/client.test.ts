@@ -169,6 +169,69 @@ describe("same-origin API client", () => {
     ]);
   });
 
+  it("parses safe execution steps and validated plan snapshots", async () => {
+    const final = {
+      status: "ok",
+      text: "最终答案",
+      citations: [],
+      action_results: [],
+      thread_id: "thread-steps",
+      error_code: null,
+    };
+    const events: Array<{ type: string; step?: string | null }> = [];
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response([
+        streamRecord({ type: "started", request_id: "request-steps", message_id: "message-steps", sequence: 1, activity: "preparing" }),
+        streamRecord({ type: "step_started", request_id: "request-steps", message_id: "message-steps", sequence: 2, step_id: "step-1", step_code: "searching_library" }),
+        streamRecord({ type: "step_completed", request_id: "request-steps", message_id: "message-steps", sequence: 3, step_id: "step-1", step_code: "searching_library", step_outcome: "completed", result_count: 5 }),
+        streamRecord({ type: "plan_updated", request_id: "request-steps", message_id: "message-steps", sequence: 4, plan: [{ id: "answer", title: "整理回答", status: "in_progress" }] }),
+        streamRecord({ type: "completed", request_id: "request-steps", message_id: "message-steps", sequence: 5, response: final }),
+      ].join(""), { status: 200, headers: { "Content-Type": "text/event-stream" } }),
+    );
+
+    await expect(streamConversationMessage(
+      "conversation-1",
+      { message_id: "message-steps", text: "问题" },
+      (event) => events.push({ type: event.type, step: event.step_id }),
+    )).resolves.toEqual(final);
+    expect(events).toEqual([
+      { type: "started", step: undefined },
+      { type: "step_started", step: "step-1" },
+      { type: "step_completed", step: "step-1" },
+      { type: "plan_updated", step: undefined },
+      { type: "completed", step: undefined },
+    ]);
+  });
+
+  it("rejects step results that do not match the open step", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response([
+        streamRecord({ type: "started", request_id: "request-invalid-step", message_id: "message-invalid-step", sequence: 1, activity: "preparing" }),
+        streamRecord({ type: "step_started", request_id: "request-invalid-step", message_id: "message-invalid-step", sequence: 2, step_id: "step-1", step_code: "searching_library" }),
+        streamRecord({ type: "step_completed", request_id: "request-invalid-step", message_id: "message-invalid-step", sequence: 3, step_id: "step-2", step_code: "searching_library", step_outcome: "completed" }),
+      ].join(""), { status: 200, headers: { "Content-Type": "text/event-stream" } }),
+    );
+
+    await expect(streamConversationMessage(
+      "conversation-1",
+      { message_id: "message-invalid-step", text: "问题" },
+    )).rejects.toMatchObject({ code: "stream_protocol_error" });
+  });
+
+  it("rejects unknown public step codes", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response([
+        streamRecord({ type: "started", request_id: "request-private-step", message_id: "message-private-step", sequence: 1, activity: "preparing" }),
+        streamRecord({ type: "step_started", request_id: "request-private-step", message_id: "message-private-step", sequence: 2, step_id: "step-1", step_code: "PRIVATE_INTERNAL_TOOL" }),
+      ].join(""), { status: 200, headers: { "Content-Type": "text/event-stream" } }),
+    );
+
+    await expect(streamConversationMessage(
+      "conversation-1",
+      { message_id: "message-private-step", text: "问题" },
+    )).rejects.toMatchObject({ code: "stream_protocol_error" });
+  });
+
   it("rejects section deltas that escape their validated lifecycle", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response([
@@ -213,7 +276,7 @@ describe("same-origin API client", () => {
     await expect(streamConversationMessage("conversation-1", { message_id: "message-3", text: "问题" })).rejects.toBeInstanceOf(ConversationStreamError);
   });
 
-  it("stops consuming records after a terminal completion in the same chunk", async () => {
+  it("rejects records after a terminal completion in the same chunk", async () => {
     const final = {
       status: "ok",
       text: "答案",
@@ -222,13 +285,11 @@ describe("same-origin API client", () => {
       thread_id: "thread-1",
       error_code: null,
     };
-    const events: string[] = [];
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response([
         streamRecord({ type: "started", request_id: "request-terminal", message_id: "message-terminal", sequence: 1, activity: "preparing" }),
         streamRecord({ type: "completed", request_id: "request-terminal", message_id: "message-terminal", sequence: 2, response: final }),
-        // A buffered tail must not turn the already-complete response into a
-        // gap/ordering error or reach the UI as a second answer.
+        // A terminal event is a hard lifecycle barrier.
         streamRecord({ type: "activity", request_id: "request-terminal", message_id: "message-terminal", sequence: 3, activity: "retrieving" }),
       ].join(""), { status: 200, headers: { "Content-Type": "text/event-stream" } }),
     );
@@ -236,9 +297,7 @@ describe("same-origin API client", () => {
     await expect(streamConversationMessage(
       "conversation-1",
       { message_id: "message-terminal", text: "问题" },
-      (event) => events.push(event.type),
-    )).resolves.toEqual(final);
-    expect(events).toEqual(["started", "completed"]);
+    )).rejects.toMatchObject({ code: "stream_protocol_error" });
   });
 
   it("rejects events for a different message id", async () => {

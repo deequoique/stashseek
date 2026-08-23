@@ -1,0 +1,12 @@
+{"file":".trellis/spec/backend/index.md","reason":"Run the backend full-scope quality review."}
+{"file":".trellis/spec/backend/web-browser-runtime.md","reason":"Audit Session, CSRF, tenant and transport isolation after caching changes."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Audit SQL shape, query count, Neon use and any migration evidence."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify fail-closed auth/cache errors and unchanged stream failure semantics."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Audit logs and Redis data paths for credentials, identity and exception leakage."}
+{"file":".trellis/spec/frontend/index.md","reason":"Review the complete frontend package boundary."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Verify no blank or duplicate answer frame and no second durable state owner."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Verify mutation readiness is independent of background list convergence."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Run all frontend security, accessibility, type and build gates."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Perform a full cross-layer auth/cache/query/UI consistency audit."}
+{"file":".trellis/tasks/08-22-conversation-flicker-list-latency/research/root-cause-2026-08-22.md","reason":"Check every confirmed root cause has a direct regression test."}
+{"file":".trellis/tasks/08-22-conversation-flicker-list-latency/research/auth-session-options-2026-08-22.md","reason":"Check the implementation remains opaque Session plus bounded Redis cache, not JWT."}

@@ -30,10 +30,12 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyCookie
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy.orm import aliased
 
 from app.agent.types import AgentAnswer
-from app.agent.streaming import AgentStreamEvent
+from app.agent.streaming import AgentStreamEvent, AgentPlanItem
+from app.agent.autonomy import TodoValidationError, TurnTodoItem
 from app.api.library_schemas import ErrorResponse
 from app.channels.errors import IdentityError
 from app.channels.identity import consume_link_token, create_link_token
@@ -138,6 +140,30 @@ class ConversationResponse(BaseModel):
     error_code: str | None = None
 
 
+class ConversationPlanItem(BaseModel):
+    """Browser-safe projection of one transient turn plan item."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(
+        min_length=1,
+        max_length=32,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$",
+    )
+    title: str = Field(min_length=1, max_length=120)
+    status: Literal["pending", "in_progress", "completed", "blocked"]
+
+    @model_validator(mode="after")
+    def validate_safe_plan_item(self) -> "ConversationPlanItem":
+        try:
+            item = TurnTodoItem(self.id, self.title, self.status)
+        except TodoValidationError as exc:
+            raise ValueError("plan item contains private or invalid data") from exc
+        self.id = item.id
+        self.title = item.title
+        return self
+
+
 class ConversationStreamEvent(BaseModel):
     """The small, public event envelope used by the browser SSE client.
 
@@ -151,6 +177,9 @@ class ConversationStreamEvent(BaseModel):
     type: Literal[
         "started",
         "activity",
+        "step_started",
+        "step_completed",
+        "plan_updated",
         "section_started",
         "text_delta",
         "section_completed",
@@ -175,6 +204,25 @@ class ConversationStreamEvent(BaseModel):
         "failed",
         "cancelled",
     ] | None = Field(default_factory=lambda: None)
+    step_id: str | None = Field(
+        default_factory=lambda: None, min_length=1, max_length=64
+    )
+    step_code: Literal[
+        "updating_plan",
+        "searching_library",
+        "reading_context",
+        "checking_source",
+        "reviewing_library",
+        "checking_item",
+        "handling_save",
+        "managing_library",
+        "working",
+    ] | None = Field(default_factory=lambda: None)
+    step_outcome: Literal["completed", "failed", "skipped"] | None = Field(
+        default_factory=lambda: None
+    )
+    result_count: int | None = Field(default_factory=lambda: None, ge=0, le=10_000)
+    plan: list[ConversationPlanItem] | None = Field(default_factory=lambda: None, max_length=6)
     section_id: str | None = Field(
         default_factory=lambda: None, min_length=1, max_length=64
     )
@@ -198,7 +246,49 @@ class ConversationStreamEvent(BaseModel):
             for value in self.citation_ids
         ) or len(set(self.citation_ids)) != len(self.citation_ids):
             raise ValueError("citation_ids must be unique positive integers")
-        if self.type == "section_started":
+        if self.result_count is not None and (
+            isinstance(self.result_count, bool)
+            or not isinstance(self.result_count, int)
+            or not 0 <= self.result_count <= 10_000
+        ):
+            raise ValueError("result_count must be a bounded non-negative integer")
+        if self.plan is not None:
+            plan_ids = [item.id for item in self.plan]
+            if len(plan_ids) != len(set(plan_ids)):
+                raise ValueError("plan item ids must be unique")
+        step_payload_present = any(
+            value is not None
+            for value in (
+                self.step_id,
+                self.step_code,
+                self.step_outcome,
+                self.result_count,
+            )
+        )
+        if self.type == "step_started":
+            if self.step_id is None or self.step_code is None:
+                raise ValueError("step_started requires step_id and step_code")
+            if self.step_outcome is not None or self.result_count is not None:
+                raise ValueError("step_started cannot carry a result")
+            if self.plan is not None:
+                raise ValueError("step_started cannot carry a plan")
+        elif self.type == "step_completed":
+            if (
+                self.step_id is None
+                or self.step_code is None
+                or self.step_outcome is None
+            ):
+                raise ValueError("step_completed requires step lifecycle fields")
+            if self.plan is not None:
+                raise ValueError("step_completed cannot carry a plan")
+        elif self.type == "plan_updated":
+            if self.plan is None:
+                raise ValueError("plan_updated requires a plan snapshot")
+            if step_payload_present:
+                raise ValueError("plan_updated cannot carry a step")
+        elif self.type == "section_started":
+            if step_payload_present or self.plan is not None:
+                raise ValueError("section_started cannot carry step data")
             if self.section_id is None or self.status is None:
                 raise ValueError("section_started requires section_id and status")
             if self.status == "grounded" and not self.citation_ids:
@@ -208,17 +298,26 @@ class ConversationStreamEvent(BaseModel):
             if len(self.citations) != len(self.citation_ids):
                 raise ValueError("section_started citation metadata must match IDs")
         elif self.type == "text_delta":
+            if step_payload_present or self.plan is not None:
+                raise ValueError("text_delta cannot carry step data")
             if not self.text:
                 raise ValueError("text_delta requires non-empty text")
         elif self.type in {"section_completed", "section_aborted"}:
+            if step_payload_present or self.plan is not None:
+                raise ValueError(f"{self.type} cannot carry step data")
             if self.section_id is None:
                 raise ValueError(f"{self.type} requires section_id")
             if self.type == "section_completed" and self.status is None:
                 raise ValueError("section_completed requires status")
             if self.type == "section_aborted" and self.reason is None:
                 raise ValueError("section_aborted requires reason")
-        elif self.type == "completed" and self.response is None:
-            raise ValueError("completed requires response")
+        elif self.type == "completed":
+            if step_payload_present or self.plan is not None:
+                raise ValueError("completed cannot carry step data")
+            if self.response is None:
+                raise ValueError("completed requires response")
+        elif step_payload_present or self.plan is not None:
+            raise ValueError(f"{self.type} cannot carry step data")
         return self
 
 
@@ -525,15 +624,18 @@ def build_conversation_router(
             )
         return citations
 
-    def _thread_item(thread: ConversationThread, latest_turn: ConversationTurn | None) -> ConversationHistoryItemResponse:
-        prompt = latest_turn.user_text.strip() if latest_turn is not None else ""
-        title = prompt[:80] or "新对话"
-        preview = (latest_turn.assistant_text.strip() if latest_turn is not None else "")[:160]
+    def _thread_item_projection(
+        thread: ConversationThread,
+        user_text: str | None,
+        assistant_text: str | None,
+    ) -> ConversationHistoryItemResponse:
+        prompt = user_text.strip() if isinstance(user_text, str) else ""
+        answer = assistant_text.strip() if isinstance(assistant_text, str) else ""
         return ConversationHistoryItemResponse(
             thread_id=thread.public_id,
             conversation_id=thread.external_conversation_id,
-            title=title,
-            preview=preview,
+            title=prompt[:80] or "新对话",
+            preview=answer[:160],
             updated_at=thread.updated_at,
         )
 
@@ -604,29 +706,67 @@ def build_conversation_router(
                         ),
                     )
                 )
-            threads = list(
-                db.scalars(
-                    statement.order_by(
-                        ConversationThread.updated_at.desc(), ConversationThread.id.desc()
-                    ).limit(limit + 1)
+            # Materialize the tenant-scoped page first. Ranking completed turns
+            # against the whole table is constant-query but still makes a small
+            # sidebar page pay for every tenant's history.
+            page_threads = (
+                statement.order_by(
+                    ConversationThread.updated_at.desc(),
+                    ConversationThread.id.desc(),
+                )
+                .limit(limit + 1)
+                .cte("conversation_page")
+            )
+            page_thread = aliased(ConversationThread, page_threads)
+            latest_completed_turn = (
+                select(
+                    ConversationTurn.thread_id.label("latest_thread_id"),
+                    ConversationTurn.user_text.label("latest_user_text"),
+                    ConversationTurn.assistant_text.label("latest_assistant_text"),
+                    func.row_number()
+                    .over(
+                        partition_by=ConversationTurn.thread_id,
+                        order_by=(
+                            ConversationTurn.created_at.desc(),
+                            ConversationTurn.id.desc(),
+                        ),
+                    )
+                    .label("latest_rank"),
+                )
+                .join(
+                    page_threads,
+                    page_threads.c.id == ConversationTurn.thread_id,
+                )
+                .where(ConversationTurn.status == "completed")
+                .subquery()
+            )
+            rows = list(
+                db.execute(
+                    select(
+                        page_thread,
+                        latest_completed_turn.c.latest_user_text,
+                        latest_completed_turn.c.latest_assistant_text,
+                    )
+                    .outerjoin(
+                        latest_completed_turn,
+                        and_(
+                            latest_completed_turn.c.latest_thread_id == page_thread.id,
+                            latest_completed_turn.c.latest_rank == 1,
+                        ),
+                    )
+                    .order_by(
+                        page_thread.updated_at.desc(), page_thread.id.desc()
+                    )
                 )
             )
-            page_threads = threads[:limit]
-            items = []
-            for thread in page_threads:
-                latest_turn = db.scalar(
-                    select(ConversationTurn)
-                    .where(
-                        ConversationTurn.thread_id == thread.id,
-                        ConversationTurn.status == "completed",
-                    )
-                    .order_by(ConversationTurn.created_at.desc(), ConversationTurn.id.desc())
-                    .limit(1)
-                )
-                items.append(_thread_item(thread, latest_turn))
+            page_rows = rows[:limit]
+            items = [
+                _thread_item_projection(thread, user_text, assistant_text)
+                for thread, user_text, assistant_text in page_rows
+            ]
             return ConversationHistoryPageResponse(
                 items=items,
-                next_cursor=page_threads[-1].public_id if len(threads) > limit else None,
+                next_cursor=page_rows[-1][0].public_id if len(rows) > limit else None,
             )
 
     @router.get(
@@ -806,6 +946,9 @@ def build_conversation_router(
                 event_type: Literal[
                     "started",
                     "activity",
+                    "step_started",
+                    "step_completed",
+                    "plan_updated",
                     "section_started",
                     "text_delta",
                     "section_completed",
@@ -816,6 +959,11 @@ def build_conversation_router(
                 ],
                 *,
                 activity: str | None = None,
+                step_id: str | None = None,
+                step_code: str | None = None,
+                step_outcome: Literal["completed", "failed", "skipped"] | None = None,
+                result_count: int | None = None,
+                plan: list[ConversationPlanItem] | None = None,
                 text: str | None = None,
                 response: ConversationResponse | None = None,
                 error_code: str | None = None,
@@ -837,6 +985,11 @@ def build_conversation_router(
                     message_id=payload.message_id,
                     sequence=sequence,
                     activity=safe_activity,
+                    step_id=step_id,
+                    step_code=step_code,
+                    step_outcome=step_outcome,
+                    result_count=result_count,
+                    plan=plan,
                     section_id=section_id,
                     status=status,
                     citation_ids=list(citation_ids),
@@ -861,6 +1014,16 @@ def build_conversation_router(
                     for value in values
                 ]
 
+            def project_plan(values: tuple[AgentPlanItem, ...]) -> list[ConversationPlanItem]:
+                return [
+                    ConversationPlanItem(
+                        id=item.id,
+                        title=item.title,
+                        status=item.status,
+                    )
+                    for item in values[:6]
+                ]
+
             def emit(
                 event: ConversationStreamEvent,
                 *,
@@ -869,9 +1032,11 @@ def build_conversation_router(
                 elapsed_ms = int((time.monotonic() - started_at) * 1000)
                 logger.info(
                     "conversation_stream_lifecycle request_id=%s event_type=%s "
-                    "outcome=%s elapsed_ms=%d",
+                    "step_code=%s result_count=%s outcome=%s elapsed_ms=%d",
                     request_id,
                     event.type,
+                    event.step_code or "none",
+                    event.result_count if event.result_count is not None else "none",
                     outcome or "in_progress",
                     elapsed_ms,
                 )
@@ -948,6 +1113,9 @@ def build_conversation_router(
                 section_citation_ids: set[int] = set()
                 section_aborted = False
                 saw_visible_delta = False
+                open_step_id: str | None = None
+                open_step_code: str | None = None
+                step_ids: set[str] = set()
 
                 def abort_open_section(
                     reason: Literal["provider_failure", "timeout", "cancelled"],
@@ -966,6 +1134,24 @@ def build_conversation_router(
                             reason=reason,
                             message="该部分生成已中断。",
                         )
+                    )
+
+                def abort_open_step() -> str | None:
+                    nonlocal open_step_id, open_step_code
+                    if open_step_id is None or open_step_code is None:
+                        return None
+                    step_id = open_step_id
+                    step_code = open_step_code
+                    open_step_id = None
+                    open_step_code = None
+                    return emit(
+                        next_event(
+                            "step_completed",
+                            step_id=step_id,
+                            step_code=step_code,
+                            step_outcome="failed",
+                        ),
+                        outcome="failed",
                     )
 
                 async with asyncio.timeout(
@@ -988,10 +1174,60 @@ def build_conversation_router(
                                     ),
                                 )
                             )
+                        elif internal.type == "step_started":
+                            if (
+                                internal.step_id is None
+                                or internal.step_code is None
+                                or open_step_id is not None
+                                or open_section_id is not None
+                                or internal.step_id in step_ids
+                            ):
+                                raise ValueError("invalid step_started lifecycle")
+                            step_ids.add(internal.step_id)
+                            open_step_id = internal.step_id
+                            open_step_code = internal.step_code
+                            yield emit(
+                                next_event(
+                                    "step_started",
+                                    step_id=internal.step_id,
+                                    step_code=internal.step_code,
+                                )
+                            )
+                        elif internal.type == "step_completed":
+                            if (
+                                internal.step_id is None
+                                or internal.step_code is None
+                                or internal.step_outcome is None
+                                or internal.step_id != open_step_id
+                                or internal.step_code != open_step_code
+                            ):
+                                raise ValueError("invalid step_completed lifecycle")
+                            yield emit(
+                                next_event(
+                                    "step_completed",
+                                    step_id=internal.step_id,
+                                    step_code=internal.step_code,
+                                    step_outcome=internal.step_outcome,
+                                    result_count=internal.result_count,
+                                ),
+                                outcome=internal.step_outcome,
+                            )
+                            open_step_id = None
+                            open_step_code = None
+                        elif internal.type == "plan_updated":
+                            if open_step_id is not None or open_section_id is not None:
+                                raise ValueError("plan_updated is inside an open lifecycle")
+                            yield emit(
+                                next_event(
+                                    "plan_updated",
+                                    plan=project_plan(internal.plan),
+                                )
+                            )
                         elif internal.type == "section_started":
                             if (
                                 internal.section_id is None
                                 or internal.status is None
+                                or open_step_id is not None
                                 or open_section_id is not None
                                 or internal.section_id in section_ids
                             ):
@@ -1073,6 +1309,10 @@ def build_conversation_router(
                             open_section_status = None
                             section_aborted = True
                         elif internal.type == "completed" and internal.answer is not None:
+                            if open_step_id is not None:
+                                closed_step = abort_open_step()
+                                if closed_step is not None:
+                                    yield closed_step
                             if open_section_id is not None:
                                 raise ValueError("completed event has an open section")
                             projected = _safe_stream_response(
@@ -1136,6 +1376,9 @@ def build_conversation_router(
                             terminal = True
                             break
                 if not terminal:
+                    closed_step = abort_open_step()
+                    if closed_step is not None:
+                        yield closed_step
                     aborted = abort_open_section("provider_failure")
                     if aborted is not None:
                         yield aborted
@@ -1150,6 +1393,9 @@ def build_conversation_router(
                     )
             except asyncio.CancelledError:
                 if stream_handler is not None:
+                    closed_step = abort_open_step()
+                    if closed_step is not None:
+                        yield closed_step
                     aborted = abort_open_section("cancelled")
                     if aborted is not None:
                         yield aborted
@@ -1174,6 +1420,9 @@ def build_conversation_router(
                 )
             except TimeoutError:
                 if stream_handler is not None:
+                    closed_step = abort_open_step()
+                    if closed_step is not None:
+                        yield closed_step
                     aborted = abort_open_section("timeout")
                     if aborted is not None:
                         yield aborted
@@ -1196,6 +1445,9 @@ def build_conversation_router(
             except Exception:
                 # Do not copy exception details into the browser or logs.
                 if stream_handler is not None:
+                    closed_step = abort_open_step()
+                    if closed_step is not None:
+                        yield closed_step
                     aborted = abort_open_section("provider_failure")
                     if aborted is not None:
                         yield aborted

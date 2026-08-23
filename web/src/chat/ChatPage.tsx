@@ -22,6 +22,12 @@ import type {
 } from "../api/contracts";
 import { ApiError } from "../api/client";
 import { RouteLink } from "../app/RouteTransition";
+import {
+  ExecutionTimeline,
+  executionStepCopy,
+  type ExecutionPlanItem,
+  type ExecutionStep,
+} from "./ExecutionTimeline";
 import { MarkdownAnswer } from "./MarkdownAnswer";
 
 interface ChatPageProps {
@@ -93,6 +99,25 @@ function markdownPreviewText(text: string): string {
     .trim();
 }
 
+function hasDurablePendingTurn(
+  transcript: ConversationTurns | undefined,
+  question: string | null,
+  answer: string,
+  baselineTurnCount: number,
+): boolean {
+  if (!question) return false;
+  return (transcript?.turns ?? []).slice(baselineTurnCount).some((turn) => (
+    turn.user_text === question
+    && (
+      turn.assistant_text === answer
+      || (
+        answer.length > 0
+        && turn.assistant_text.startsWith(`${answer}\n\n来源：\n`)
+      )
+    )
+  ));
+}
+
 const fallbackQuestions = [
   "这个观点在哪个视频的什么位置？",
   "这些视频对这个问题有哪些直接依据？",
@@ -153,10 +178,17 @@ export function ChatPage({
   const [pendingAnswer, setPendingAnswer] = useState("");
   const [pendingCitations, setPendingCitations] = useState<ConversationCitation[]>([]);
   const [pendingSections, setPendingSections] = useState<PendingSection[]>([]);
+  const [pendingExecutionSteps, setPendingExecutionSteps] = useState<ExecutionStep[]>([]);
+  const [pendingPlan, setPendingPlan] = useState<ExecutionPlanItem[]>([]);
+  const [pendingSyncError, setPendingSyncError] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<"streaming" | "failed">("streaming");
   const [openMenuThreadId, setOpenMenuThreadId] = useState<string | null>(null);
   const [confirmingThreadId, setConfirmingThreadId] = useState<string | null>(null);
   const attemptedEmptyBootstrap = useRef(false);
+  const pendingQuestionRef = useRef<string | null>(null);
+  const pendingAnswerRef = useRef<string>("");
+  const pendingThreadIdRef = useRef<string | null>(null);
+  const pendingBaselineTurnCountRef = useRef(0);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const capabilities = useQuery({
     queryKey: ["capabilities"],
@@ -184,13 +216,37 @@ export function ChatPage({
       if (!response.thread_id) throw new Error("服务器未返回新会话。");
       return { conversationId, response };
     },
-    onSuccess: async ({ conversationId, response }) => {
+    onSuccess: ({ conversationId, response }) => {
       setSelectedThreadId(response.thread_id as string);
       // A reset response has the public thread ID but not the browser
       // conversation ID. Keep the ID generated for this request so an empty
       // history can accept a question before the sidebar refresh completes.
       setSelectedConversationId(conversationId);
-      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      queryClient.setQueryData<ConversationTurns>(
+        ["conversation", response.thread_id],
+        {
+          thread_id: response.thread_id as string,
+          conversation_id: conversationId,
+          turns: [],
+        },
+      );
+      queryClient.setQueryData<ConversationHistoryPage>(["conversations"], (current) => {
+        if (!current) return current;
+        const item = {
+          thread_id: response.thread_id as string,
+          conversation_id: conversationId,
+          title: "新的检索",
+          preview: "",
+          updated_at: new Date().toISOString(),
+        };
+        return {
+          ...current,
+          items: [item, ...(current.items ?? []).filter((entry) => entry.thread_id !== item.thread_id)],
+        };
+      });
+      // The sidebar is eventually canonical; its latency must not keep the
+      // reset mutation pending or disable the composer.
+      void queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
   });
   const sendMessage = useMutation({
@@ -206,6 +262,34 @@ export function ChatPage({
           flushSync(() => {
             if (event.type === "started" || event.type === "activity") {
               setPendingActivity(activityCopy(event));
+            } else if (event.type === "step_started" && event.step_id && event.step_code) {
+              const step: ExecutionStep = {
+                stepId: event.step_id,
+                code: event.step_code,
+                outcome: "running",
+              };
+              setPendingExecutionSteps((current) => [...current, step]);
+              setPendingActivity(executionStepCopy(step));
+            } else if (
+              event.type === "step_completed"
+              && event.step_id
+              && event.step_code
+              && event.step_outcome
+            ) {
+              const completed: ExecutionStep = {
+                stepId: event.step_id,
+                code: event.step_code,
+                outcome: event.step_outcome,
+                ...(event.result_count === null || event.result_count === undefined
+                  ? {}
+                  : { resultCount: event.result_count }),
+              };
+              setPendingExecutionSteps((current) => current.map((step) => (
+                step.stepId === completed.stepId ? completed : step
+              )));
+              setPendingActivity(executionStepCopy(completed));
+            } else if (event.type === "plan_updated" && event.plan) {
+              setPendingPlan(event.plan);
             } else if (event.type === "section_started" && event.section_id) {
               setPendingSections((current) => [
                 ...current.filter((section) => section.sectionId !== event.section_id),
@@ -244,6 +328,7 @@ export function ChatPage({
               setPendingSections([]);
               if (event.response) {
                 setPendingAnswer(event.response.text);
+                pendingAnswerRef.current = event.response.text;
                 setPendingCitations(event.response.citations ?? []);
               }
             } else if (event.type === "error" || event.type === "cancelled") {
@@ -269,24 +354,58 @@ export function ChatPage({
         throw error;
       }
     },
-    onSuccess: async () => {
+    onSuccess: async (response) => {
       setDraft("");
-      setPendingQuestion(null);
-      setPendingAnswer("");
-      setPendingCitations([]);
-      setPendingSections([]);
-      setPendingActivity("正在准备回答…");
-      setPendingStatus("streaming");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["conversations"] }),
-        queryClient.invalidateQueries({ queryKey: ["conversation", selectedThreadId] }),
-      ]);
+      // Keep the terminal SSE projection mounted until the selected transcript
+      // has installed the durable turn. This prevents a blank frame between
+      // the stream terminal event and the refetched history.
+      setPendingAnswer(response.text);
+      pendingAnswerRef.current = response.text;
+      setPendingCitations(response.citations ?? []);
+      setPendingSyncError(false);
+      void queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      const pendingThreadId = pendingThreadIdRef.current ?? selectedThreadId;
+      if (!pendingThreadId) return;
+      try {
+        await queryClient.refetchQueries({
+          queryKey: ["conversation", pendingThreadId],
+          exact: true,
+          type: "all",
+        });
+        const latest = queryClient.getQueryData<ConversationTurns>(["conversation", pendingThreadId]);
+        const persisted = hasDurablePendingTurn(
+          latest,
+          pendingQuestionRef.current,
+          response.text,
+          pendingBaselineTurnCountRef.current,
+        );
+        if (!persisted) {
+          setPendingSyncError(true);
+          return;
+        }
+        setPendingQuestion(null);
+        pendingQuestionRef.current = null;
+        setPendingAnswer("");
+        pendingAnswerRef.current = "";
+        pendingThreadIdRef.current = null;
+        setPendingCitations([]);
+        setPendingSections([]);
+        setPendingExecutionSteps([]);
+        setPendingPlan([]);
+        setPendingActivity("正在准备回答…");
+        setPendingStatus("streaming");
+      } catch {
+        setPendingSyncError(true);
+      }
     },
     onError: (error) => {
       if (error instanceof ConversationStreamError) {
         setPendingStatus("failed");
         setPendingSections([]);
         setPendingCitations([]);
+        setPendingExecutionSteps((current) => current.map((step) => (
+          step.outcome === "running" ? { ...step, outcome: "failed" } : step
+        )));
         setPendingActivity(
           error.code === "cancelled"
             ? "请求已取消"
@@ -294,16 +413,64 @@ export function ChatPage({
               ? "这次检索未能完成"
               : "流式连接中断，请重试",
         );
-        if (error.response?.text) setPendingAnswer(error.response.text);
+        if (error.response?.text) {
+          setPendingAnswer(error.response.text);
+          pendingAnswerRef.current = error.response.text;
+        }
         return;
       }
+      setPendingQuestion(null);
+      pendingQuestionRef.current = null;
+      setPendingAnswer("");
+      pendingAnswerRef.current = "";
+      pendingThreadIdRef.current = null;
+      setPendingCitations([]);
+      setPendingSections([]);
+      setPendingExecutionSteps([]);
+      setPendingPlan([]);
+      setPendingSyncError(false);
+      setPendingStatus("failed");
+    },
+  });
+
+  async function retryPendingSync(): Promise<void> {
+    const pendingThreadId = pendingThreadIdRef.current;
+    if (!pendingThreadId) return;
+    setPendingSyncError(false);
+    try {
+      await queryClient.refetchQueries({
+        queryKey: ["conversation", pendingThreadId],
+        exact: true,
+        type: "all",
+      });
+      const latest = queryClient.getQueryData<ConversationTurns>(["conversation", pendingThreadId]);
+      const question = pendingQuestionRef.current;
+      const answer = pendingAnswerRef.current;
+      const persisted = hasDurablePendingTurn(
+        latest,
+        question,
+        answer,
+        pendingBaselineTurnCountRef.current,
+      );
+      if (!persisted) {
+        setPendingSyncError(true);
+        return;
+      }
+      pendingQuestionRef.current = null;
+      pendingAnswerRef.current = "";
+      pendingThreadIdRef.current = null;
       setPendingQuestion(null);
       setPendingAnswer("");
       setPendingCitations([]);
       setPendingSections([]);
-      setPendingStatus("failed");
-    },
-  });
+      setPendingExecutionSteps([]);
+      setPendingPlan([]);
+      setPendingActivity("正在准备回答…");
+      setPendingStatus("streaming");
+    } catch {
+      setPendingSyncError(true);
+    }
+  }
   const deleteConversationMutation = useMutation({
     mutationFn: async (threadId: string) => {
       await deleteThread(threadId);
@@ -320,8 +487,15 @@ export function ChatPage({
       setSelectedThreadId(null);
       setSelectedConversationId(null);
       setPendingQuestion(null);
+      pendingQuestionRef.current = null;
       setPendingAnswer("");
+      pendingAnswerRef.current = "";
+      pendingThreadIdRef.current = null;
+      setPendingCitations([]);
+      setPendingSections([]);
       setPendingActivity("正在准备回答…");
+      setPendingExecutionSteps([]);
+      setPendingPlan([]);
       setPendingStatus("streaming");
       await queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
@@ -384,9 +558,15 @@ export function ChatPage({
     if (!chatEnabled) return;
     setDraft("");
     setPendingQuestion(null);
+    pendingQuestionRef.current = null;
     setPendingAnswer("");
+    pendingAnswerRef.current = "";
+    pendingThreadIdRef.current = null;
     setPendingCitations([]);
     setPendingSections([]);
+    setPendingExecutionSteps([]);
+    setPendingPlan([]);
+    setPendingSyncError(false);
     setPendingActivity("正在准备回答…");
     setPendingStatus("streaming");
     setSelectedThreadId(null);
@@ -399,9 +579,19 @@ export function ChatPage({
     const text = draft.trim();
     if (!text || !selectedConversationId || sendMessage.isPending) return;
     setPendingQuestion(text);
+    pendingQuestionRef.current = text;
+    pendingThreadIdRef.current = selectedThreadId;
+    pendingBaselineTurnCountRef.current = (
+      queryClient.getQueryData<ConversationTurns>(["conversation", selectedThreadId])?.turns?.length
+      ?? 0
+    );
     setPendingAnswer("");
+    pendingAnswerRef.current = "";
     setPendingCitations([]);
     setPendingSections([]);
+    setPendingExecutionSteps([]);
+    setPendingPlan([]);
+    setPendingSyncError(false);
     setPendingActivity("正在准备回答…");
     setPendingStatus("streaming");
     sendMessage.mutate({ conversationId: selectedConversationId, text });
@@ -595,6 +785,11 @@ export function ChatPage({
                   <article className={`chat-message chat-message--assistant chat-message--${pendingStatus}`}>
                     <p className="eyebrow">资料库助手</p>
                     <p aria-live="polite" role={pendingStatus === "failed" ? "alert" : "status"}>{pendingActivity}</p>
+                    <ExecutionTimeline
+                      steps={pendingExecutionSteps}
+                      plan={pendingPlan}
+                      answerStarted={pendingSections.length > 0 || Boolean(pendingAnswer)}
+                    />
                     {pendingSections.map((section) => (
                       <section className="chat-pending-section" key={section.sectionId} aria-label={section.status === "unsupported" ? "证据不足部分" : "正在生成回答部分"}>
                         <MarkdownAnswer>{section.text}</MarkdownAnswer>
@@ -607,15 +802,24 @@ export function ChatPage({
                 </li>
               ) : null}
             </ol>
+            {pendingSyncError ? (
+              <p className="chat-error" role="alert">
+                回答已生成，但对话记录同步较慢，当前答案仍会保留。<button
+                  className="text-button"
+                  type="button"
+                  onClick={() => void retryPendingSync()}
+                >重试同步</button>
+              </p>
+            ) : null}
             {sendMessage.isError ? <p className="chat-error" role="alert">{sendErrorMessage(sendMessage.error)}</p> : null}
           </div>
           <form className="chat-compose" onSubmit={submit}>
             <label className="sr-only" htmlFor="chat-question">向资料库提问</label>
             <div className="chat-compose__field">
-              <textarea id="chat-question" value={draft} disabled={!selectedConversationId || sendMessage.isPending || newConversation.isPending} onChange={(event) => setDraft(event.target.value)} placeholder="向资料库提问…" rows={2} />
+              <textarea id="chat-question" value={draft} disabled={!selectedConversationId || transcript.isPending || sendMessage.isPending || newConversation.isPending} onChange={(event) => setDraft(event.target.value)} placeholder="向资料库提问…" rows={2} />
               <div className="chat-compose__footer">
                 <span>仅从你的资料库中检索，回答会附上原文依据</span>
-                <button className="button button--primary" type="submit" disabled={!draft.trim() || !selectedConversationId || sendMessage.isPending || newConversation.isPending}>{sendMessage.isPending ? "正在检索…" : "发送问题 →"}</button>
+                <button className="button button--primary" type="submit" disabled={!draft.trim() || !selectedConversationId || transcript.isPending || sendMessage.isPending || newConversation.isPending}>{sendMessage.isPending ? "正在检索…" : "发送问题 →"}</button>
               </div>
             </div>
           </form>

@@ -848,6 +848,21 @@ export interface components {
             next_cursor?: string | null;
         };
         /**
+         * ConversationPlanItem
+         * @description Browser-safe projection of one transient turn plan item.
+         */
+        ConversationPlanItem: {
+            /** Id */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "in_progress" | "completed" | "blocked";
+            /** Title */
+            title: string;
+        };
+        /**
          * ConversationResponse
          * @description Stable compatibility response for the retained conversation surface.
          */
@@ -894,24 +909,34 @@ export interface components {
             message?: string | null;
             /** Message Id */
             message_id: string;
+            /** Plan */
+            plan?: components["schemas"]["ConversationPlanItem"][] | null;
             /** Reason */
             reason?: ("provider_failure" | "timeout" | "cancelled") | null;
             /** Request Id */
             request_id: string;
             response?: components["schemas"]["ConversationResponse"] | null;
+            /** Result Count */
+            result_count?: number | null;
             /** Section Id */
             section_id?: string | null;
             /** Sequence */
             sequence: number;
             /** Status */
             status?: ("grounded" | "unsupported") | null;
+            /** Step Code */
+            step_code?: ("updating_plan" | "searching_library" | "reading_context" | "checking_source" | "reviewing_library" | "checking_item" | "handling_save" | "managing_library" | "working") | null;
+            /** Step Id */
+            step_id?: string | null;
+            /** Step Outcome */
+            step_outcome?: ("completed" | "failed" | "skipped") | null;
             /** Text */
             text?: string | null;
             /**
              * Type
              * @enum {string}
              */
-            type: "started" | "activity" | "section_started" | "text_delta" | "section_completed" | "section_aborted" | "completed" | "error" | "cancelled";
+            type: "started" | "activity" | "step_started" | "step_completed" | "plan_updated" | "section_started" | "text_delta" | "section_completed" | "section_aborted" | "completed" | "error" | "cancelled";
         };
         /**
          * ConversationTurnResponse

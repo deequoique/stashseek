@@ -60,6 +60,80 @@ trigger global session teardown.
   state removes the unfinished section and never promotes its partial text to
   history.
 
+## Scenario: Hand a terminal stream projection to durable transcript state
+
+### 1. Scope / Trigger
+
+Apply when changing stream terminal handling, transcript refetch/retry,
+new-conversation reset, or conversation-list invalidation.
+
+### 2. Signatures
+
+```typescript
+hasDurablePendingTurn(
+  transcript: ConversationTurns | undefined,
+  question: string | null,
+  answer: string,
+  baselineTurnCount: number,
+): boolean
+```
+
+### 3. Contracts
+
+- `completed.response` stays rendered until transcript query data contains a
+  new durable turn after the send-time baseline.
+- Durable answer matching is exact or differs only by the explicit appended
+  `\n\n来源：\n` source-list shape. Arbitrary prefix matches are invalid.
+- Repeat questions cannot match an older turn: inspect only turns added after
+  the send-time baseline count.
+- Refetch failure/non-convergence preserves the terminal projection and shows
+  retry; it never creates a blank frame.
+- Reset success seeds an empty transcript and safe sidebar placeholder, then
+  refreshes the sidebar in the background. Sidebar latency cannot block input.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Transcript refetch pending | Keep one terminal pending answer visible. |
+| Durable turn arrives | Clear pending projection; render one durable turn. |
+| Old identical turn exists | Do not treat it as convergence. |
+| New answer only shares prefix | Preserve pending projection and show retry. |
+| Refetch fails | Preserve terminal answer and expose retry. |
+| Sidebar refetch pending after reset | Composer remains usable. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: await only exact transcript convergence for handoff; refresh list in
+  background.
+- Base: whole-answer non-SSE responses follow the same handoff.
+- Bad: clear pending before refetch, match historical equal text, or await
+  sidebar invalidation inside mutation success.
+
+### 6. Tests Required
+
+- Hold transcript refetch unresolved and assert the answer never disappears;
+  release it and assert exactly one answer.
+- Cover repeated question, ordinary prefix collision, explicit source-list
+  append, sync failure/retry, Citation/step projections, and held sidebar reset.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+setPendingAnswer("");
+await queryClient.invalidateQueries({ queryKey: ["conversation", threadId] });
+```
+
+#### Correct
+
+```typescript
+setPendingAnswer(response.text);
+await queryClient.refetchQueries({ queryKey: ["conversation", threadId], exact: true });
+if (hasDurablePendingTurn(latest, question, response.text, baseline)) clearPending();
+```
+
 ---
 
 ## Common Mistakes

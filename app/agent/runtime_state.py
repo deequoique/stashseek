@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Literal
 
 from pydantic_ai.messages import ModelMessage
 
@@ -40,6 +41,20 @@ class _RecoveryPayload:
     """Internal marker for a safe read failure returned to the model."""
 
     payload: dict
+
+
+@dataclass(frozen=True, slots=True)
+class ToolProgressObservation:
+    """Server-owned tool boundary used by the transient stream projector.
+
+    Only the closed outcome and a bounded count are retained. Arguments,
+    return payloads, provider metadata, and exception text are never stored.
+    """
+
+    tool_name: str
+    call_index: int
+    outcome: Literal["started", "succeeded", "failed", "skipped"]
+    result_count: int | None = None
 
 
 def _citation_matches_scope(
@@ -95,6 +110,7 @@ class AgentDeps:
     last_empty_search_fingerprint: str | None = None
     read_recovery_exhausted: bool = False
     todo_used: bool = False
+    tool_observations: list[ToolProgressObservation] = field(default_factory=list)
     _tool_lock: threading.Lock = field(default_factory=threading.Lock)
 
     def reserve_retrieval(
@@ -155,13 +171,33 @@ class AgentDeps:
         result_count: int | None = None,
         exception: BaseException | None = None,
     ) -> None:
+        safe_count = (
+            result_count
+            if isinstance(result_count, int)
+            and not isinstance(result_count, bool)
+            and 0 <= result_count <= 10_000
+            else None
+        )
+        safe_outcome = (
+            outcome
+            if outcome in {"started", "succeeded", "failed", "skipped"}
+            else "failed"
+        )
+        self.tool_observations.append(
+            ToolProgressObservation(
+                tool_name=name,
+                call_index=call_index,
+                outcome=safe_outcome,
+                result_count=safe_count,
+            )
+        )
         if self.diagnostics is not None:
             self.diagnostics.event(
                 "tool_call",
                 tool_name=name,
                 tool_outcome=outcome,
                 call_index=call_index,
-                result_count=result_count,
+                result_count=safe_count,
                 exception=exception,
                 agent_phase="retrieval",
             )
@@ -202,6 +238,7 @@ __all__ = [
     "NORMAL_RETRIEVAL_CALLS_LIMIT",
     "NORMAL_SEARCH_CALLS_LIMIT",
     "ReservationResult",
+    "ToolProgressObservation",
     "RetrievalKind",
     "_RecoveryPayload",
     "_citation_matches_scope",

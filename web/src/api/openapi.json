@@ -939,6 +939,42 @@
         "title": "ConversationHistoryPageResponse",
         "type": "object"
       },
+      "ConversationPlanItem": {
+        "additionalProperties": false,
+        "description": "Browser-safe projection of one transient turn plan item.",
+        "properties": {
+          "id": {
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed",
+              "blocked"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status"
+        ],
+        "title": "ConversationPlanItem",
+        "type": "object"
+      },
       "ConversationResponse": {
         "additionalProperties": false,
         "description": "Stable compatibility response for the retained conversation surface.",
@@ -1065,6 +1101,21 @@
             "title": "Message Id",
             "type": "string"
           },
+          "plan": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ConversationPlanItem"
+                },
+                "maxItems": 6,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
           "reason": {
             "anyOf": [
               {
@@ -1096,6 +1147,19 @@
                 "type": "null"
               }
             ]
+          },
+          "result_count": {
+            "anyOf": [
+              {
+                "maximum": 10000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Count"
           },
           "section_id": {
             "anyOf": [
@@ -1130,6 +1194,57 @@
             ],
             "title": "Status"
           },
+          "step_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "updating_plan",
+                  "searching_library",
+                  "reading_context",
+                  "checking_source",
+                  "reviewing_library",
+                  "checking_item",
+                  "handling_save",
+                  "managing_library",
+                  "working"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Code"
+          },
+          "step_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Id"
+          },
+          "step_outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "completed",
+                  "failed",
+                  "skipped"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Outcome"
+          },
           "text": {
             "anyOf": [
               {
@@ -1145,6 +1260,9 @@
             "enum": [
               "started",
               "activity",
+              "step_started",
+              "step_completed",
+              "plan_updated",
               "section_started",
               "text_delta",
               "section_completed",

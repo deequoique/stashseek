@@ -291,6 +291,8 @@ Web 登录与 Streamable HTTP MCP 共用 `mcp-server --transport streamable-http
 进程。启用前设置 `WEB_AUTH_ENABLED=true`、HTTPS `WEB_PUBLIC_ORIGIN`、至少 32 字符的
 `WEB_AUTH_SECRET`、`RESEND_API_KEY` 与已验证的 `RESEND_FROM_EMAIL`；生产 Redis 不可用时
 登录会 fail closed，既有 Telegram、WeChat 和 MCP grant 不受影响。
+已验证 Session 默认通过已有 Redis 做 60 秒 read-through 缓存；PostgreSQL 仍是唯一
+权威来源。紧急回滚可设置 `WEB_SESSION_CACHE_TTL_SECONDS=0` 后重启 Web 进程。
 
 反向代理必须终止 HTTPS 并将 Cookie 原样转发，禁止为 `/api/v1` 配置 CORS。对所有 Web
 状态变更请求保留原始 `Origin` header；只对列入 `WEB_TRUSTED_PROXY_HOSTS` 的代理转发
