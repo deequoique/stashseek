@@ -20,6 +20,11 @@ export COOKIE_JAR='./web-cookies.txt'
 Cookie 由浏览器读取并通过 `X-CSRF-Token` double-submit。下面用 curl 的 cookie jar
 保存和发送它。
 
+PostgreSQL 始终是 Session 权威来源。生产进程使用已有 Redis 对已验证的有界 Session
+投影做短时 read-through 缓存，默认 `WEB_SESSION_CACHE_TTL_SECONDS=60`，且缓存 TTL
+不会超过 Session 剩余有效期。Redis 异常会回退 PostgreSQL；设置为 `0` 可关闭缓存，
+不改变 Cookie、CSRF、撤销、禁用或租户隔离语义。
+
 ## 接口总览
 
 | 方法与路径 | Cookie | 成功响应 |

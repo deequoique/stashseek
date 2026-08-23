@@ -81,6 +81,7 @@ AGENT_BASE_URL=<provider-url-if-required>
 WEB_AUTH_ENABLED=true
 WEB_PUBLIC_ORIGIN=https://notebookai.deequoique.tech
 WEB_AUTH_SECRET=<new-at-least-32-character-secret>
+WEB_SESSION_CACHE_TTL_SECONDS=60
 EMAIL_PROVIDER=smtp
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587

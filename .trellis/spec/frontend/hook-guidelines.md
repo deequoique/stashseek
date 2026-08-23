@@ -29,6 +29,12 @@ Pure logic should remain a pure function. `shouldPollLibrary()` is a function, n
 - Poll only when a visible item is `queued` or `processing`. Terminal states stop polling.
 - API errors do not trigger unbounded retries. Only a `session_invalid` 401
   immediately clears and replaces the private query client.
+- A mutation may await the exact detail query required for a safe local-state
+  handoff. Run related list invalidation in the background when its latency
+  does not determine primary-action readiness.
+- After resource creation returns enough canonical IDs, seed its exact detail
+  cache with a safe empty projection before background list convergence; do not
+  block the composer on an avoidable initial detail GET.
 
 ---
 

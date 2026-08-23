@@ -1,0 +1,12 @@
+{"file":".trellis/spec/backend/index.md","reason":"Use the backend package entry point and its pre-development boundaries."}
+{"file":".trellis/spec/backend/web-browser-runtime.md","reason":"Preserve the canonical email Session, CSRF, tenant, conversation and Web/MCP isolation contracts."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Keep pooled Neon runtime access, migration admission and measured index changes safe."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Preserve bounded auth errors and streaming failure behavior."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Keep credentials, identities, cache data and exception details out of production logs."}
+{"file":".trellis/spec/frontend/index.md","reason":"Use the implemented browser application ownership and product boundary."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Preserve TanStack Query ownership and the ephemeral-to-durable conversation handoff."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Implement non-blocking mutations and correct query invalidation behavior."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Preserve private cache teardown, honest async state, CSRF and frontend validation gates."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Review the auth/cache/database/API/React boundary as one end-to-end flow."}
+{"file":".trellis/tasks/08-22-conversation-flicker-list-latency/research/root-cause-2026-08-22.md","reason":"Use the confirmed flicker, mutation-blocking, N+1 and timing evidence."}
+{"file":".trellis/tasks/08-22-conversation-flicker-list-latency/research/auth-session-options-2026-08-22.md","reason":"Implement the approved opaque Session plus Redis design without JWT."}
