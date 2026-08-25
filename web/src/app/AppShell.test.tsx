@@ -17,7 +17,7 @@ describe("application shell", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getAllByText("Notebook Agent")).toHaveLength(1);
+    expect(screen.getAllByText("StashSeek Chat")).toHaveLength(1);
     expect(container.querySelector(".wordmark .brand-logo")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "跳到主要内容" })).toHaveAttribute(
       "href",

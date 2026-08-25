@@ -1,6 +1,6 @@
 # 身份、租户与渠道
 
-Notebook Agent 不把 Telegram 用户名、邮箱、MCP token 或 CLI 参数直接当作
+StashSeek Chat 不把 Telegram 用户名、邮箱、MCP token 或 CLI 参数直接当作
 资料库 owner。它们先被解析为一个稳定的 `ChannelIdentity`，再映射到内部
 `AppUser`，最后形成只在本次请求有效的 `TenantContext`。
 
@@ -82,7 +82,7 @@ token hash → active grant → scope → mcp identity → AppUser → TenantCon
 ## 跨渠道绑定
 
 跨渠道绑定是确定性的 identity 操作，不调用 Agent。用户在当前支持渠道生成
-绑定码（例如 `/link telegram` 或 `/link wechat`），Notebook Agent 保存
+绑定码（例如 `/link telegram` 或 `/link wechat`），StashSeek Chat 保存
 `secrets.token_urlsafe(32)` 的 SHA-256 hash、目标渠道和过期时间；默认 TTL 是
 10 分钟，token 最多消费一次。Web API 的 link route 同样只允许目标
 `telegram`/`wechat`，并在成功消费后删除当前 Web session。

@@ -1,4 +1,4 @@
-"""Isolated, mutable API for previewing the real Notebook Agent frontend.
+"""Isolated, mutable API for previewing the real StashSeek Chat frontend.
 
 The server is intentionally dependency-free and in-memory. It exercises the
 same HTTP contracts as the product UI while avoiding production persistence,
@@ -466,7 +466,7 @@ class DemoState:
 
 
 class DemoApiHandler(BaseHTTPRequestHandler):
-    server_version = "NotebookAgentDemo/2.0"
+    server_version = "StashSeekDemo/2.0"
     demo_state: DemoState
 
     def _json(self, status: int, payload: object) -> None:
@@ -702,7 +702,7 @@ def create_server(
 def main() -> None:
     server = create_server()
     print(
-        f"Notebook Agent local product demo listening on http://{HOST}:{PORT}",
+        f"StashSeek Chat local product demo listening on http://{HOST}:{PORT}",
         flush=True,
     )
     try:

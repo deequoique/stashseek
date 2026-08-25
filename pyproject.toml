@@ -1,7 +1,7 @@
 [project]
-name = "kb"
+name = "stashseek"
 version = "0.1.0"
-description = "跨平台个人知识库：视频与图文的时间戳级检索"
+description = "StashSeek Chat：在你收藏过的内容中直接对话并找回来源视频"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
 

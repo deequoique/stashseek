@@ -1,6 +1,6 @@
 # Real-model natural-language evaluation
 
-This opt-in evaluator calls the configured real model through the official MCP v2 stdio client and the complete Notebook Agent stack. It makes paid provider calls and intentionally retains data owned by the dedicated evaluation user. Install the project `dev` extra for PyYAML.
+This opt-in evaluator calls the configured real model through the official MCP v2 stdio client and the complete StashSeek Chat stack. It makes paid provider calls and intentionally retains data owned by the dedicated evaluation user. Install the project `dev` extra for PyYAML.
 
 Required configuration includes the normal PostgreSQL/pgvector, Redis, Celery `ingest` and `maintenance` queues, MinIO, embedding and Agent provider variables, plus:
 

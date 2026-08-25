@@ -72,8 +72,12 @@ class Turn(StrictModel):
 
     @model_validator(mode="after")
     def valid_route(self) -> "Turn":
-        if self.route == "model" and self.tool not in (None, "ask_notebook_agent"):
-            raise ValueError("model turns must enter through ask_notebook_agent")
+        if self.route == "model" and self.tool not in (
+            None,
+            "ask_stashseek",
+            "ask_notebook_agent",
+        ):
+            raise ValueError("model turns must enter through ask_stashseek")
         if self.route != "model" and self.tool is None:
             raise ValueError("non-model turns require an explicit MCP tool")
         if self.tool is not None and self.tool not in MCP_TOOL_NAMES:

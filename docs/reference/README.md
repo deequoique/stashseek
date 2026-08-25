@@ -1,6 +1,6 @@
 # 参考
 
-这里记录 Notebook Agent 当前实现的接口、配置和运行时契约。参考页回答
+这里记录 StashSeek Chat 当前实现的接口、配置和运行时契约。参考页回答
 “这个选项、命令或接口是什么”，不负责带你完成一次部署；需要按目标操作时，
 请从[操作指南](../how-to/README.md)进入。
 
@@ -25,7 +25,7 @@
 
 ## 版本与事实边界
 
-页面中的命令和字段以当前仓库的 `app/`、`scripts/notebook-agent`、Web
+页面中的命令和字段以当前仓库的 `app/`、`scripts/stashseek`、Web
 OpenAPI 生成代码和扩展合约为准。`ASR`、任意认证网站抓取和旧 SSE transport
 不是本参考页默认承诺的能力；Web API 的公开前缀固定为 `/api/v1`，不能改成
 其他值。配置示例中的

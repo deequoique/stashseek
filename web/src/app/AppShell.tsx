@@ -36,9 +36,9 @@ export function AppShell({ children, loginChannel, onLogout, logoutPending = fal
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <header className="topbar">
         <div className="topbar__inner">
-          <RouteLink className="wordmark" to="/library" aria-label="Notebook Agent 资料库">
+          <RouteLink className="wordmark" to="/library" aria-label="搜藏助手资料库">
             <BrandLogo className="wordmark__sigil" />
-            <span>Notebook Agent</span>
+            <span>StashSeek Chat</span>
           </RouteLink>
           <details className="account-menu" ref={accountMenuRef}>
             <summary aria-label={`打开账户菜单，当前登录方式：${loginChannelLabel}`}>

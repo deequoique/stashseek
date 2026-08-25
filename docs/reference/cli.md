@@ -2,22 +2,22 @@
 
 仓库没有安装到系统 PATH 的独立 `kb` 可执行文件；以下应用命令都通过
 `.venv/bin/python -m app.cli` 调用。单机生命周期命令是项目根目录的
-`./scripts/notebook-agent`。
+`./scripts/stashseek`。
 
 下面的 `app.cli` 行展示命令语法，假定所需配置已经在进程环境或根 `.env` 中。
 launcher 生成的 `.env.runtime` 不会由 `app.cli` 自动读取；这类环境请使用
 [首次运行教程中的 `notebook_run` helper](../tutorials/first-run.md)，在命令前加
 `notebook_run`，以保持进程环境 > `.env` > `.env.runtime` 的优先级。
 
-## launcher：`scripts/notebook-agent`
+## launcher：`scripts/stashseek`
 
 ```text
-./scripts/notebook-agent init --profile {read,full,langbot} [--force]
-./scripts/notebook-agent start [--profile {read,full,langbot}] [--foreground]
-./scripts/notebook-agent stop
-./scripts/notebook-agent restart [--profile {read,full,langbot}] [--foreground]
-./scripts/notebook-agent status
-./scripts/notebook-agent logs [supervisor|mcp|gateway|worker|beat] [--follow] [--lines N]
+./scripts/stashseek init --profile {read,full,langbot} [--force]
+./scripts/stashseek start [--profile {read,full,langbot}] [--foreground]
+./scripts/stashseek stop
+./scripts/stashseek restart [--profile {read,full,langbot}] [--foreground]
+./scripts/stashseek status
+./scripts/stashseek logs [supervisor|mcp|gateway|worker|beat] [--follow] [--lines N]
 ```
 
 `init` 创建或（带 `--force`）替换 launcher-owned `.env.runtime`。它不会覆盖
@@ -102,7 +102,7 @@ token 只保存 SHA-256 hash，`list`、`show`、`revoke`、`disable` 和日志�
 token。`--expires-at` 必须包含 timezone；不提供时 grant 默认不过期，直到
 rotate、revoke、disable、用户禁用或 identity 禁用。
 
-`read` grant 只发现 `ask_notebook_agent`、`list_saved_items`、
+`read` grant 发现 `ask_stashseek`、兼容别名 `ask_notebook_agent`、`list_saved_items`、
 `get_saved_item`。`full` 仍要通过 database、Redis、MinIO、maintenance 和
 Celery worker readiness 才会发现写入 tools；签发 full grant 不会绕过这些
 检查。

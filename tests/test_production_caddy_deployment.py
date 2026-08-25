@@ -35,7 +35,7 @@ def test_combined_runtime_and_background_units_are_isolated():
     assert "--schedule=/var/lib/notebook-agent/celerybeat-schedule" in beat
     assert "CHANNEL_GATEWAY_SECRET=" not in runtime + worker + beat
     for unit in (runtime, worker, beat):
-        assert "Environment=NOTEBOOK_AGENT_LOG_DIR=/var/log/notebook-agent" in unit
+        assert "Environment=STASHSEEK_LOG_DIR=/var/log/notebook-agent" in unit
         assert "ReadWritePaths=" in unit
 
 

@@ -1,6 +1,6 @@
 # 特定生产环境：YouTube 家庭网络出口
 
-这个方案只把 Notebook Agent 的 YouTube 元数据和字幕请求转到 Mac
+这个方案只把 StashSeek Chat 的 YouTube 元数据和字幕请求转到 Mac
 的家庭网络。数据库、Redis、MinIO、Embedding、邮件、Web、MCP 和 Caddy
 不会使用这个代理。
 

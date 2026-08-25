@@ -21,13 +21,13 @@ helper](../tutorials/first-run.md)。本页需要应用配置的 operator 命令
 ## 1. launcher、端口和配置
 
 ```bash
-./scripts/notebook-agent status
-./scripts/notebook-agent logs supervisor --lines 120
-./scripts/notebook-agent logs mcp --lines 120
+./scripts/stashseek status
+./scripts/stashseek logs supervisor --lines 120
+./scripts/stashseek logs mcp --lines 120
 ```
 
 检查 `MCP_HOST/MCP_PORT`、`CHANNEL_GATEWAY_HOST/PORT` 是否与已有服务冲突。生产
-默认只允许 loopback；非 loopback 绑定需要显式 `NOTEBOOK_AGENT_ALLOW_NON_LOOPBACK=true`
+默认只允许 loopback；非 loopback 绑定需要显式 `STASHSEEK_ALLOW_NON_LOOPBACK=true`
 和已审核的 TLS/代理边界。不要通过更换端口来掩盖同一服务重复启动，也不要按进程名
 批量 kill。
 
@@ -101,8 +101,8 @@ CSRF。登录挑战故意不区分邮箱是否存在；不要把“已接受”�
 用 Web 的状态筛选或受控日志查看稳定错误码，不要重复发送同一 URL：
 
 ```bash
-./scripts/notebook-agent logs worker --lines 160
-./scripts/notebook-agent logs beat --lines 160
+./scripts/stashseek logs worker --lines 160
+./scripts/stashseek logs beat --lines 160
 ```
 
 检查 Redis broker、MinIO bucket、worker queues、schema head、embedding key/endpoint/
@@ -123,7 +123,7 @@ dimensions。YouTube/Bilibili provider 的 rate limit、timeout、no-caption 和
 URL 或消息正文：
 
 ```bash
-./scripts/notebook-agent logs worker --lines 200 \
+./scripts/stashseek logs worker --lines 200 \
   | grep '"event":"notification_poller_heartbeat"' \
   | tail -n 5
 ```

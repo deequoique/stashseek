@@ -5,7 +5,8 @@
 ### 1. Scope / Trigger
 
 This contract applies when a LangBot 4.10.6 adapter forwards private-channel
-messages to Notebook Agent through `notebook-agent/notebook-knowledge-agent`.
+messages to StashSeek Chat through the stable plugin id
+`notebook-agent/notebook-knowledge-agent`.
 The plugin runtime connects asynchronously, while enabled adapters can receive
 backlogged platform messages immediately. A process-level startup delay cannot
 prove the bridge is ready and cannot protect a later runtime disconnect.
@@ -43,7 +44,10 @@ async def RuntimePipeline._reply_fail_closed(query: Query, failure: Exception) -
 ### 3. Contracts
 
 - `required_plugins` contains unique `author/name` refs. Empty preserves
-  upstream LangBot behavior; Notebook Agent deployments must not leave it empty.
+  upstream LangBot behavior; StashSeek Chat deployments must not leave it empty.
+- LangBot derives the plugin id from manifest `metadata.author/name`. Keep
+  `author: notebook-agent` and `name: notebook-knowledge-agent` stable during
+  product renames; only human-facing label and description may change.
 - `required_plugins_ready_timeout_seconds` is positive. It is a deadline, not
   a sleep duration: adapters start as soon as every required plugin reports
   `status == "initialized"`.
@@ -75,7 +79,7 @@ async def RuntimePipeline._reply_fail_closed(query: Query, failure: Exception) -
 | --- | --- | --- |
 | Required plugin config malformed or timeout | LangBot startup fails before `PlatformManager.run()` | No adapter starts |
 | Runtime connected; plugin not `initialized` | Keep polling until deadline | No adapter starts |
-| Required bridge emitted and prevented default | Return from pipeline after bridge reply | Normal Notebook Agent response |
+| Required bridge emitted and prevented default | Return from pipeline after bridge reply | Normal StashSeek Chat response |
 | Duplicate delivery with the same bot/message correlation | Suppress the later bridge reply | Exactly one final platform reply |
 | Runtime disconnected, missing emitted bridge, or no `prevent_default()` | `_reply_fail_closed()` returns fixed availability text | `MessageProcessor` is not called |
 | Pipeline has no explicit required bridge binding | Preserve upstream plugin semantics | Unchanged |

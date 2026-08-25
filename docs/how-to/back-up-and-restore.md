@@ -1,6 +1,6 @@
 # 备份与恢复
 
-Notebook Agent 的可恢复状态不只在 PostgreSQL。一次可用的备份至少包括数据库、
+StashSeek Chat 的可恢复状态不只在 PostgreSQL。一次可用的备份至少包括数据库、
 原始字幕/文本对象、LangBot 的外部配置和 secret manager 中的凭据清单。
 
 ## 1. 先冻结写入并记录版本

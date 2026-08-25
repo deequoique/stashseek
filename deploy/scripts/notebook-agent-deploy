@@ -67,14 +67,14 @@ mv -Tf /opt/notebook-agent/current.next "$current"
 rollback_release() {
   if ! systemctl stop notebook-agent-langbot.service notebook-agent-gateway.service \
     notebook-agent.service notebook-agent-worker.service notebook-agent-beat.service; then
-    echo "warning: failed to stop candidate Notebook Agent services" >&2
+    echo "warning: failed to stop candidate StashSeek Chat services" >&2
   fi
   if [[ -n $previous_release && -d $previous_release ]]; then
     ln -sfn "$previous_release" /opt/notebook-agent/current.next
     mv -Tf /opt/notebook-agent/current.next "$current"
     if ! systemctl start notebook-agent-worker.service notebook-agent-beat.service \
       notebook-agent.service notebook-agent-gateway.service notebook-agent-langbot.service; then
-      echo "warning: failed to restart previous Notebook Agent release" >&2
+      echo "warning: failed to restart previous StashSeek Chat release" >&2
     fi
   fi
 }

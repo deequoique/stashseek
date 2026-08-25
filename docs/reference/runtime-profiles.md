@@ -1,6 +1,6 @@
 # 运行模式参考
 
-`./scripts/notebook-agent` 是单机运行时的生命周期入口。它负责把选定的
+`./scripts/stashseek` 是单机运行时的生命周期入口。它负责把选定的
 应用进程、迁移和本地 Compose 依赖作为一个运行单元管理；它不是 secret
 manager，也不会替你配置主机、TLS 或公网 DNS。
 
@@ -73,7 +73,7 @@ runtime URL 需要同 host family/database 的 direct
 ## 安全前提
 
 - 默认拒绝 MCP 的非 loopback 绑定。只有已经配置 TLS reverse proxy 并明确
-  接受边界时，才设置 `NOTEBOOK_AGENT_ALLOW_NON_LOOPBACK=true`。
+  接受边界时，才设置 `STASHSEEK_ALLOW_NON_LOOPBACK=true`。
 - Gateway 必须始终绑定 loopback，并使用至少 32 个字符的
   `CHANNEL_GATEWAY_SECRET`。
 - `MCP_PATH` 必须是非根绝对路径，不能带 query、fragment 或末尾 `/`。

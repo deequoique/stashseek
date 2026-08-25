@@ -1,6 +1,6 @@
 # MCP 参考
 
-Notebook Agent 的 MCP adapter 是一个租户绑定、scope 限制的 application
+StashSeek Chat 的 MCP adapter 是一个租户绑定、scope 限制的 application
 channel。它支持官方 Python MCP SDK v2 的 `stdio` 和 Streamable HTTP；不支持
 旧 SSE transport，也不接受调用方传入 `app_user_id` 或 tenant id。
 
@@ -83,8 +83,8 @@ protocol bytes；诊断写 stderr 或 bounded private log。
 
 | scope | `tools/list` 默认内容 | 写入条件 |
 | --- | --- | --- |
-| `read` | `ask_notebook_agent`、`list_saved_items`、`get_saved_item` | 不包含 mutation |
-| `full` | 最多全部 10 个 tool | database、broker、object store、maintenance 和 worker readiness 全部通过 |
+| `read` | `ask_stashseek`、`ask_notebook_agent`（兼容别名）、`list_saved_items`、`get_saved_item` | 不包含 mutation |
+| `full` | 最多全部 11 个 tool | database、broker、object store、maintenance 和 worker readiness 全部通过 |
 
 full readiness 不是一次 ping 就算成功：Celery worker 必须返回 `pong` 并同时
 监听 `ingest`、`maintenance`。缺少、异常、超时或 malformed probe 都视为
@@ -98,7 +98,8 @@ tools 会被隐藏；即使客户端手工调用被隐藏的名称，也会 fail
 
 | tool | 主要参数 | 结果/限制 |
 | --- | --- | --- |
-| `ask_notebook_agent` | `question`（1–4000 字符）、`conversation_id`（默认 `default`，最多 128） | 返回 `status`、回答、最多 10 个 citations、request/thread id 和 bounded `error_code` |
+| `ask_stashseek` | `question`（1–4000 字符）、`conversation_id`（默认 `default`，最多 128） | 和收藏内容对话，返回回答、最多 10 个 citations、request/thread id 和 bounded `error_code` |
+| `ask_notebook_agent` | 同上 | 兼容别名；与 `ask_stashseek` 进入完全相同的租户绑定 Agent 路径 |
 | `submit_knowledge_urls` | `urls`（1–10 个，每个最多 4096）、`why_saved`、`conversation_id` | 异步导入；返回 `ok`/`partial`/`failed` 与逐 URL 结果 |
 | `list_saved_items` | `kind`、`platform`、`state`、`location=library|trash`、`limit=1..50`、`cursor` | 返回分页资料项和 `next_cursor`；tenant scoped |
 | `get_saved_item` | `item_id > 0` | 返回一个资料项及 ingestion state/error |
@@ -116,7 +117,8 @@ id 或 provider trace。
 
 ## 问答与引用边界
 
-`ask_notebook_agent` 进入现有 `ChannelService → KnowledgeAgent` 路径。MCP 不
+`ask_stashseek` 进入现有 `ChannelService → KnowledgeAgent` 路径。
+`ask_notebook_agent` 仅作为兼容别名进入同一个路径。MCP 不
 暴露 raw search segment、neighbor expansion、storage、dispatch、模型配置或
 purge 控制。非空检索证据会进入结构化 Composer；服务端校验 citation id 后
 才渲染 `[S<segment_id>]` 标记和带时间戳的来源。模型不能自行生成 URL、HTML、

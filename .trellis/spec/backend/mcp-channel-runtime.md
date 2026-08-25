@@ -4,11 +4,11 @@
 
 ### 1. Scope / Trigger
 
-This contract applies to Notebook Agent's MCP v2 adapter, its operator-managed
+This contract applies to StashSeek Chat's MCP v2 adapter, its operator-managed
 access grants, and both supported transports. MCP is an application channel,
 not a fixed service account: every request must resolve a bearer capability to
 one stable MCP principal, one `AppUser`, and one `TenantContext` before any
-Notebook Agent service is called.
+StashSeek Chat service is called.
 
 LangBot remains an optional out-of-process adapter under `integrations/`.
 Adding or changing MCP must not introduce LangBot SDK imports, an in-process
@@ -52,6 +52,7 @@ label, created_by
 The only public MCP tools are:
 
 ```text
+ask_stashseek
 ask_notebook_agent
 submit_knowledge_urls
 list_saved_items
@@ -69,7 +70,7 @@ retry_item_ingestion
 - Pin and use the official Python MCP SDK v2 API. Support stdio and Streamable
   HTTP; do not add the obsolete SSE transport or a protocol-neutral fallback
   that can make tests pass while production startup fails.
-- `ask_notebook_agent` enters the existing
+- `ask_stashseek` enters the existing
   `ChannelService -> KnowledgeAgent` planner/retrieval path. MCP must not expose
   raw search segments, neighbor expansion, citation hydration, storage access,
   tenant IDs, dispatch IDs, model configuration, or purge controls.
@@ -88,8 +89,11 @@ retry_item_ingestion
 - `expires_at` defaults to `NULL`. Grants survive restarts and inactivity until
   explicit rotation/revocation/disablement, optional expiry, identity disable,
   or `AppUser` disablement.
-- `read` discovery contains exactly `ask_notebook_agent`,
-  `list_saved_items`, and `get_saved_item`. `full` may expose all ten tools only
+- `ask_notebook_agent` is a compatibility alias that uses the same input/output
+  models, facade implementation, tenant resolution, and evidence path as
+  `ask_stashseek`; it must not fork business logic.
+- `read` discovery contains exactly `ask_stashseek`, `ask_notebook_agent`,
+  `list_saved_items`, and `get_saved_item`. `full` may expose all eleven tools only
   when the mutation readiness assessment succeeds. Discovery and invocation
   both fail closed.
 - Production mutation readiness is bounded and covers database, broker,
@@ -169,7 +173,7 @@ MCP_TOKEN=<stdio-only raw bearer, process environment>
 
 - Use the official MCP client to assert `initialize -> tools/list -> tools/call`
   for read and full profiles and to inspect the exact typed/bounded wire schemas.
-- Drive `ask_notebook_agent` through that client into a real `ChannelService`
+- Drive both `ask_stashseek` and `ask_notebook_agent` through that client into a real `ChannelService`
   and controlled `KnowledgeAgent` `FunctionModel`; assert a planner call for
   natural language and zero calls for slash commands and invalid schemas.
 - Start a real stdio subprocess and assert protocol-clean stdout, token/scope

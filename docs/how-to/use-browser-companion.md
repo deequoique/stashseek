@@ -28,7 +28,7 @@ pnpm package:local           # http://127.0.0.1:8000
 ## 2. 配对设备
 
 1. 登录 Web 资料库，打开“账号 → 浏览器伴侣”。
-2. 在扩展弹窗点击“连接 Notebook Agent”。
+2. 在扩展弹窗点击“连接 StashSeek Chat”。
 3. 新打开的 Web 页面会显示配对请求；确认当前账户和 origin 后点击“允许连接”。
 4. 回到扩展弹窗，点击“我已批准，完成连接”。
 5. 弹窗显示“已连接”后，再打开需要保存的视频页面。
@@ -63,6 +63,6 @@ pnpm package:local           # http://127.0.0.1:8000
 ## 隐私边界
 
 扩展不会把 YouTube/NTULearn 登录 Cookie、SAML、Kaltura KS、Authorization、签名
-字幕 URL 或播放凭据提交给 Notebook Agent。服务端只接收受校验的 `capture.v1` 内容。
+字幕 URL 或播放凭据提交给 StashSeek Chat。服务端只接收受校验的 `capture.v1` 内容。
 浏览器捕获 token 与 Web session、MCP grant 完全隔离；发现其中任何一个出现在日志或
 代理 URL 中，应立即撤销对应设备并按[排查与响应](troubleshoot.md)处理。

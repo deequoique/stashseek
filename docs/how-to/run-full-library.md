@@ -2,7 +2,7 @@
 
 ## 目标
 
-把已经能运行只读 MCP 的 Notebook Agent 切换为完整 profile，使用户可以保存
+把已经能运行只读 MCP 的 StashSeek Chat 切换为完整 profile，使用户可以保存
 YouTube/Bilibili 普通视频、等待后台整理，并使用条目管理工具。完整 profile 会增加
 Redis、MinIO、一个 Celery worker、一个 Beat scheduler 和 loopback-only LangBot
 gateway；LangBot 仍然是可选的外部渠道，不是保存功能的前置条件。
@@ -18,7 +18,7 @@ gateway；LangBot 仍然是可选的外部渠道，不是保存功能的前置�
 在项目根目录执行：
 
 ```bash
-./scripts/notebook-agent init --force --profile full
+./scripts/stashseek init --force --profile full
 ```
 
 初始化会保留现有本地数据库 volume 所需的凭据，并更新 launcher-owned 的
@@ -34,8 +34,8 @@ stat -f '%Sp %N' .env.runtime 2>/dev/null || stat -c '%A %n' .env.runtime
 ## 2. 启动并检查后台能力
 
 ```bash
-./scripts/notebook-agent start
-./scripts/notebook-agent status
+./scripts/stashseek start
+./scripts/stashseek status
 ```
 
 `full` 启动顺序包含依赖检查、单一 Alembic head、worker、Beat、MCP 和 gateway。
@@ -44,10 +44,10 @@ worker 必须同时监听 `ingest` 与 `maintenance`；同一个 supervisor 只�
 出现问题时按组件查看有限日志：
 
 ```bash
-./scripts/notebook-agent logs worker --lines 100
-./scripts/notebook-agent logs beat --lines 100
-./scripts/notebook-agent logs mcp --lines 100
-./scripts/notebook-agent logs gateway --lines 100
+./scripts/stashseek logs worker --lines 100
+./scripts/stashseek logs beat --lines 100
+./scripts/stashseek logs mcp --lines 100
+./scripts/stashseek logs gateway --lines 100
 ```
 
 不要用 `killall`、按进程名杀进程或直接运行 `docker compose down`。启动器只管理

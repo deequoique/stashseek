@@ -1,5 +1,5 @@
 [Unit]
-Description=Notebook Agent isolated Redis and MinIO dependencies
+Description=StashSeek Chat isolated Redis and MinIO dependencies
 After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service

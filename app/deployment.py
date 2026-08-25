@@ -92,6 +92,34 @@ def _env_port(env: Mapping[str, str], name: str, default: int) -> int:
     return port
 
 
+def _compat_value(
+    env: Mapping[str, str], canonical: str, legacy: str, default: str | None = None
+) -> str | None:
+    """Resolve a renamed launcher variable with canonical precedence."""
+
+    if canonical in env:
+        return env[canonical]
+    return env.get(legacy, default)
+
+
+_COMPAT_ENV_PAIRS: tuple[tuple[str, str], ...] = (
+    ("STASHSEEK_PROFILE", "NOTEBOOK_AGENT_PROFILE"),
+    ("STASHSEEK_ALLOW_NON_LOOPBACK", "NOTEBOOK_AGENT_ALLOW_NON_LOOPBACK"),
+    ("STASHSEEK_LOG_MAX_BYTES", "NOTEBOOK_AGENT_LOG_MAX_BYTES"),
+    ("STASHSEEK_LOG_BACKUP_COUNT", "NOTEBOOK_AGENT_LOG_BACKUP_COUNT"),
+)
+
+
+def _canonicalize_compat_layer(values: Mapping[str, str]) -> dict[str, str]:
+    """Project legacy values into canonical keys within one source layer."""
+
+    normalized = dict(values)
+    for canonical, legacy in _COMPAT_ENV_PAIRS:
+        if canonical not in normalized and legacy in normalized:
+            normalized[canonical] = normalized[legacy]
+    return normalized
+
+
 def _listener_targets(
     profile: str, env: Mapping[str, str]
 ) -> tuple[tuple[str, str, int], ...]:
@@ -166,23 +194,27 @@ def load_environment(
     resolved: dict[str, str] = {}
     if managed_path.exists():
         resolved.update(
-            {
+            _canonicalize_compat_layer({
                 key: value
                 for key, value in dotenv_values(
                     managed_path, interpolate=False
                 ).items()
                 if value is not None
-            }
+            })
         )
     if operator_path.exists():
         resolved.update(
-            {
+            _canonicalize_compat_layer({
                 key: value
                 for key, value in dotenv_values(operator_path).items()
                 if value is not None
-            }
+            })
         )
-    resolved.update(dict(process_env if process_env is not None else os.environ))
+    resolved.update(
+        _canonicalize_compat_layer(
+            process_env if process_env is not None else os.environ
+        )
+    )
     return resolved
 
 
@@ -229,7 +261,13 @@ def initialize(profile: str, *, force: bool = False) -> None:
     inherited = load_environment(
         managed_path=MANAGED_ENV, operator_path=OPERATOR_ENV
     )
-    values: dict[str, str] = {"NOTEBOOK_AGENT_PROFILE": profile}
+    # Write the canonical key and a same-value compatibility alias. Existing
+    # operators can continue to inspect or invoke the legacy launcher while
+    # new processes deterministically read STASHSEEK_PROFILE first.
+    values: dict[str, str] = {
+        "STASHSEEK_PROFILE": profile,
+        "NOTEBOOK_AGENT_PROFILE": profile,
+    }
     if MANAGED_ENV.exists():
         old_managed = {
             key: value
@@ -245,6 +283,7 @@ def initialize(profile: str, *, force: bool = False) -> None:
         values.update(
             {key: old_managed[key] for key in preserved if key in old_managed}
         )
+        values["STASHSEEK_PROFILE"] = profile
         values["NOTEBOOK_AGENT_PROFILE"] = profile
 
     if not inherited.get("DATABASE_URL") and not inherited.get("POSTGRES_PASSWORD"):
@@ -510,7 +549,15 @@ def _prepare(profile: str, env: Mapping[str, str]) -> None:
             )
     if "mcp" in plan.components:
         mcp_host = env.get("MCP_HOST", "127.0.0.1").lower()
-        acknowledged = env.get("NOTEBOOK_AGENT_ALLOW_NON_LOOPBACK", "").lower()
+        acknowledged = (
+            _compat_value(
+                env,
+                "STASHSEEK_ALLOW_NON_LOOPBACK",
+                "NOTEBOOK_AGENT_ALLOW_NON_LOOPBACK",
+                "",
+            )
+            or ""
+        ).lower()
         if mcp_host not in {"localhost", "127.0.0.1", "::1"} and acknowledged not in {
             "1",
             "true",
@@ -518,7 +565,7 @@ def _prepare(profile: str, env: Mapping[str, str]) -> None:
             "on",
         }:
             raise DeploymentError(
-                "non-loopback MCP_HOST requires NOTEBOOK_AGENT_ALLOW_NON_LOOPBACK=true and a TLS proxy"
+                "non-loopback MCP_HOST requires STASHSEEK_ALLOW_NON_LOOPBACK=true and a TLS proxy"
             )
     migration_env = _migration_environment(env)
     static_source = (
@@ -703,7 +750,10 @@ def start(profile: str | None, *, foreground: bool) -> None:
     if not MANAGED_ENV.exists():
         initialize(_auto_init_profile(profile))
     env = load_environment()
-    selected = profile or env.get("NOTEBOOK_AGENT_PROFILE", "full")
+    selected = profile or (
+        _compat_value(env, "STASHSEEK_PROFILE", "NOTEBOOK_AGENT_PROFILE", "full")
+        or "full"
+    )
     previous_handlers = {}
     process: subprocess.Popen | None = None
     pending_signals: list[int] = []
@@ -720,7 +770,7 @@ def start(profile: str | None, *, foreground: bool) -> None:
             if active:
                 phase = active.get("phase", "running")
                 print(
-                    f"Notebook Agent is already {phase} (profile={active.get('profile')})."
+                    f"StashSeek Chat is already {phase} (profile={active.get('profile')})."
                 )
                 return
             if STATE_FILE.exists():
@@ -788,7 +838,7 @@ def start(profile: str | None, *, foreground: bool) -> None:
                 and state.get("run_id") == run_id
                 and state.get("phase") == "running"
             ):
-                print(f"Notebook Agent started (profile={selected}).")
+                print(f"StashSeek Chat started (profile={selected}).")
                 break
             if process.poll() is not None:
                 _remove_state(run_id)
@@ -819,7 +869,12 @@ def _auto_init_profile(explicit: str | None) -> str:
     initial_env = load_environment(
         managed_path=Path("/__missing__"), operator_path=OPERATOR_ENV
     )
-    selected = initial_env.get("NOTEBOOK_AGENT_PROFILE", "full")
+    selected = (
+        _compat_value(
+            initial_env, "STASHSEEK_PROFILE", "NOTEBOOK_AGENT_PROFILE", "full"
+        )
+        or "full"
+    )
     if selected not in PROFILES:
         raise DeploymentError(f"unknown profile: {selected}")
     return selected
@@ -882,8 +937,18 @@ def _spawn_component(
 
 def _log_rotation_config(env: Mapping[str, str]) -> tuple[int, int]:
     try:
-        max_bytes = int(env.get("NOTEBOOK_AGENT_LOG_MAX_BYTES", "10485760"))
-        backup_count = int(env.get("NOTEBOOK_AGENT_LOG_BACKUP_COUNT", "5"))
+        max_bytes = int(
+            _compat_value(
+                env, "STASHSEEK_LOG_MAX_BYTES", "NOTEBOOK_AGENT_LOG_MAX_BYTES", "10485760"
+            )
+            or "10485760"
+        )
+        backup_count = int(
+            _compat_value(
+                env, "STASHSEEK_LOG_BACKUP_COUNT", "NOTEBOOK_AGENT_LOG_BACKUP_COUNT", "5"
+            )
+            or "5"
+        )
     except (TypeError, ValueError) as exc:
         raise DeploymentError("invalid log rotation configuration") from exc
     if max_bytes < 1024 or backup_count < 1:
@@ -1183,7 +1248,7 @@ def stop() -> None:
         with _LifecycleLock():
             state = _active_state()
             if not state:
-                print("Notebook Agent is not running.")
+                print("StashSeek Chat is not running.")
                 return
             supervisor_pid = state.get("supervisor_pid")
             if supervisor_pid is not None:
@@ -1202,7 +1267,7 @@ def stop() -> None:
         time.sleep(0.1)
     if _pid_alive(pid):
         raise DeploymentError("supervisor did not stop within the safety timeout")
-    print("Notebook Agent stopped.")
+    print("StashSeek Chat stopped.")
 
 
 def _child_pid_matches(name: str, pid: int) -> bool:
@@ -1231,10 +1296,10 @@ def _child_pid_matches(name: str, pid: int) -> bool:
 def status() -> int:
     state = _active_state()
     if not state:
-        print("Notebook Agent: stopped")
+        print("StashSeek Chat: stopped")
         return 1
     profile = str(state.get("profile", ""))
-    print(f"Notebook Agent: running (profile={profile})")
+    print(f"StashSeek Chat: running (profile={profile})")
     checks: dict[str, bool] = {}
     children = state.get("children", {})
     if isinstance(children, dict):
@@ -1295,7 +1360,7 @@ def logs(component: str | None, *, follow: bool, lines: int) -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="notebook-agent")
+    parser = argparse.ArgumentParser(prog="stashseek")
     commands = parser.add_subparsers(
         dest="command",
         required=True,

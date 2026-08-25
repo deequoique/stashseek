@@ -157,7 +157,7 @@ def preflight(
         raise EvalPreflightError("AGENT_API_KEY is required; evaluator will not use a fake model")
     if not settings.zhipu_api_key:
         raise EvalPreflightError("ZHIPU_API_KEY is required for full retrieval and ingestion")
-    if settings.notebook_agent_env == "production":
+    if settings.stashseek_env == "production":
         raise EvalPreflightError("refusing to run persistent evaluation in production")
     try:
         factory = get_session_factory()
@@ -212,8 +212,8 @@ class LiveEvaluator:
     async def __aenter__(self) -> "LiveEvaluator":
         try:
             if self.human_dataset is not None and not (
-                self.settings.notebook_agent_env == "development"
-                and self.settings.notebook_agent_log_retrieval_content
+                self.settings.stashseek_env == "development"
+                and self.settings.stashseek_log_retrieval_content
             ):
                 raise EvalPreflightError(
                     "human benchmark requires development retrieval diagnostics"
@@ -387,8 +387,8 @@ class LiveEvaluator:
                 variables["conversation_id"] = conversation_id
                 rendered = render_template(turn.input, variables)
                 arguments = _render_arguments(turn.arguments, variables)
-                tool = turn.tool or "ask_notebook_agent"
-                if tool == "ask_notebook_agent":
+                tool = turn.tool or "ask_stashseek"
+                if tool in {"ask_stashseek", "ask_notebook_agent"}:
                     arguments = {"question": rendered, "conversation_id": conversation_id, **arguments}
                 started = time.monotonic()
                 payload = await self.runtime.call(tool, arguments)
@@ -431,7 +431,7 @@ class LiveEvaluator:
             diagnostic_error_code = self.runtime.diagnostics.agent_failure_code(request_id)
             diagnostic_events = self.runtime.diagnostics.events_for(request_id)
         else:
-            traces = [ToolTrace(turn.tool or "ask_notebook_agent", 0, "succeeded", "mcp_direct")]
+            traces = [ToolTrace(turn.tool or "ask_stashseek", 0, "succeeded", "mcp_direct")]
             model_attempt = False
             model_calls = 0
             diagnostic_error_code = None

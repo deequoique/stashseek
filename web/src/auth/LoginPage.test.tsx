@@ -41,7 +41,7 @@ describe("login page", () => {
     expect(container.querySelector(".wordmark .brand-logo")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "获取浏览器插件" })).toHaveAttribute(
       "href",
-      "/assets/notebook-agent-browser-companion-production-0.1.3.zip",
+      "/assets/stashseek-chat-browser-companion-production-0.1.3.zip",
     );
     expect(screen.getByRole("link", { name: "获取浏览器插件" })).toHaveAttribute("download");
     expect(within(wechat).getByTestId("wechat-brand-icon")).toBeInTheDocument();
@@ -80,7 +80,7 @@ describe("login page", () => {
     await user.click(await screen.findByRole("button", { name: "使用 Telegram 登录" }));
 
     expect(createChallenge).toHaveBeenCalledWith("telegram");
-    expect(screen.getByRole("heading", { name: "登录你的视频资料库" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "登录搜藏助手" })).toBeInTheDocument();
     expect(screen.getByText("请在 Telegram 中发送这条登录指令：")).toBeInTheDocument();
     expect(await screen.findByText("/web-login ABCD-EFGH")).toBeInTheDocument();
     expect(screen.getByText(/这条登录指令会在短时间后失效/)).toBeInTheDocument();

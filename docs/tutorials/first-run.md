@@ -1,6 +1,6 @@
 # 第一次运行：用只读 MCP 连接你的资料库
 
-这是一条面向第一次自托管 Notebook Agent 的安全路径。完成后，你会得到一个
+这是一条面向第一次自托管 StashSeek Chat 的安全路径。完成后，你会得到一个
 只在本机监听的 Streamable HTTP MCP 服务，并能在 MCP 客户端中看到只读工具。
 这条路径不启用 Redis、MinIO、Celery 或任何保存操作；需要保存视频时，再看
 [启用完整资料库](../how-to/run-full-library.md)。
@@ -9,10 +9,10 @@
 
 完成本教程后应当看到：
 
-- `./scripts/notebook-agent status` 显示 `read` profile 正在运行；
+- `./scripts/stashseek status` 显示 `read` profile 正在运行；
 - MCP 客户端可以连接 `http://127.0.0.1:8000/mcp`；
-- `tools/list` 只显示 `ask_notebook_agent`、`list_saved_items` 和
-  `get_saved_item`。
+- `tools/list` 显示 `ask_stashseek`、兼容别名 `ask_notebook_agent`、
+  `list_saved_items` 和 `get_saved_item`。
 
 ## 前置准备
 
@@ -46,7 +46,7 @@ python -m pip install -e '.[dev]'
 运行初始化向导：
 
 ```bash
-./scripts/notebook-agent init --profile read
+./scripts/stashseek init --profile read
 ```
 
 按提示输入 Embedding 和 Agent model 凭据。若你更习惯使用环境变量，也可以在
@@ -59,27 +59,27 @@ Beat 或 LangBot gateway。
 ## 3. 启动并检查服务
 
 ```bash
-./scripts/notebook-agent start
-./scripts/notebook-agent status
+./scripts/stashseek start
+./scripts/stashseek status
 ```
 
 第一次启动会准备本地 PostgreSQL 并执行迁移，然后在 loopback 地址提供 MCP。
 若要看 MCP 进程的有限日志：
 
 ```bash
-./scripts/notebook-agent logs mcp --lines 80
+./scripts/stashseek logs mcp --lines 80
 ```
 
 日志中不应出现 raw token、模型凭据、数据库密码或完整 capability URL。MCP 默认
 绑定 `127.0.0.1:8000`；在没有 TLS reverse proxy 和明确边界审核前，不要改成公网
-地址，也不要设置 `NOTEBOOK_AGENT_ALLOW_NON_LOOPBACK=true`。
+地址，也不要设置 `STASHSEEK_ALLOW_NON_LOOPBACK=true`。
 
 启动器生成的数据库密码等值位于 `.env.runtime`，而独立的 `app.cli` 默认只读取
 进程环境和 `.env`。在当前终端定义下面的临时 helper，让 operator 命令沿用启动器
 的优先级：当前进程环境 > `.env` > `.env.runtime`。
 
 ```bash
-notebook_run() {
+stashseek_run() {
   if [ -f .env ]; then
     .venv/bin/dotenv -f .env run --no-override -- \
       .venv/bin/dotenv -f .env.runtime run --no-override -- "$@"
@@ -97,13 +97,13 @@ notebook_run() {
 先创建一个本地用户：
 
 ```bash
-notebook_run .venv/bin/python -m app.cli users create
+stashseek_run .venv/bin/python -m app.cli users create
 ```
 
 复制命令输出的 `user_id`，再签发只读 grant：
 
 ```bash
-notebook_run .venv/bin/python -m app.cli mcp-grant issue \
+stashseek_run .venv/bin/python -m app.cli mcp-grant issue \
   --user-id <user-id> \
   --scope read \
   --label first-run
@@ -126,14 +126,14 @@ MCP 进程，然后使用同一个 grant 运行：
 
 ```bash
 export MCP_TOKEN='<raw-token>'
-notebook_run .venv/bin/python -m app.cli mcp-server --transport stdio
+stashseek_run .venv/bin/python -m app.cli mcp-server --transport stdio
 unset MCP_TOKEN
 ```
 
 stdio 的 stdout 只能承载 MCP 协议数据；不要把调试信息或 shell 提示符混入 stdout。
 将 `MCP_TOKEN` 作为进程环境传入，不要写入 `.env.example` 或提交到仓库。
 
-连接后依次执行 `initialize`、`tools/list`，确认只出现三个只读工具。空资料库也
+连接后依次执行 `initialize`、`tools/list`，确认出现四个只读工具（其中一个是兼容别名）。空资料库也
 是有效的第一次结果：调用 `list_saved_items` 应返回空列表或等价的“暂无资料”结果，
 而不是让客户端获得另一个用户的内容。
 
@@ -147,5 +147,5 @@ stdio 的 stdout 只能承载 MCP 协议数据；不要把调试信息或 shell 
 停止本机运行时使用：
 
 ```bash
-./scripts/notebook-agent stop
+./scripts/stashseek stop
 ```

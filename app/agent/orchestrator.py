@@ -317,8 +317,8 @@ class KnowledgeAgent:
         diagnostics = diagnostics or RequestDiagnostics.start(
             request.request_id,
             request.tenant.app_user_id,
-            allow_retrieval_content=self._settings.notebook_agent_log_retrieval_content,
-            environment=self._settings.notebook_agent_env,
+            allow_retrieval_content=self._settings.stashseek_log_retrieval_content,
+            environment=self._settings.stashseek_env,
         )
         parsed = parse_message_references(request.question)
         # A URL in a semantic question is model context, not a server-owned
@@ -378,8 +378,8 @@ class KnowledgeAgent:
         diagnostics = diagnostics or RequestDiagnostics.start(
             request.request_id,
             request.tenant.app_user_id,
-            allow_retrieval_content=self._settings.notebook_agent_log_retrieval_content,
-            environment=self._settings.notebook_agent_env,
+            allow_retrieval_content=self._settings.stashseek_log_retrieval_content,
+            environment=self._settings.stashseek_env,
         )
         parsed = parse_message_references(request.question)
         reference_scope: tuple[tuple[str, str], ...] = ()

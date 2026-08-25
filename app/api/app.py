@@ -1,4 +1,4 @@
-"""FastAPI composition for the same-origin Notebook Agent Web product."""
+"""FastAPI composition for the same-origin StashSeek Chat Web product."""
 
 from __future__ import annotations
 
@@ -189,7 +189,7 @@ _SAFE_MESSAGES = {
     "link_token_invalid": "绑定码无效，请重新生成",
     "extension_origin_invalid": "浏览器伴侣来源无效",
     "extension_pairing_invalid": "浏览器伴侣配对请求无效",
-    "extension_pairing_pending": "请先在 Notebook Agent 中批准配对",
+    "extension_pairing_pending": "请先在搜藏助手中批准配对",
     "extension_pairing_expired": "浏览器伴侣配对已过期，请重新开始",
     "extension_pairing_used": "浏览器伴侣配对已使用，请重新开始",
     "extension_pairing_rate_limited": "配对请求过多，请稍后重试",
@@ -305,7 +305,7 @@ def create_app(
         raise ValueError("web login channels must be unique telegram/wechat values")
     public_login_channels = tuple(web_login_channels)
     app = FastAPI(
-        title="Notebook Agent Web API",
+        title="StashSeek Chat Web API",
         version="1.0.0",
         openapi_url="/api/v1/openapi.json",
         docs_url="/api/v1/docs",

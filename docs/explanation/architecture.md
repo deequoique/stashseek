@@ -1,6 +1,6 @@
 # 架构与数据流
 
-Notebook Agent 把“进入系统的渠道”和“知识处理的核心”分开。Web、MCP、CLI
+StashSeek Chat 把“进入系统的渠道”和“知识处理的核心”分开。Web、MCP、CLI
 和 LangBot 不各自实现一套 Agent；它们把已经认证的消息转换为统一的
 `ChannelEnvelope`，再交给同一个租户绑定的 `ChannelService`。
 
@@ -40,7 +40,8 @@ Celery: ingest 与 maintenance worker、单一 Beat
   grant resolution；MCP 不导入 LangBot plugin。
 - `app.channels.http_gateway` 是 loopback-only 的 HMAC bridge。LangBot plugin
   在进程外把平台消息转成 signed HTTP request。
-- `app.cli` 提供 operator 和本地 smoke 命令；`scripts/notebook-agent` 只负责
+- `app.cli` 提供 operator 和本地 smoke 命令；`scripts/stashseek` 是 canonical
+  launcher，`scripts/notebook-agent` 只负责
   单机生命周期和 profile 组合。
 
 combined ASGI 模式由 `app.web_runtime` 分派：`MCP_PATH` 及其子路径先进入

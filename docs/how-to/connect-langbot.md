@@ -1,12 +1,12 @@
 # 接入 LangBot
 
-LangBot 是可选的渠道适配器。它把 Telegram/微信私聊事件转成 Notebook Agent
-channel envelope；用户、租户、对话、检索和权限仍由 Notebook Agent 管理。没有
+LangBot 是可选的渠道适配器。它把 Telegram/微信私聊事件转成 StashSeek Chat
+channel envelope；用户、租户、对话、检索和权限仍由 StashSeek Chat 管理。没有
 LangBot 时，Web、MCP 和浏览器伴侣仍可独立运行。
 
 ## 前置条件
 
-- Notebook Agent 已运行 `full` profile，且 loopback gateway 健康；
+- StashSeek Chat 已运行 `full` profile，且 loopback gateway 健康；
 - 已准备外部 LangBot 4.10.6 和 Telegram/微信 adapter；
 - 已阅读插件的[安装与安全说明](../../integrations/langbot_kb_plugin/README.md)；
 - 生产环境采用固定版本的 `integrations/langbot-4.10.6-redact-monitoring.patch`。
@@ -14,9 +14,9 @@ LangBot 时，Web、MCP 和浏览器伴侣仍可独立运行。
 LangBot 4.10.6 的生产补丁不是可选的 sleep；它会等待 bridge plugin 真正变成
 `initialized`，并在 bridge 缺失时 fail closed，防止消息落入 Local Agent。
 
-## 1. 配置 Notebook Agent gateway
+## 1. 配置 StashSeek Chat gateway
 
-在 Notebook Agent 私有 `.env` 或 secret manager 中设置：
+在 StashSeek Chat 私有 `.env` 或 secret manager 中设置：
 
 ```dotenv
 CHANNEL_GATEWAY_SECRET=<至少 32 个字符的随机值>
@@ -46,7 +46,7 @@ chmod 600 \
   /path/to/langbot/data/plugins/notebook-agent__notebook-knowledge-agent/.env
 ```
 
-填写与 Notebook Agent 根配置一致的 gateway secret，并明确映射 bot UUID：
+填写与 StashSeek Chat 根配置一致的 gateway secret，并明确映射 bot UUID：
 
 ```dotenv
 CHANNEL_GATEWAY_SECRET=<与根环境完全相同的值>
@@ -79,11 +79,11 @@ plugin:
 
 bridge pipeline 应设置 `enable_all_plugins=false`，并显式绑定同一个 required ref。
 Telegram 与微信 adapter 可以同时启用；不要通过 `enable_all_plugins` 隐式匹配，
-也不要配置 Local Agent 作为 Notebook Agent 不可用时的回退。
+也不要配置 Local Agent 作为 StashSeek Chat 不可用时的回退。
 
 ## 4. 按 readiness 顺序启动
 
-1. 启动 Notebook Agent gateway，确认 `GET /health` 为 200。
+1. 启动 StashSeek Chat gateway，确认 `GET /health` 为 200。
 2. 启动 LangBot core/plugin runtime。
 3. 等待日志出现 `Required plugins initialized; message adapters may start.`。
 4. 再确认 LangBot `healthz` 和各 adapter readiness；不要只用固定等待秒数代替。

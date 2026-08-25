@@ -1,11 +1,11 @@
 # Runtime Logging and Cross-Process Diagnostics
 
-## Scenario: privacy-safe Notebook Agent and LangBot request tracing
+## Scenario: privacy-safe StashSeek Chat and LangBot request tracing
 
 ### 1. Scope / Trigger
 
 Use this contract whenever changing runtime logging, request diagnostics, the LangBot bridge envelope, gateway/CLI
-startup, retrieval detail logging, or deployment log paths. Notebook Agent and LangBot are separate processes with
+startup, retrieval detail logging, or deployment log paths. StashSeek Chat and LangBot are separate processes with
 separate log owners; correlation is by a random trace ID, never by sharing a file or logging user content.
 
 The production invariant is fail-closed observability: logging may expose fixed stages, counters, stable outcomes and
@@ -18,11 +18,11 @@ retrieval details and complete provider HTTP error message/model/response body f
 Runtime configuration:
 
 ```dotenv
-NOTEBOOK_AGENT_ENV=production
-NOTEBOOK_AGENT_LOG_DIR=.runtime/logs
-NOTEBOOK_AGENT_LOG_MAX_BYTES=10485760
-NOTEBOOK_AGENT_LOG_BACKUP_COUNT=5
-NOTEBOOK_AGENT_LOG_RETRIEVAL_CONTENT=false
+STASHSEEK_ENV=production
+STASHSEEK_LOG_DIR=.runtime/logs
+STASHSEEK_LOG_MAX_BYTES=10485760
+STASHSEEK_LOG_BACKUP_COUNT=5
+STASHSEEK_LOG_RETRIEVAL_CONTENT=false
 ```
 
 Logging and correlation boundaries:
@@ -58,11 +58,14 @@ process or test framework to install handlers or set `notebook_agent.runtime` to
 
 ### 3. Contracts
 
-- Notebook Agent emits the same compact JSON event to stdout and `notebook-agent-YYYY-MM-DD.log`. Local development
+- StashSeek Chat emits the same compact JSON event to stdout and the stable
+  `notebook-agent-YYYY-MM-DD.log` compatibility filename. Local development
   defaults to `.runtime/logs`; Linux deployment uses `/var/log/notebook-agent` with systemd
   `LogsDirectory=notebook-agent` and keeps `ProtectSystem=strict`.
-- `DailySizeRotatingFileHandler` rotates on both date and `NOTEBOOK_AGENT_LOG_MAX_BYTES`, retaining at most
-  `NOTEBOOK_AGENT_LOG_BACKUP_COUNT` backups. Repeated configuration is idempotent and must not duplicate handlers.
+- `DailySizeRotatingFileHandler` rotates on both date and
+  `STASHSEEK_LOG_MAX_BYTES`, retaining at most `STASHSEEK_LOG_BACKUP_COUNT`
+  backups. Former `NOTEBOOK_AGENT_*` keys remain source-aware fallbacks.
+  Repeated configuration is idempotent and must not duplicate handlers.
 - LangBot core keeps its own stdout and `data/logs/langbot-YYYY-MM-DD.log`. The bridge writes a smaller allow-listed
   JSON event to plugin stderr only. Neither process writes the other's file.
 - The bridge creates a new `uuid4().hex` trace ID before the signed loopback POST. The gateway validates the fixed
@@ -113,11 +116,11 @@ process or test framework to install handlers or set `notebook_agent.runtime` to
 
 ### 5. Good / Base / Bad Cases
 
-- Good: a bridge `forward` event and Notebook Agent `accepted`, route, model, tool, retrieval and final-answer events
+- Good: a bridge `forward` event and StashSeek Chat `accepted`, route, model, tool, retrieval and final-answer events
   share one random trace ID; operators can join them without seeing the user's message or platform identity.
 - Base: a CLI request has no bridge trace, so the trusted application boundary creates one; stdout and the local daily
   file show the same safe event.
-- Bad: log a prompt/tool payload to diagnose a failure, use a platform message ID as the trace ID, let Notebook Agent
+- Bad: log a prompt/tool payload to diagnose a failure, use a platform message ID as the trace ID, let StashSeek Chat
   append to LangBot's file, infer development mode from `.runtime`, serialize `str(exception)`, or disable business
   failure handling because the file sink is unavailable.
 
@@ -129,7 +132,7 @@ process or test framework to install handlers or set `notebook_agent.runtime` to
   fallback. Assert logging failures do not change the business result.
 - Send a fake bridge event through the signed gateway; assert a valid random trace ID correlates both processes, while
   malformed and unsigned envelopes fail closed and never affect tenant/request identity.
-- Scan stdout, Notebook Agent files and captured bridge stderr with sensitive sentinels for question/history,
+- Scan stdout, StashSeek Chat files and captured bridge stderr with sensitive sentinels for question/history,
   retrieval text, prompts, model/tool/action/provider payloads, evidence, URLs, identities, secrets, vectors and
   exception messages. Assert every sentinel is absent in production.
 - In explicit development mode, assert allowed query/result fields and full provider error message/model/body appear in

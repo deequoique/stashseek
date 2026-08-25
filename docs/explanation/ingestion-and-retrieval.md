@@ -1,6 +1,6 @@
 # 导入、分块、检索与回答
 
-Notebook Agent 的核心区别不是“把 URL 存下来”，而是把可获取的字幕变成
+StashSeek Chat 的核心区别不是“把 URL 存下来”，而是把可获取的字幕变成
 带时间边界、可按租户检索、可以回到原视频的 evidence。URL collection 只知道
 用户曾经保存过什么；knowledge library 还需要有可验证的原文、segment 和
 来源投影。

@@ -1,6 +1,6 @@
-# Notebook Agent 文档
+# StashSeek Chat 文档
 
-这里是 Notebook Agent 的自托管与集成文档。第一次使用时从教程开始；已经知道目标时，直接选择对应的操作指南。
+这里是 StashSeek Chat 的自托管与集成文档。第一次使用时从教程开始；已经知道目标时，直接选择对应的操作指南。
 
 ## 第一次运行
 
@@ -16,7 +16,7 @@
 | 连接 Claude、Codex 或其他 MCP 客户端 | [连接 MCP 客户端](how-to/connect-mcp-client.md) |
 | 保存当前浏览器页面中的字幕 | [使用浏览器伴侣](how-to/use-browser-companion.md) |
 | 通过 Telegram 或微信使用资料库 | [接入 LangBot](how-to/connect-langbot.md) |
-| 部署公开服务 | [部署 Notebook Agent](how-to/deploy-production.md) |
+| 部署公开服务 | [部署 StashSeek Chat](how-to/deploy-production.md) |
 | 备份、升级或解决运行故障 | [操作指南目录](how-to/README.md) |
 | 查询配置、命令或接口定义 | [参考手册](reference/README.md) |
 | 理解架构、检索和隐私设计 | [原理解读](explanation/README.md) |

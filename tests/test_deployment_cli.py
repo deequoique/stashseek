@@ -910,6 +910,6 @@ def test_first_run_docs_load_launcher_environment_for_operator_cli():
     )
 
     assert ".venv/bin/dotenv -f .env.runtime run --no-override" in tutorial
-    assert "notebook_run .venv/bin/python -m app.cli users create" in tutorial
-    assert "notebook_run .venv/bin/python -m app.cli mcp-grant issue" in tutorial
-    assert '"command": "/absolute/path/to/notebook-agent/.venv/bin/dotenv"' in mcp_guide
+    assert "stashseek_run .venv/bin/python -m app.cli users create" in tutorial
+    assert "stashseek_run .venv/bin/python -m app.cli mcp-grant issue" in tutorial
+    assert '"command": "/absolute/path/to/stashseek/.venv/bin/dotenv"' in mcp_guide

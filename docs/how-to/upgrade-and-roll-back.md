@@ -60,9 +60,9 @@ corepack pnpm --dir web build
 单机 launcher 管理的环境可以在备份后切换 profile 并重启：
 
 ```bash
-./scripts/notebook-agent status
-./scripts/notebook-agent restart --profile full
-./scripts/notebook-agent status
+./scripts/stashseek status
+./scripts/stashseek restart --profile full
+./scripts/stashseek status
 ```
 
 如果 `restart` 报 migration、端口或依赖错误，保留现场并按[排查问题](troubleshoot.md)
@@ -81,7 +81,7 @@ corepack pnpm --dir web build
 仓库内生产部署脚本会锁定部署、保留 previous release，并在 dependency/migration/
 health/gateway/LangBot readiness 失败时尝试恢复 previous release。执行前请阅读
 [生产 runbook](../operations/production/ovh-caddy.md) 的主机边界；不要手工 `docker compose down`
-或重启同机不属于 Notebook Agent 的服务。
+或重启同机不属于 StashSeek Chat 的服务。
 
 ## 6. 不要自动 downgrade
 

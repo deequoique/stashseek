@@ -2,13 +2,13 @@
 
 本运维手册适用于 OVH 生产环境中的
 `notebookai.deequoique.tech` 部署。LangBot 是内部管理入口，不是第二个公开应用。
-Caddy 必须继续只代理位于 `127.0.0.1:8800` 的 Notebook Agent 组合服务。
+Caddy 必须继续只代理位于 `127.0.0.1:8800` 的 StashSeek Chat 组合服务。
 
 ## 运行时边界
 
 - Channel Gateway 只监听 `127.0.0.1:8765`。
 - 打过补丁的 LangBot 4.10.6 只监听 `127.0.0.1:5300`。
-- LangBot 以 `notebook-langbot` 身份运行，不会加载 Notebook Agent 的数据库、
+- LangBot 以 `notebook-langbot` 身份运行，不会加载 StashSeek Chat 的数据库、
   model、email、Redis、MinIO、Web Auth 或 MCP 环境文件。
 - 必需的 bridge plugin 只会在权限为 `0600` 的私有 `.env` 中保存自己的
   gateway secret、loopback Gateway URL 和受信任的 bot UUID mapping。
@@ -93,7 +93,7 @@ sudo journalctl -u notebook-agent-langbot.service --since today --no-pager \
   | grep -F 'Required plugins initialized; message adapters may start.'
 ```
 
-然后向 Telegram bot 发送一条普通的人类消息，并确认 Notebook Agent 恰好返回一条最终
+然后向 Telegram bot 发送一条普通的人类消息，并确认 StashSeek Chat 恰好返回一条最终
 回复。确认不存在 WeChat adapter；查看日志时只能检查内部状态或错误类别，不要查看
 token、消息文本、用户名、外部发送者 ID 或消息预览。
 
@@ -104,6 +104,6 @@ token、消息文本、用户名、外部发送者 ID 或消息预览。
 application、Gateway、LangBot 进程健康检查以及 required-bridge marker 全部通过后，
 release 才会被接受。
 
-回滚只切换不可变的 Notebook Agent release，并重启其所属 unit。它会保留 LangBot 的
+回滚只切换不可变的 StashSeek Chat release，并重启其所属 unit。它会保留 LangBot 的
 SQLite/configuration、Telegram adapter、bridge `.env`、Redis/MinIO volumes 以及远程
 Neon 数据。

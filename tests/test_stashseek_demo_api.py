@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-from demo.notebook_demo_api import create_server
+from demo.stashseek_demo_api import create_server
 
 
 def _read(response: HTTPResponse) -> dict[str, Any] | None:

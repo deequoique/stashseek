@@ -31,7 +31,7 @@ combined runtime 不应再额外启动一个 public `web-server`；否则 Web、
 至少准备：
 
 ```dotenv
-NOTEBOOK_AGENT_ENV=production
+STASHSEEK_ENV=production
 DATABASE_URL=<pooled-or-runtime-postgres-url>
 MIGRATION_DATABASE_URL=<matching-direct-migration-url>
 ZHIPU_API_KEY=<embedding-provider-key>
@@ -50,7 +50,7 @@ MCP_URL_TOKEN_MODE=false
 CHANNEL_GATEWAY_SECRET=<at-least-32-random-characters>
 CHANNEL_GATEWAY_HOST=127.0.0.1
 CHANNEL_GATEWAY_PORT=8765
-NOTEBOOK_AGENT_LOG_DIR=/var/log/notebook-agent
+STASHSEEK_LOG_DIR=/var/log/notebook-agent
 ```
 
 生产 Web auth 还必须设置显式 `EMAIL_PROVIDER` 及其邮件凭据。`MIGRATION_DATABASE_URL`
@@ -138,7 +138,7 @@ deploy <40-lowercase-hex-sha>
 - split 前端时，未知 `/api/*` 返回 JSON 404，不得回退成 SPA HTML。
 
 修改代理前先验证完整候选配置，再优雅 reload；如果新 route 破坏同机旧 route，
-只回滚本次 Notebook Agent site block。不要通过 wildcard CORS、domain cookie 或
+只回滚本次 StashSeek Chat site block。不要通过 wildcard CORS、domain cookie 或
 浏览器 localStorage token 绕过同源模型。
 
 ## 6. 上线 smoke

@@ -9,5 +9,5 @@ for attempt in {1..30}; do
   sleep 1
 done
 
-echo "Notebook Agent channel gateway did not become ready" >&2
+echo "StashSeek Chat channel gateway did not become ready" >&2
 exit 1

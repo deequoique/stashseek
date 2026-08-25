@@ -1,6 +1,6 @@
 # 部署独立前端
 
-`web/` 是 Notebook Agent 的私有 React 应用，不是可独立发布的组件库。它的部署
+`web/` 是 StashSeek Chat 的私有 React 应用，不是可独立发布的组件库。它的部署
 产物是 `web/dist`；前端和 `/api/v1` 契约应由同一个 release 一起审查和发布。
 
 ## 选择部署形态

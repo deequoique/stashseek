@@ -188,9 +188,9 @@ export function LoginPage({
       <div className="paper-glow" aria-hidden="true" />
       <section className="login-card" aria-labelledby="login-title">
         <div className="login-card__topline">
-          <a className="wordmark" href="/" aria-label="Notebook Agent 首页">
+          <a className="wordmark" href="/" aria-label="搜藏助手首页">
             <BrandLogo className="wordmark__sigil" />
-            <span>Notebook Agent</span>
+            <span>StashSeek Chat</span>
           </a>
           <a
             className="login-companion-link"
@@ -200,8 +200,8 @@ export function LoginPage({
             获取浏览器插件
           </a>
         </div>
-        <p className="eyebrow">你的私人视频资料库</p>
-        <h1 id="login-title">登录你的视频资料库</h1>
+        <p className="eyebrow">搜藏助手 · 和收藏内容直接对话</p>
+        <h1 id="login-title">登录搜藏助手</h1>
         {accountLinkSuccess ? (
           <p className="login-success-note" role="status" aria-live="polite">
             Telegram 已绑定。请使用邮箱验证码重新登录，进入合并后的私人资料库。

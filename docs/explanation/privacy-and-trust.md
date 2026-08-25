@@ -1,6 +1,6 @@
 # 隐私与可信边界
 
-Notebook Agent 的“私人知识库”不是一句营销标签，而是一组独立的边界：
+StashSeek Chat 的“私人知识库”不是一句营销标签，而是一组独立的边界：
 身份解析、租户查询、凭据作用域、证据选择和日志投影必须同时成立。任何一个
 入口都不能只靠 prompt、前端过滤或“调用方自报 user id”来提供隔离。
 
@@ -27,7 +27,7 @@ current tenant ∧ active ∧ not deleted ∧ not archived ∧ ready（按查询
 | Web `__Host-kb_session` + CSRF | 浏览器 | 当前 Web identity 的资料库、对话和设备管理 | 不认证 MCP、Gateway 或 extension capture |
 | MCP raw grant token | 某个 MCP client/process | 该 grant scope 下的 MCP tools | 不接受 caller user id；不认证 Web 或 extension |
 | Browser companion Bearer | 已配对扩展 | `capture:write` 提交规范化字幕 | 不读资料库、对话、Web session 或 MCP |
-| `CHANNEL_GATEWAY_SECRET` | Notebook Agent gateway 与 LangBot plugin | HMAC 认证 loopback `/v1/messages` bridge | 不是浏览器登录或 MCP token |
+| `CHANNEL_GATEWAY_SECRET` | StashSeek Chat gateway 与 LangBot plugin | HMAC 认证 loopback `/v1/messages` bridge | 不是浏览器登录或 MCP token |
 | channel link token | 用户当前 Web/Telegram/WeChat flow | 一次性、短期跨渠道 identity merge | 不直接执行 Agent 或授予任意 tenant |
 
 凭据在数据库中只保 hash 或不可逆摘要：MCP grant token、browser pairing/grant、
@@ -90,7 +90,7 @@ status GET。生产禁止 `chrome-extension://*`。
 页面授权始终留在浏览器：
 
 - Cookie、SAML、Kaltura KS、signed caption/media URL、Authorization header 和
-  page exception 不会进入 Notebook Agent payload、broker、PostgreSQL 或日志；
+  page exception 不会进入 StashSeek Chat payload、broker、PostgreSQL 或日志；
 - server 只接收 `capture.v1` 的 platform id、secret-free canonical/page URL、
   bounded public metadata、ordered cues 和 server-defined cue hash；
 - 浏览器请求、caption body 和 publish 都有独立大小/时间预算；扩展不可因
@@ -107,12 +107,12 @@ status GET。生产禁止 `chrome-extension://*`。
 只允许固定 safe fields（状态、phase、bounded error code、耗时、计数），不能写
 问题文本、tool 参数/结果、excerpt、segment/item id、URL、provider body 或
 exception message。开发环境可显式开启受限 retrieval detail，但 production
-必须保持 `NOTEBOOK_AGENT_LOG_RETRIEVAL_CONTENT=false`。
+必须保持 `STASHSEEK_LOG_RETRIEVAL_CONTENT=false`。
 
 `MIGRATION_DATABASE_URL` 只在一次性 migration 子进程中存在；launcher 不复制
 完整 `.env.example` 到 `.env.runtime`，不会把 secrets 传给不需要的长期子进程。
 生产系统的 Redis/MinIO ports 应只发布到 loopback，Caddy/NGINX 只代理已拥有的
-Notebook Agent site block，并在完整候选配置上验证后 reload。
+StashSeek Chat site block，并在完整候选配置上验证后 reload。
 
 ## 删除、恢复与可信回答
 

@@ -1,4 +1,4 @@
-"""Same-origin browser API for Notebook Agent."""
+"""Same-origin browser API for StashSeek Chat."""
 
 from app.api.app import WebApiServices, create_app
 

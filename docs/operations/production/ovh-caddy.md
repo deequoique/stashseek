@@ -200,6 +200,6 @@ dispatcher。不要授予 interactive shell、任意 sudo、forwarding，或访�
 
 回滚只会修改 `/opt/notebook-agent/current`，并重启部署拥有的 worker、Beat、
 组合应用、Gateway 和 LangBot unit。它不会运行 `docker compose down`，不会删除
-volumes、移除 buckets，也不会降级或删除 Neon 数据。只有在移除 Notebook Agent
+volumes、移除 buckets，也不会降级或删除 Neon 数据。只有在移除 StashSeek Chat
 hostname 时才恢复 Caddy 备份；恢复后要验证配置、优雅地 reload，并重新检查所有
 既有路由。

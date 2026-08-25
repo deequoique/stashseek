@@ -165,8 +165,8 @@ class ChannelService:
                 envelope.request_id,
                 tenant.app_user_id,
                 envelope.trace_id,
-                allow_retrieval_content=self._settings.notebook_agent_log_retrieval_content,
-                environment=self._settings.notebook_agent_env,
+                allow_retrieval_content=self._settings.stashseek_log_retrieval_content,
+                environment=self._settings.stashseek_env,
             )
             diagnostics.event("accepted")
             if command == "web-login":
@@ -341,8 +341,8 @@ class ChannelService:
                 envelope.request_id,
                 tenant.app_user_id,
                 envelope.trace_id,
-                allow_retrieval_content=self._settings.notebook_agent_log_retrieval_content,
-                environment=self._settings.notebook_agent_env,
+                allow_retrieval_content=self._settings.stashseek_log_retrieval_content,
+                environment=self._settings.stashseek_env,
             )
             diagnostics.event("accepted")
             if command == "web-login":

@@ -6,7 +6,7 @@
 
 ## Overview
 
-Notebook Agent uses SQLAlchemy and Alembic with PostgreSQL. Production runtime
+StashSeek Chat uses SQLAlchemy and Alembic with PostgreSQL. Production runtime
 traffic uses a pooled Neon URL, while schema migrations use the matching direct
 Neon URL in a bounded one-shot unit outside application build and request
 lifecycles.

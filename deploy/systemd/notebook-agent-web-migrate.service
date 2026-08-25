@@ -1,5 +1,5 @@
 [Unit]
-Description=Notebook Agent Web schema migration admission
+Description=StashSeek Chat Web schema migration admission
 After=network-online.target docker.service
 Wants=network-online.target
 
@@ -10,8 +10,8 @@ Group=notebook-agent
 WorkingDirectory=/opt/notebook-agent/current
 EnvironmentFile=/etc/notebook-agent/notebook-agent.env
 Environment=PYTHONDONTWRITEBYTECODE=1
-Environment=NOTEBOOK_AGENT_ENV=production
-Environment=NOTEBOOK_AGENT_LOG_RETRIEVAL_CONTENT=false
+Environment=STASHSEEK_ENV=production
+Environment=STASHSEEK_LOG_RETRIEVAL_CONTENT=false
 ExecStart=/opt/notebook-agent/current/.venv/bin/alembic upgrade head
 ExecStart=/opt/notebook-agent/current/.venv/bin/alembic current
 ExecStart=/opt/notebook-agent/current/.venv/bin/alembic check

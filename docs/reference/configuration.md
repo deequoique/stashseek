@@ -1,6 +1,6 @@
 # 配置参考
 
-Notebook Agent 从进程环境读取配置，也会由 `python-dotenv` 读取项目根目录
+StashSeek Chat 从进程环境读取配置，也会由 `python-dotenv` 读取项目根目录
 `.env`。单机 launcher 另外维护 `.env.runtime`。实际生效顺序是：
 
 ```text
@@ -15,18 +15,23 @@ API key、完整 DSN、MCP URL capability、浏览器 Bearer 或 HMAC secret 写
 
 | 变量/文件 | 默认值 | 作用 |
 | --- | --- | --- |
-| `NOTEBOOK_AGENT_PROFILE` | launcher 选择 | `read`、`full` 或 `langbot`；仅 launcher 使用 |
-| `NOTEBOOK_AGENT_ENV` | `production` | 只能是 `development` 或 `production` |
-| `NOTEBOOK_AGENT_LOG_DIR` | `.runtime/logs` | 私有日志目录；生产 systemd 通常设为 `/var/log/notebook-agent` |
-| `NOTEBOOK_AGENT_LOG_MAX_BYTES` | `10485760` | 单个日志文件轮转上限 |
-| `NOTEBOOK_AGENT_LOG_BACKUP_COUNT` | `5` | 轮转文件数量 |
-| `NOTEBOOK_AGENT_LOG_RETRIEVAL_CONTENT` | `false` | 仅允许在 `development` 打开；生产配置会拒绝 |
+| `STASHSEEK_PROFILE` | launcher 选择 | `read`、`full` 或 `langbot`；仅 launcher 使用 |
+| `STASHSEEK_ENV` | `production` | 只能是 `development` 或 `production` |
+| `STASHSEEK_LOG_DIR` | `.runtime/logs` | 私有日志目录；生产 systemd 通常设为 `/var/log/notebook-agent` |
+| `STASHSEEK_LOG_MAX_BYTES` | `10485760` | 单个日志文件轮转上限 |
+| `STASHSEEK_LOG_BACKUP_COUNT` | `5` | 轮转文件数量 |
+| `STASHSEEK_LOG_RETRIEVAL_CONTENT` | `false` | 仅允许在 `development` 打开；生产配置会拒绝 |
 | `.env.runtime` | — | launcher 生成，必须是 gitignored 且 mode `0600` |
 | `MCP_TOKEN` | 未设置 | 仅传给一个 stdio MCP 子进程；不要写进 `.env.example` |
 
 修改环境变量后，已有进程不会自动重新读取；重启对应的 app、worker、Beat
 或 CLI 进程。修改数据库、Redis 或 MinIO 自身凭据还需要按对应服务的轮换
 流程处理。
+
+旧版部署仍可使用 `NOTEBOOK_AGENT_PROFILE`、`NOTEBOOK_AGENT_ENV` 和
+`NOTEBOOK_AGENT_LOG_*`；它们是兼容回退键。当新旧键同时设置时，
+`STASHSEEK_*` 始终优先。生产 systemd unit 名称、日志目录和其他既有
+`notebook-agent` 运维路径属于稳定兼容契约，本次不会迁移。
 
 ## PostgreSQL
 
@@ -148,7 +153,7 @@ completion notification 和维护任务；不要让新的部署监听已经退�
 | `MCP_PORT` | `8000` | Streamable HTTP 端口 |
 | `MCP_PATH` | `/mcp` | 非根绝对路径；无 query、fragment、末尾 `/` |
 | `MCP_URL_TOKEN_MODE` | `false` | 为仅支持 URL 的 client 开启 HTTPS `/mcp/c/<token>` 兼容路径 |
-| `NOTEBOOK_AGENT_ALLOW_NON_LOOPBACK` | 未设置/false | launcher 非 loopback MCP 绑定的显式确认 |
+| `STASHSEEK_ALLOW_NON_LOOPBACK` | 未设置/false | launcher 非 loopback MCP 绑定的显式确认 |
 
 普通 HTTP client 应使用 `Authorization: Bearer <token>`。`?token=` 永远不
 接受；path token 会出现在代理和基础设施 URL 中，必须把它当作 secret 并在
@@ -204,7 +209,7 @@ completion notification 和维护任务；不要让新的部署监听已经退�
 | `BROWSER_COMPANION_GRANT_TTL_SECONDS` | `7776000` | capture grant TTL（90 日） |
 | `BROWSER_COMPANION_MAX_REQUEST_BYTES` | `5500000` | capture body 上限 |
 
-开发时的 `chrome-extension://*` 仅在 `NOTEBOOK_AGENT_ENV=development` 且 Web
+开发时的 `chrome-extension://*` 仅在 `STASHSEEK_ENV=development` 且 Web
 只绑定 loopback 时允许。当前 extension 的平台范围是 YouTube 和
 NTULearn/Kaltura；插件在浏览器本地读取已授权字幕，服务端只收到规范化 cue、
 公开 metadata 和无秘密 canonical reference。
@@ -212,7 +217,7 @@ NTULearn/Kaltura；插件在浏览器本地读取已授权字幕，服务端只�
 ## Channel Gateway 与 LangBot
 
 Gateway 是可选的 out-of-process bridge，必须绑定 loopback。根 `.env` 只放
-Notebook Agent 端配置；已安装 LangBot plugin 目录的私有 `.env` 另放 plugin
+StashSeek Chat 端配置；已安装 LangBot plugin 目录的私有 `.env` 另放 plugin
 端配置。
 
 | 变量 | 默认值 | 放置位置 |
