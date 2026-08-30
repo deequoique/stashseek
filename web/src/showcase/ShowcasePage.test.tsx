@@ -25,6 +25,12 @@ describe("ShowcasePage", () => {
       "href",
       "https://beian.miit.gov.cn/",
     );
+    const githubLink = screen.getByRole("link", {
+      name: "在 GitHub 查看 StashSeek 源码，欢迎提交 Issue 与 PR",
+    });
+    expect(githubLink).toHaveAttribute("href", "https://github.com/deequoique/stashseek");
+    expect(githubLink).toHaveAttribute("target", "_blank");
+    expect(githubLink).toHaveAttribute("rel", "noreferrer");
   });
 
   it("explains the project, audience, workflow, and honest preset-demo boundary", () => {

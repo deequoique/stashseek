@@ -587,7 +587,20 @@ export function ShowcasePage() {
             粤ICP备2026101890号-1
           </a>
         </p>
-        <a href="#showcase-main">回到顶部 ↑</a>
+        <div className="showcase-footer__links">
+          <a
+            href="https://github.com/deequoique/stashseek"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="在 GitHub 查看 StashSeek 源码，欢迎提交 Issue 与 PR"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M12 .7a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.2.8-.5v-2c-3.4.7-4.1-1.4-4.1-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.9 1.2 1.9 1.2 1.1 1.9 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.4-5.5-6 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.3 11.3 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.7.2 2.9.1 3.2.7.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.7-5.5 6 .4.4.8 1.1.8 2.2v3.3c0 .3.2.6.8.5A11.5 11.5 0 0 0 12 .7Z" />
+            </svg>
+            GitHub · 欢迎提 Issue / PR
+          </a>
+          <a href="#showcase-main">回到顶部 ↑</a>
+        </div>
       </footer>
     </div>
   );
