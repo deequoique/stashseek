@@ -1,5 +1,5 @@
 [Unit]
-Description=Notebook Agent Neon schema migration admission
+Description=StashSeek Chat Neon schema migration admission
 After=network-online.target
 Wants=network-online.target
 
@@ -10,8 +10,8 @@ Group=notebook-agent
 WorkingDirectory=/opt/notebook-agent/current
 EnvironmentFile=/etc/notebook-agent/migrations.env
 Environment=PYTHONDONTWRITEBYTECODE=1
-Environment=NOTEBOOK_AGENT_ENV=production
-Environment=NOTEBOOK_AGENT_LOG_RETRIEVAL_CONTENT=false
+Environment=STASHSEEK_ENV=production
+Environment=STASHSEEK_LOG_RETRIEVAL_CONTENT=false
 ExecStart=/opt/notebook-agent/current/deploy/scripts/run-production-migrations
 
 NoNewPrivileges=true

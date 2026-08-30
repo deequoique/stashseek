@@ -274,9 +274,9 @@ export function ShowcasePage() {
       <a className="showcase-skip" href="#showcase-main">跳到主要内容</a>
 
       <header className="showcase-nav">
-        <RouteLink className="showcase-brand" to="/" aria-label="Notebook Agent 首页">
+        <RouteLink className="showcase-brand" to="/" aria-label="搜藏助手首页">
           <BrandLogo className="showcase-brand__mark" />
-          <span>NOTEBOOK / AGENT</span>
+          <span>STASHSEEK / CHAT</span>
         </RouteLink>
         <nav aria-label="展示页导航">
           <a href="#purpose">项目目的</a>
@@ -293,10 +293,10 @@ export function ShowcasePage() {
         <section className="showcase-hero" aria-labelledby="showcase-title">
           <div className="showcase-hero__grid" aria-hidden="true" />
           <div className="showcase-hero__copy">
-            <p className="showcase-kicker"><span>你的私人视频资料库</span><span>2026 / HACKATHON</span></p>
-            <h1 id="showcase-title">让收藏过的知识，<em>再次可用。</em></h1>
+            <p className="showcase-kicker"><span>搜藏助手 · 收藏内容对话</span><span>2026 / HACKATHON</span></p>
+            <h1 id="showcase-title">让收藏过的内容，<em>直接回答你。</em></h1>
             <p className="showcase-hero__lead">
-              散落在视频中的知识与信息，从此成为你的助手与知识库。
+              不用分类或整理，直接问一句，就能找到收藏过的视频和原文时间点。
             </p>
             <div className="showcase-hero__actions">
               <a className="showcase-button showcase-button--signal" href="#demo">先试一个真实场景 <ArrowIcon /></a>
@@ -362,7 +362,7 @@ export function ShowcasePage() {
               <h2 id="purpose-title">不要让遗忘成为<br /><em>收藏视频的终点。</em></h2>
             <div className="showcase-purpose__statement">
               <p>
-                当我们按下收藏键的刹那，你是否会想到这是你最后一次与你的视频碰面？我们不希望视频只成为收藏夹的一串链接，我们希望当你有需要的时候，能一眼找到你想要的内容。Notebook Agent 不仅能帮你记住视频在哪里，更能提醒你视频讲了什么。
+                当我们按下收藏键的刹那，你是否会想到这是你最后一次与你的视频碰面？我们不希望视频只成为收藏夹的一串链接，我们希望当你有需要的时候，能一眼找到你想要的内容。搜藏助手不要求你给收藏夹分类，只要直接问一句，就能找到视频讲过什么。
               </p>
               <p>
                 它先从你的资料库里找到相关原文，再组织答案；找不到时会明确说明，不会凭模型记忆补出一个看似合理的结论。
@@ -520,7 +520,7 @@ export function ShowcasePage() {
 
             <div className="demo-console">
               <div className="demo-console__bar">
-                <span>NOTEBOOK AGENT / 场景试用</span>
+                <span>STASHSEEK CHAT / 场景试用</span>
                 <span className="demo-console__mode"><i /> 来源核对模式</span>
               </div>
               <div className="demo-question">
@@ -579,7 +579,7 @@ export function ShowcasePage() {
       <footer className="showcase-footer">
         <RouteLink className="showcase-brand showcase-brand--footer" to="/">
           <BrandLogo className="showcase-brand__mark" />
-          <span>NOTEBOOK / AGENT</span>
+          <span>STASHSEEK / CHAT</span>
         </RouteLink>
         <p>
           <span>Built for EAZO Global Hackathon</span>
@@ -587,7 +587,20 @@ export function ShowcasePage() {
             粤ICP备2026101890号-1
           </a>
         </p>
-        <a href="#showcase-main">回到顶部 ↑</a>
+        <div className="showcase-footer__links">
+          <a
+            href="https://github.com/deequoique/stashseek"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="在 GitHub 查看 StashSeek 源码，欢迎提交 Issue 与 PR"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M12 .7a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.2.8-.5v-2c-3.4.7-4.1-1.4-4.1-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.9 1.2 1.9 1.2 1.1 1.9 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.4-5.5-6 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.3 11.3 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.7.2 2.9.1 3.2.7.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.7-5.5 6 .4.4.8 1.1.8 2.2v3.3c0 .3.2.6.8.5A11.5 11.5 0 0 0 12 .7Z" />
+            </svg>
+            GitHub · 欢迎提 Issue / PR
+          </a>
+          <a href="#showcase-main">回到顶部 ↑</a>
+        </div>
       </footer>
     </div>
   );

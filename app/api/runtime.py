@@ -106,7 +106,7 @@ def build_web_app(
         # The old channel-approved service remains injectable for existing
         # embedders and migration-era tests, but the deployed runtime enables
         # email OTP and never registers this as its public login flow.
-        if getattr(settings, "notebook_agent_env", "development") == "production":
+        if getattr(settings, "stashseek_env", "development") == "production":
             raise ValueError(
                 "WEB_AUTH_ENABLED must stay enabled for the production Web server"
             )

@@ -27,7 +27,7 @@ def _print(name, hits):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="kb")
+    parser = argparse.ArgumentParser(prog="stashseek")
     commands = parser.add_subparsers(dest="command", required=True)
     ingest = commands.add_parser("ingest")
     ingest.add_argument("url")
@@ -92,11 +92,21 @@ def main() -> None:
         return
     settings = get_settings()
     logging_options = dict(
-        log_dir=getattr(settings, "notebook_agent_log_dir", ".runtime/logs"),
-        max_bytes=getattr(
-            settings, "notebook_agent_log_max_bytes", 10 * 1024 * 1024
+        log_dir=getattr(
+            settings,
+            "stashseek_log_dir",
+            getattr(settings, "notebook_agent_log_dir", ".runtime/logs"),
         ),
-        backup_count=getattr(settings, "notebook_agent_log_backup_count", 5),
+        max_bytes=getattr(
+            settings,
+            "stashseek_log_max_bytes",
+            getattr(settings, "notebook_agent_log_max_bytes", 10 * 1024 * 1024),
+        ),
+        backup_count=getattr(
+            settings,
+            "stashseek_log_backup_count",
+            getattr(settings, "notebook_agent_log_backup_count", 5),
+        ),
     )
     if args.command == "mcp-server" and args.transport == "stdio":
         logging_options["console_stream"] = "stderr"

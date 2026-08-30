@@ -249,7 +249,7 @@ export function AccountLinkPage({
       </div>
 
       <p className="account-link-warning" role="note">
-        绑定码和 Bot 凭据不会保存到浏览器、网址或聊天记录之外的 Notebook Agent 日志中。
+        绑定码和 Bot 凭据不会保存到浏览器、网址或聊天记录之外的搜藏助手日志中。
       </p>
     </section>
   );

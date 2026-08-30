@@ -2133,7 +2133,7 @@
     }
   },
   "info": {
-    "title": "Notebook Agent Web API",
+    "title": "StashSeek Chat Web API",
     "version": "1.0.0"
   },
   "openapi": "3.1.0",

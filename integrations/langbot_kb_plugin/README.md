@@ -11,14 +11,14 @@ each bot UUID must be explicitly mapped in `KB_BOT_CHANNELS`.
 The bridge calls only the loopback gateway and signs every request with an HMAC,
 timestamp and nonce. Copy this directory into the LangBot plugin workspace,
 configure the three values shown in `.env.example`, and start
-`python -m app.cli gateway-server` from the notebook-agent project first.
+`python -m app.cli gateway-server` from the StashSeek Chat project first.
 
 For operations, the bridge emits only allow-listed JSON events to its stderr: a
 random `trace_id`, fixed channel/stage/outcome, duration and exception class.
 LangBot's plugin runtime keeps this stderr in its bounded plugin log view. It
 does not create a persistent bridge log file and it never emits message text,
 IDs, payloads, URLs, secrets or exception messages. Use `trace_id` to join a
-bridge event to the Notebook Agent gateway's safe diagnostics.
+bridge event to the StashSeek Chat gateway's safe diagnostics.
 
 Before platform acceptance, apply
 `../langbot-4.10.6-redact-monitoring.patch` to the fixed LangBot 4.10.6 source
@@ -26,7 +26,8 @@ with `patch --dry-run -p1` first. Despite its retained filename, the patch does
 three jobs: it redacts LangBot monitoring/adapter/processor/diagnostic paths,
 waits for configured required plugins before any enabled adapter starts, and
 fails closed if a required bridge plugin does not handle an early event. Configure
-`plugin.required_plugins` with `notebook-agent/notebook-knowledge-agent` and
+`plugin.required_plugins` with the existing stable plugin id
+`notebook-agent/notebook-knowledge-agent` and
 bind this plugin explicitly to each bridge pipeline. Do not use a fixed startup
 sleep or enable LangBot Local Agent as a fallback.
 

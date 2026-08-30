@@ -1,4 +1,4 @@
-import logoUrl from "../assets/notebook-agent-logo.png";
+import logoUrl from "../assets/stashseek-chat-logo.png";
 
 interface BrandLogoProps {
   className?: string;

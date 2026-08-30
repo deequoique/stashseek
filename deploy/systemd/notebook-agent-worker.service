@@ -1,5 +1,5 @@
 [Unit]
-Description=Notebook Agent Celery worker
+Description=StashSeek Chat Celery worker
 After=network-online.target notebook-agent-dependencies.service notebook-agent-migrate.service
 Wants=network-online.target
 Requires=notebook-agent-dependencies.service
@@ -11,9 +11,9 @@ Group=notebook-agent
 WorkingDirectory=/opt/notebook-agent/current
 EnvironmentFile=/etc/notebook-agent/notebook-agent.env
 Environment=PYTHONDONTWRITEBYTECODE=1
-Environment=NOTEBOOK_AGENT_ENV=production
-Environment=NOTEBOOK_AGENT_LOG_RETRIEVAL_CONTENT=false
-Environment=NOTEBOOK_AGENT_LOG_DIR=/var/log/notebook-agent
+Environment=STASHSEEK_ENV=production
+Environment=STASHSEEK_LOG_RETRIEVAL_CONTENT=false
+Environment=STASHSEEK_LOG_DIR=/var/log/notebook-agent
 ExecStartPre=/usr/bin/test -f /opt/notebook-agent/current/.migration-admitted
 ExecStart=/opt/notebook-agent/current/.venv/bin/celery -A app.ingest.tasks.celery_app worker --loglevel=INFO --queues=ingest,maintenance --hostname=notebook-agent@%%h
 Restart=on-failure

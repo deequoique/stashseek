@@ -42,7 +42,7 @@ def test_public_health_capabilities_and_openapi_are_safe():
 
     assert openapi.status_code == 200
     document = openapi.json()
-    assert document["info"]["title"] == "Notebook Agent Web API"
+    assert document["info"]["title"] == "StashSeek Chat Web API"
     serialized = str(document)
     for forbidden in (
         "user_id",

@@ -150,7 +150,7 @@ describe("private cache boundary", () => {
 
     render(createElement(App));
 
-    expect(await screen.findByRole("heading", { name: "登录你的视频资料库" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "登录搜藏助手" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "绑定 Telegram" })).not.toBeInTheDocument();
     expect(window.location.pathname).toBe("/login");
   });

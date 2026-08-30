@@ -1,4 +1,4 @@
-"""Live full-stack natural-language evaluation for Notebook Agent."""
+"""Live full-stack natural-language evaluation for StashSeek Chat."""
 
 from .schema import Catalog, CatalogError, load_catalog
 from .quality import (

@@ -25,6 +25,12 @@ describe("ShowcasePage", () => {
       "href",
       "https://beian.miit.gov.cn/",
     );
+    const githubLink = screen.getByRole("link", {
+      name: "在 GitHub 查看 StashSeek 源码，欢迎提交 Issue 与 PR",
+    });
+    expect(githubLink).toHaveAttribute("href", "https://github.com/deequoique/stashseek");
+    expect(githubLink).toHaveAttribute("target", "_blank");
+    expect(githubLink).toHaveAttribute("rel", "noreferrer");
   });
 
   it("explains the project, audience, workflow, and honest preset-demo boundary", () => {
@@ -32,8 +38,8 @@ describe("ShowcasePage", () => {
 
     expect(container.querySelector("[style]")).not.toBeInTheDocument();
 
-    expect(screen.getByRole("heading", { name: "让收藏过的知识，再次可用。" })).toBeInTheDocument();
-    expect(screen.getByText("散落在视频中的知识与信息，从此成为你的助手与知识库。"))
+    expect(screen.getByRole("heading", { name: "让收藏过的内容，直接回答你。" })).toBeInTheDocument();
+    expect(screen.getByText("不用分类或整理，直接问一句，就能找到收藏过的视频和原文时间点。"))
       .toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: /不要让遗忘成为收藏视频的终点/ }),
@@ -63,7 +69,7 @@ describe("ShowcasePage", () => {
     expect(screen.getByRole("link", { name: /进入资料库/ })).toHaveAttribute("href", "/login");
     expect(screen.getByRole("link", { name: "下载浏览器插件" })).toHaveAttribute(
       "href",
-      "/assets/notebook-agent-browser-companion-production-0.1.3.zip",
+      "/assets/stashseek-chat-browser-companion-production-0.1.3.zip",
     );
     expect(screen.getByLabelText("从视频到可追溯答案的处理路径")).toBeInTheDocument();
     expect(screen.queryByText("来源可核对")).not.toBeInTheDocument();

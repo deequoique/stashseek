@@ -1,6 +1,6 @@
-# Notebook Agent 浏览器伴侣（试点）
+# StashSeek Chat 搜藏助手（试点）
 
-这是一个可选安装的 Manifest V3 Chrome/Chromium 插件。安装、配对后，它可以从用户当前打开的 YouTube 或 NTULearn/Kaltura 页面读取字幕并提交到 Notebook Agent；原有服务器端 YouTube 获取方式保持不变。
+这是一个可选安装的 Manifest V3 Chrome/Chromium 插件。安装、配对后，它可以从用户当前打开的 YouTube 或 NTULearn/Kaltura 页面读取字幕并提交到 StashSeek Chat；随后用户可通过当前已启用的对话入口查找对应视频。当前插件的 Bearer 仅有捕获和自助撤销权限，并不直接读取资料库或发起聊天；原有服务器端 YouTube 获取方式保持不变。
 
 ## 构建与加载
 
@@ -34,11 +34,11 @@ BROWSER_COMPANION_ALLOWED_ORIGINS=chrome-extension://omogodipchfidpikpeebgmlplpk
 
 插件从构建产物的精确 API host permission 解析唯一服务地址。默认生产构建连接 `https://notebookai.deequoique.tech`，本地构建连接 `http://127.0.0.1:8000`；请求有 10 秒超时，不会因服务不可达而无限等待。后端仍必须允许该构建对应的固定扩展 origin。
 
-NTULearn 的视频播放器可能位于 Kaltura 官方跨域 frame 中，因此 manifest 还包含精确的 `https://cdnapisec.kaltura.com/*` 播放器权限。这个权限只用于在用户点击插件时进入播放器并在浏览器本地读取已授权字幕；播放器的 Cookie、KS、Authorization 和签名资源 URL 都不会进入 Notebook Agent 请求。
+NTULearn 的视频播放器可能位于 Kaltura 官方跨域 frame 中，因此 manifest 还包含精确的 `https://cdnapisec.kaltura.com/*` 播放器权限。这个权限只用于在用户点击插件时进入播放器并在浏览器本地读取已授权字幕；播放器的 Cookie、KS、Authorization 和签名资源 URL 都不会进入 StashSeek Chat 请求。
 
 实际授权媒体页 `https://ntulearnv1.ntu.edu.sg/*` 也作为单独的精确 host permission 支持；不会扩大为 `*.ntu.edu.sg` 通配权限。该页面的 `page_url` 只保留 HTTPS origin/path，canonical Kaltura reference 仍使用既有的无秘密 NTULearnVideo 媒体链接。
 
-YouTube 字幕优先读取 JSON3；若同一可信签名字幕端点返回空或非 JSON 内容，会依次尝试 WebVTT 和原始 YouTube XML。若三种 timed-text 表示都为空，最后使用当前页面公开的官方 `youtubei/v1/get_transcript` 端点；其不透明参数必须在解码后包含当前视频 ID，避免 SPA 导航后使用旧转录。所有回退仍在当前页面内完成，字幕 URL、转录参数和签名查询不会提交给 Notebook Agent。
+YouTube 字幕优先读取 JSON3；若同一可信签名字幕端点返回空或非 JSON 内容，会依次尝试 WebVTT 和原始 YouTube XML。若三种 timed-text 表示都为空，最后使用当前页面公开的官方 `youtubei/v1/get_transcript` 端点；其不透明参数必须在解码后包含当前视频 ID，避免 SPA 导航后使用旧转录。所有回退仍在当前页面内完成，字幕 URL、转录参数和签名查询不会提交给 StashSeek Chat。
 
 ## 隐私边界
 

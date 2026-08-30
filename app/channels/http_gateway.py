@@ -131,9 +131,9 @@ def serve(settings: Settings) -> None:
     if not settings.channel_gateway_secret:
         raise RuntimeError("CHANNEL_GATEWAY_SECRET is required")
     configure_runtime_logging(
-        log_dir=settings.notebook_agent_log_dir,
-        max_bytes=settings.notebook_agent_log_max_bytes,
-        backup_count=settings.notebook_agent_log_backup_count,
+        log_dir=settings.stashseek_log_dir,
+        max_bytes=settings.stashseek_log_max_bytes,
+        backup_count=settings.stashseek_log_backup_count,
     )
 
     service = build_channel_service(settings)

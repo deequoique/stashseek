@@ -8,7 +8,7 @@ queue, database, or user account is touched.
 From the repository root, start the API:
 
 ```powershell
-.venv\Scripts\python.exe demo\notebook_demo_api.py
+.venv\Scripts\python.exe demo\stashseek_demo_api.py
 ```
 
 Then start the frontend in a second terminal:

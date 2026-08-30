@@ -1,5 +1,5 @@
 [Unit]
-Description=Notebook Agent private LangBot Telegram runtime
+Description=StashSeek Chat private LangBot Telegram runtime
 After=network-online.target notebook-agent-gateway.service
 Wants=network-online.target
 Requires=notebook-agent-gateway.service

@@ -1,16 +1,17 @@
 apiVersion: v1
 kind: Plugin
 metadata:
+  # Stable plugin-id component: notebook-agent/notebook-knowledge-agent.
   author: notebook-agent
   name: notebook-knowledge-agent
   repository: local
   version: 0.1.1
   description:
-    en_US: Trusted channel bridge for the private knowledge Agent
-    zh_Hans: 私有知识库 Agent 的可信渠道桥接
+    en_US: Trusted channel bridge for StashSeek Chat
+    zh_Hans: 搜藏助手的可信渠道桥接
   label:
-    en_US: Notebook Knowledge Agent
-    zh_Hans: 私有知识库 Agent
+    en_US: StashSeek Chat bridge
+    zh_Hans: 搜藏助手渠道桥接
 spec:
   config: []
   components:

@@ -1,0 +1,6 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/deployment-lifecycle.md", "reason": "Canonical launcher and production compatibility boundaries"}
+{"file": ".trellis/spec/backend/mcp-channel-runtime.md", "reason": "MCP tool discovery, tenant scope, and alias behavior"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Environment aliases and secret-free diagnostic constraints"}
+{"file": ".trellis/spec/backend/browser-companion-capture.md", "reason": "Extension identity, packaging, origin, and pairing continuity"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Visible branding and accessible component copy"}

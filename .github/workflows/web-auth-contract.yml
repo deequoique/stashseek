@@ -12,7 +12,7 @@ jobs:
   deterministic-web-gates:
     runs-on: ubuntu-latest
     env:
-      NOTEBOOK_AGENT_LOG_RETRIEVAL_CONTENT: "false"
+      STASHSEEK_LOG_RETRIEVAL_CONTENT: "false"
       PYTHONUNBUFFERED: "1"
       # Focused Web/Auth/MCP tests use SQLite fixtures and never need a real
       # Postgres password, Redis endpoint, model key, or email credential.
@@ -21,7 +21,7 @@ jobs:
       # password or database is contacted by this deterministic gate.
       DATABASE_URL: "postgresql+psycopg://postgres:test@127.0.0.1:5432/kb"
       REDIS_URL: "redis://127.0.0.1:6379/0"
-      NOTEBOOK_AGENT_ENV: "development"
+      STASHSEEK_ENV: "development"
       WEB_AUTH_ENABLED: "false"
     steps:
       - uses: actions/checkout@v4
@@ -80,7 +80,7 @@ jobs:
       name: Production
       url: https://notebookai.deequoique.tech
     concurrency:
-      group: notebook-agent-production
+      group: stashseek-production
       cancel-in-progress: false
     permissions:
       contents: read
@@ -93,7 +93,7 @@ jobs:
           set -eu
           umask 077
           install -d "$HOME/.ssh"
-          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/notebook-agent-production"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/stashseek-production"
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
 
       - name: Deploy approved main revision
@@ -103,7 +103,7 @@ jobs:
         run: |
           set -eu
           ssh \
-            -i "$HOME/.ssh/notebook-agent-production" \
+            -i "$HOME/.ssh/stashseek-production" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \

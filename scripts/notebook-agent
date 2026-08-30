@@ -1,14 +1,7 @@
 #!/bin/sh
 set -eu
 
+# Compatibility entry point. Keep this path working for existing operators
+# while all new documentation and automation use scripts/stashseek.
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-PROJECT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-
-if [ -x "$PROJECT_DIR/.venv/bin/python" ]; then
-    PYTHON="$PROJECT_DIR/.venv/bin/python"
-else
-    PYTHON=${PYTHON:-python3}
-fi
-
-cd "$PROJECT_DIR"
-exec "$PYTHON" -m app.deployment "$@"
+exec "$SCRIPT_DIR/stashseek" "$@"

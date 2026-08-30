@@ -826,7 +826,7 @@ index 6075d4b..a8b907b 100644
 +        """Return configured required plugins explicitly bound to this pipeline.
 +
 +        A pipeline with ``enable_all_plugins`` does not opt into the strict guard:
-+        it retains LangBot's upstream plugin semantics. Notebook Agent pipelines
++        it retains LangBot's upstream plugin semantics. StashSeek Chat pipelines
 +        explicitly bind their bridge plugin and are therefore fail closed.
 +        """
 +        if bound_plugins is None or not self.required_plugins:

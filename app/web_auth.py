@@ -115,7 +115,7 @@ class ResendEmailSender:
         payload = {
             "from": self._from_email,
             "to": [to_email],
-            "subject": "Your Notebook Agent login code",
+            "subject": "Your StashSeek Chat login code",
             "text": f"Your login code is {code}. It expires at {expires_at.isoformat()}.",
         }
         try:
@@ -172,7 +172,7 @@ class SmtpEmailSender:
         message = EmailMessage()
         message["From"] = self._from_email
         message["To"] = to_email
-        message["Subject"] = "Your Notebook Agent login code"
+        message["Subject"] = "Your StashSeek Chat login code"
         message.set_content(
             f"Your login code is {code}. It expires at {expires_at.isoformat()}."
         )
@@ -847,12 +847,12 @@ def build_email_auth_service(
             starttls=settings.smtp_starttls,
             timeout_seconds=settings.smtp_timeout_seconds,
         )
-    elif settings.notebook_agent_env == "production":
+    elif settings.stashseek_env == "production":
         raise RuntimeError("Web authentication email sender is unavailable")
     else:
         sender = InMemoryEmailSender()
     session_cache: RedisSessionCache | None = None
-    if settings.notebook_agent_env == "production":
+    if settings.stashseek_env == "production":
         try:
             import redis
 

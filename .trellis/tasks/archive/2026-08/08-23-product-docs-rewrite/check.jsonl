@@ -1,0 +1,11 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/deployment-lifecycle.md", "reason": "Check launcher and operations accuracy"}
+{"file": ".trellis/spec/backend/mcp-channel-runtime.md", "reason": "Check MCP claims and examples"}
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "Check Web behavior and authentication claims"}
+{"file": ".trellis/spec/backend/browser-companion-capture.md", "reason": "Check companion platform and safety claims"}
+{"file": ".trellis/spec/backend/youtube-connector.md", "reason": "Check YouTube support claims"}
+{"file": ".trellis/spec/backend/bilibili-connector.md", "reason": "Check Bilibili support claims"}
+{"file": ".trellis/spec/backend/langbot-channel-runtime.md", "reason": "Check channel integration claims"}
+{"file": ".trellis/spec/backend/channel-identity-linking.md", "reason": "Check identity-boundary claims"}
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Check evidence-grounding language"}
+{"file": ".trellis/tasks/08-23-product-docs-rewrite/research/content-inventory.md", "reason": "Check against the audited product and documentation inventory"}

@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+if [ -x "$PROJECT_DIR/.venv/bin/python" ]; then
+    PYTHON="$PROJECT_DIR/.venv/bin/python"
+else
+    PYTHON=${PYTHON:-python3}
+fi
+
+cd "$PROJECT_DIR"
+exec "$PYTHON" -m app.deployment "$@"

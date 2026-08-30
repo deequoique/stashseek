@@ -15,11 +15,32 @@ import ipaddress
 import math
 from urllib.parse import urlparse, urlsplit
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
-# Load .env once at import time. In production, real env vars should already
-# be set and this is a no-op (load_dotenv does not override existing vars).
+# Renamed keys need source-aware precedence: process canonical, process legacy,
+# .env canonical, .env legacy. python-dotenv normally flattens process and .env
+# into os.environ, so retain renamed .env values separately and remove only the
+# values that load_dotenv inserted for those keys.
+_RENAMED_ENV_PAIRS: tuple[tuple[str, str], ...] = (
+    ("STASHSEEK_ENV", "NOTEBOOK_AGENT_ENV"),
+    ("STASHSEEK_LOG_DIR", "NOTEBOOK_AGENT_LOG_DIR"),
+    ("STASHSEEK_LOG_MAX_BYTES", "NOTEBOOK_AGENT_LOG_MAX_BYTES"),
+    ("STASHSEEK_LOG_BACKUP_COUNT", "NOTEBOOK_AGENT_LOG_BACKUP_COUNT"),
+    ("STASHSEEK_LOG_RETRIEVAL_CONTENT", "NOTEBOOK_AGENT_LOG_RETRIEVAL_CONTENT"),
+)
+_PROCESS_ENV_AT_IMPORT = frozenset(os.environ)
+_DOTENV_VALUES = {
+    key: value
+    for key, value in dotenv_values().items()
+    if value is not None
+}
+# Load all ordinary values once. Production process values still win because
+# load_dotenv does not override them.
 load_dotenv()
+for _canonical, _legacy in _RENAMED_ENV_PAIRS:
+    for _key in (_canonical, _legacy):
+        if _key not in _PROCESS_ENV_AT_IMPORT:
+            os.environ.pop(_key, None)
 
 
 # The answer Composer allows one structured-output repair in a run. Keep this
@@ -32,8 +53,34 @@ def _env(name: str, default: str | None = None) -> str | None:
     return os.environ.get(name, default)
 
 
+def _compat_env(
+    canonical: str,
+    legacy: str,
+    default: str | None = None,
+) -> str | None:
+    """Read a renamed setting with deterministic canonical precedence.
+
+    The canonical StashSeek key wins even when it is set to an empty value;
+    this mirrors normal process-environment semantics and makes an operator's
+    explicit override predictable during a gradual migration.
+    """
+
+    if canonical in os.environ:
+        return os.environ[canonical]
+    if legacy in os.environ:
+        return os.environ[legacy]
+    if canonical in _DOTENV_VALUES:
+        return _DOTENV_VALUES[canonical]
+    return _DOTENV_VALUES.get(legacy, default)
+
+
 def _env_int(name: str, default: int) -> int:
     value = os.environ.get(name)
+    return int(value) if value is not None else default
+
+
+def _compat_env_int(canonical: str, legacy: str, default: int) -> int:
+    value = _compat_env(canonical, legacy)
     return int(value) if value is not None else default
 
 
@@ -52,6 +99,18 @@ def _env_bool(name: str, default: bool) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ValueError(f"{name} must be a boolean")
+
+
+def _compat_env_bool(canonical: str, legacy: str, default: bool) -> bool:
+    value = _compat_env(canonical, legacy)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{canonical} must be a boolean")
 
 
 def _env_channels(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
@@ -147,21 +206,58 @@ class Settings:
     # The relative default intentionally resolves in the gateway working
     # directory. Production systemd sets this to /var/log/notebook-agent.
     notebook_agent_log_dir: str = field(
-        default_factory=lambda: _env("NOTEBOOK_AGENT_LOG_DIR", ".runtime/logs")
+        default_factory=lambda: _compat_env(
+            "STASHSEEK_LOG_DIR", "NOTEBOOK_AGENT_LOG_DIR", ".runtime/logs"
+        )
         or ".runtime/logs"
     )
     notebook_agent_log_max_bytes: int = field(
-        default_factory=lambda: _env_int("NOTEBOOK_AGENT_LOG_MAX_BYTES", 10 * 1024 * 1024)
+        default_factory=lambda: _compat_env_int(
+            "STASHSEEK_LOG_MAX_BYTES", "NOTEBOOK_AGENT_LOG_MAX_BYTES", 10 * 1024 * 1024
+        )
     )
     notebook_agent_log_backup_count: int = field(
-        default_factory=lambda: _env_int("NOTEBOOK_AGENT_LOG_BACKUP_COUNT", 5)
+        default_factory=lambda: _compat_env_int(
+            "STASHSEEK_LOG_BACKUP_COUNT", "NOTEBOOK_AGENT_LOG_BACKUP_COUNT", 5
+        )
     )
     notebook_agent_env: str = field(
-        default_factory=lambda: _env("NOTEBOOK_AGENT_ENV", "production") or "production"
+        default_factory=lambda: _compat_env(
+            "STASHSEEK_ENV", "NOTEBOOK_AGENT_ENV", "production"
+        )
+        or "production"
     )
     notebook_agent_log_retrieval_content: bool = field(
-        default_factory=lambda: _env_bool("NOTEBOOK_AGENT_LOG_RETRIEVAL_CONTENT", False)
+        default_factory=lambda: _compat_env_bool(
+            "STASHSEEK_LOG_RETRIEVAL_CONTENT",
+            "NOTEBOOK_AGENT_LOG_RETRIEVAL_CONTENT",
+            False,
+        )
     )
+
+    # Canonical StashSeek-named accessors.  The dataclass fields above retain
+    # their constructor names for Python callers during the compatibility
+    # window; runtime code uses these accessors so new code does not spread
+    # the former product name further.
+    @property
+    def stashseek_log_dir(self) -> str:
+        return self.notebook_agent_log_dir
+
+    @property
+    def stashseek_log_max_bytes(self) -> int:
+        return self.notebook_agent_log_max_bytes
+
+    @property
+    def stashseek_log_backup_count(self) -> int:
+        return self.notebook_agent_log_backup_count
+
+    @property
+    def stashseek_env(self) -> str:
+        return self.notebook_agent_env
+
+    @property
+    def stashseek_log_retrieval_content(self) -> bool:
+        return self.notebook_agent_log_retrieval_content
     # --- Outbound TLS ---
     # Optional explicit CA bundle.  If unset, application composition uses
     # SSL_CERT_FILE/REQUESTS_CA_BUNDLE or certifi for the current interpreter.
@@ -561,13 +657,13 @@ class Settings:
 
     def __post_init__(self) -> None:
         if self.notebook_agent_env not in {"development", "production"}:
-            raise ValueError("NOTEBOOK_AGENT_ENV must be development or production")
+            raise ValueError("STASHSEEK_ENV must be development or production")
         if (
             self.notebook_agent_log_retrieval_content
             and self.notebook_agent_env != "development"
         ):
             raise ValueError(
-                "retrieval content logging requires NOTEBOOK_AGENT_ENV=development"
+                "retrieval content logging requires STASHSEEK_ENV=development"
             )
         if not self.mcp_host.strip():
             raise ValueError("MCP_HOST must not be empty")

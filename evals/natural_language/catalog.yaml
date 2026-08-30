@@ -54,7 +54,7 @@ cases:
     turns:
       - input: "{comparison_url}"
         route: deterministic
-        tool: ask_notebook_agent
+        tool: ask_stashseek
         expect: {forbidden_tools: [search_segments, save_videos], statuses: [ok], error_codes: [save_confirmation_required]}
       - input: "需要，保存吧。"
         expect: {required_tools: [confirm_video_save], allowed_tools: [confirm_video_save], forbidden_tools: [search_segments], statuses: [ok, failed]}
@@ -64,7 +64,7 @@ cases:
     turns:
       - input: "{comparison_url}"
         route: deterministic
-        tool: ask_notebook_agent
+        tool: ask_stashseek
         expect: {statuses: [ok]}
       - input: "不用了，别保存。"
         expect: {required_tools: [cancel_video_save], allowed_tools: [cancel_video_save], forbidden_tools: [save_videos], statuses: [ok, failed]}
@@ -74,7 +74,7 @@ cases:
     turns:
       - input: "{comparison_url}"
         route: deterministic
-        tool: ask_notebook_agent
+        tool: ask_stashseek
         expect: {statuses: [ok]}
       - input: "我再想想。"
         expect: {required_tools: [clarify_save_confirmation], allowed_tools: [clarify_save_confirmation], forbidden_tools: [save_videos, cancel_video_save], statuses: [ok, failed]}
@@ -155,7 +155,7 @@ cases:
     turns:
       - input: "{comparison_url}"
         route: deterministic
-        tool: ask_notebook_agent
+        tool: ask_stashseek
         expect: {statuses: [ok]}
       - input: "知识库里谁讲过{baseline_topic}？"
         expect: {required_tools: [search_segments], allowed_tools: [search_segments, get_neighbors, get_item, open_at], forbidden_tools: [confirm_video_save, cancel_video_save], statuses: [ok], citations: required}

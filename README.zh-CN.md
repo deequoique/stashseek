@@ -1,120 +1,145 @@
-# Notebook Agent
+# StashSeek Chat / 搜藏助手
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> 让你的私人知识，在每一个聊天入口触手可及。
+> 把收藏过的视频，变成需要时找得到、核对得上、还能回到原文的私人知识。
 
-Notebook Agent 会把已保存的 YouTube 和 Bilibili 视频转换为私有、可检索的知识库。你可以通过 MCP、浏览器应用，或可选的 Telegram/微信桥接用自然语言提问；回答只基于检索到的原文片段，并附带可跳转的视频时间戳。
+StashSeek Chat（搜藏助手）是一个浏览器优先的对话式 Agent，专门搜索你已经收藏的视频和内容。保存来源后直接问一句，就能找到对应视频、原文依据和时间戳，而不是得到一个无法核对的总结。
+
+[在线体验产品介绍与公开演示 →](https://notebookai.deequoique.tech/)
+
+[![StashSeek Chat 产品首页：和收藏过的内容直接对话](docs/assets/readme/product-home.jpg)](https://notebookai.deequoique.tech/)
 
 **EAZO Global Hackathon Project**
 
-## 它能做什么
+## 为什么需要搜藏助手
 
-1. 保存一个明确的 YouTube 或 Bilibili 普通视频链接。
-2. 在后台获取元数据和字幕，归档原始内容、按语义切分并建立向量索引。
-3. 在自己的知识空间内提出问题。
-4. 获得带真实证据和原视频位置的回答。
+人们会收藏课程、访谈、演讲和行业分析，但真正需要某个观点时，常常只记得模糊印象，不记得标题、出处或具体时间点。
 
-YouTube 和 Bilibili 普通视频链接已有服务器导入 connector。Bilibili 只使用无需持久化账号 Cookie 即可读取的字幕；服务器不可见的字幕会保留给后续浏览器伴侣或 ASR 路径。微信公众号文章导入尚未实现。
+收藏夹只能证明“保存过”，不能回答“内容讲了什么”“依据在哪里”以及“如何快速回到原文”。搜藏助手不要求你重新分类或整理，只要直接提问，就能在收藏内容里找出答案和来源。
 
-## 核心能力
+## 目标用户与真实需要
 
-| 领域 | 能力 |
+- **深度学习者与学生：**在复习长课程或公开课时，快速找回一个概念及其上下文。
+- **研究、产品与知识工作者：**跨多场访谈、分享或案例比较观点，并保留可核验的出处。
+- **内容创作者：**从看过的素材中重新定位论点、案例和表达，不必重新观看整段视频。
+- **重视隐私的个人用户与自托管用户：**希望资料彼此隔离，并通过熟悉的 Web、MCP 或聊天入口访问自己的知识库。
+
+他们需要的是一条低成本的路径：保存后直接提问，看到回答的证据，并能回到原视频确认上下文。
+
+## 具体使用场景
+
+### 复习长课程中的一个知识点
+
+你只记得老师解释过某个概念，却忘了它出现在哪一节。提问后，搜藏助手会在收藏内容中检索相关字幕，展示原文片段和时间戳，帮助你直接回到对应位置。
+
+### 比较多场访谈中的观点
+
+保存多场访谈后，可以询问不同受访者对同一问题的共同点或差异。每个结论都保留对应视频来源，便于继续阅读和核对。
+
+### 保存需要登录的课程页面
+
+服务器无法直接读取需要登录的课程页面时，可以使用可选的浏览器伴侣，在你已经授权的浏览器会话中读取当前页面的字幕，再提交到同一个私人资料库。页面凭据、Cookie 和签名字幕地址不会作为服务端抓取任务上传。
+
+### 在现有工作入口中提问
+
+Web 资料库和 MCP 提供核心入口；如果你已经使用 Telegram 或微信，也可以通过可选的 LangBot bridge 接入。不同入口可以访问同一份私人资料，但仍受同一个用户空间的隔离规则约束。
+
+## 从收藏到可核验回答：四步完成
+
+搜藏助手的核心不是再建一个链接列表或分类系统，而是让你通过对话直接找到可追溯的来源。
+
+[![搜藏助手使用流程：保存来源、直接提问、生成带依据的回答](docs/assets/readme/product-flow.jpg)](https://notebookai.deequoique.tech/#process)
+
+1. **保存视频来源：**在 Web 或浏览器插件中保存视频链接。
+2. **异步准备内容：**系统在后台提取标题、章节与字幕；你可以继续浏览。
+3. **直接和收藏内容对话：**用自然语言提问，只在当前用户的收藏范围内定位相关原文并组织上下文。
+4. **获得带来源依据的回答：**答案附上视频标题、引用摘录和可跳转时间点，便于回到原视频核对完整语境。
+
+这条流程还支持：
+
+- 通过 Web 查看保存内容、字幕和来源，并对失败项目重试。
+- 结合 PostgreSQL 全文检索和 pgvector 语义检索，在当前用户空间内找回相关片段。
+- 由服务端校验引用依据并生成来源标题、真实 URL、片段和时间戳；检索不到足够依据时明确返回没有证据，而不是用模型记忆补写资料库内容。
+- 通过 MCP 提供标准 `stdio` 和 Streamable HTTP 入口。每个客户端使用有范围的 grant：`read` 用于问答和资料浏览，`full` 才能执行保存等变更操作。
+- 通过可选的浏览器伴侣获取已适配页面的字幕，或通过可选的 LangBot bridge 连接 Telegram 与微信。
+
+## 产品体验与入口
+
+### 回答是什么样
+
+一次完整回答不只有结论，还包括这次检索使用了多少个字幕片段、对应的原文依据，以及可以跳回视频的时间点。你可以先读答案，再沿着证据逐条核对，而不必重新浏览整段视频。
+
+[![搜藏助手公开演示：回答附带三个可核对的视频时间点](docs/assets/readme/product-evidence-demo.jpg)](https://notebookai.deequoique.tech/#demo)
+
+上图来自产品页的公开预设演示：它不会调用模型或上传数据，仅用于展示“问题 → 回答 → 原文时间点”的交互。实际使用时，示例来源会替换为你自己资料库中的内容。
+
+### Web 资料库
+
+登录后，Web 资料库提供保存、搜索和管理的一站式界面。新提交的内容先进入整理队列；处理完成后进入可阅读区域。你可以查看标题、作者、备注、字幕和来源详情，并对失败内容重试、归档或恢复。
+
+Web 对话会把答案和依据放在一起：原文片段、来源 URL 和视频时间戳由服务端根据本轮检索结果生成，方便从答案回到视频。
+
+### MCP
+
+MCP 适合接入桌面 Agent、自动化工具或其他 MCP 客户端，支持 `stdio` 和 Streamable HTTP。grant 与用户空间绑定，并按 `read` 或 `full` 限制可见工具；MCP Bearer 不会被当作 Web Cookie 使用，客户端也不能通过工具指定另一个用户的资料库。
+
+### 浏览器伴侣
+
+浏览器插件是可选的 Chrome/Chromium 扩展。你在 Web 中完成配对和批准后，它可以从当前的 YouTube 或 NTULearn/Kaltura 页面读取已适配的字幕，并把规范化后的字幕提交到 StashSeek Chat；随后可以通过当前已启用的对话入口提问并找到对应视频。它不是任意登录网站的通用采集器，也不会把页面 Cookie、播放凭据或签名字幕 URL 交给服务端。
+
+### Telegram 与微信
+
+Telegram 和微信通过可选的 LangBot bridge 接入，不是核心运行的前置条件。跨渠道身份绑定使用一次性、限定目标渠道的代码；绑定后仍访问同一个用户空间，渠道对话历史保持分离。
+
+## 可信边界与当前限制
+
+| 能力 | 当前状态 |
 | --- | --- |
-| 检索 | PostgreSQL 全文检索与 pgvector 语义检索结合；引用只能来自本次检索证据。 |
-| 隐私 | 数据严格按租户隔离；模型工具没有可修改或指定其他用户的 `user_id`。 |
-| 导入 | Redis/Celery 异步处理、S3-compatible 原文归档、幂等投递与可恢复完成通知。 |
-| 接口 | 支持 MCP 2.0 的 stdio / Streamable HTTP，以及带邮箱登录的同源浏览器应用。 |
-| 渠道 | 可选 LangBot 桥接 Telegram 与微信，并提供一次性跨渠道身份绑定码。 |
-| 资料库 | 支持按租户查看库存、记录保存原因、软删除/恢复、失败重试与定时受限清理。 |
+| YouTube | 支持普通视频链接的服务器端导入；依赖可读取的字幕，平台没有可用字幕时不会凭空生成可核验内容。 |
+| Bilibili | 支持普通视频链接；仅使用服务器无需持久化账号 Cookie 即可读取的字幕。登录后或服务器不可见的字幕不能通过当前服务器 connector 绕过访问限制。 |
+| 浏览器伴侣 | 当前适配 YouTube 与 NTULearn/Kaltura 的特定页面，不代表支持任意网站；它读取字幕，不是通用音视频上传器。 |
+| 证据与回答 | 只引用当前用户资料库中本轮检索到的证据；来源和时间戳由服务端渲染。引用依据不足时返回受限结果。 |
+| 隔离与渠道 | Web、MCP、Telegram 和微信都在用户空间边界内运行；LangBot 与浏览器伴侣均为可选组件。 |
+| 尚未提供 | ASR 尚不是通用已发布能力；微信公众号文章导入也尚未实现。 |
 
-## 快速开始
+因此，搜藏助手的承诺是“无需分类整理，就能从已有收藏中找回并核验来源”，不是承诺访问所有平台、替你观看所有视频，或在没有字幕依据时自动补全内容。
 
-### 环境要求
+## 开始使用与文档路径
 
-- Python 3.11+
-- Docker 与 Docker Compose
-- 一个 Agent 模型凭据与智谱 Embedding API 凭据
+### 快速自托管入口
 
-一键生命周期启动器支持 Linux 和 macOS；Windows 请使用部署手册中的直接启动命令。
+如果你想运行完整的保存、准备和问答流程，需要 Python 3.11+、Docker Compose、PostgreSQL、Redis、S3-compatible object storage，以及 Agent 模型和 Zhipu Embedding API 凭据。Linux 和 macOS 可以使用项目自带的生命周期启动器；Windows 请按部署指南使用直接启动方式。
 
-### 启动只读的本地 MCP
+在项目根目录执行：
 
 ```bash
-git clone YOUR_REPOSITORY_URL
-cd notebook-agent
+git clone https://github.com/deequoique/stashseek.git
+cd stashseek
 
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
 
-# 创建被忽略的 .env.runtime，只询问必要的 provider key。
-./scripts/notebook-agent init --profile read
-./scripts/notebook-agent start
+# 完整运行时：MCP、后台整理和可选渠道 gateway
+./scripts/stashseek init --profile full
+./scripts/stashseek start --profile full
 ```
 
-`read` 只启动 Streamable HTTP MCP，不包含后台导入。需要 Redis、MinIO、worker、Beat 和私有 LangBot gateway 时选择 `full`；只需要后台/渠道运行时但不需要 MCP 时选择 `langbot`。
+只想连接已有资料并使用只读 MCP 时，可以选择 `read`；它不启动 Redis、MinIO、worker 或 Beat，也不会提供后台导入。`langbot` 用于需要后台/渠道运行时但不需要公共 MCP 的场景。连接客户端前，请按首次运行教程在与托管运行时相同的私有环境中创建用户并签发有范围的 grant。
 
-```bash
-./scripts/notebook-agent status
-./scripts/notebook-agent logs mcp
-./scripts/notebook-agent stop
-```
+按目标继续阅读：
 
-连接 MCP 客户端前先签发有范围的 grant。`read` 用于问答和库存浏览；导入等写操作需要 `full`。
+- **第一次启动：** [首次运行教程](docs/tutorials/first-run.md)
+- **使用 Web 资料库或浏览器伴侣：** [用户操作指南](docs/how-to/README.md) · [浏览器伴侣指南](docs/how-to/use-browser-companion.md)
+- **接入 MCP、Telegram 或微信：** [用户操作指南](docs/how-to/README.md)
+- **部署、备份、升级或排障：** [运维与部署指南](docs/how-to/README.md) · [运维手册](docs/operations/production/README.md)
+- **查配置、运行模式和接口：** [参考文档](docs/reference/README.md)
+- **了解架构、检索和隐私边界：** [原理说明](docs/explanation/README.md)
+- **查看全部路径：** [文档总览](docs/README.md)
 
-```bash
-.venv/bin/python -m app.cli mcp-grant issue \
-  --user-id <user-id> --scope read --label local-client
-```
+## 项目状态与许可
 
-本地 stdio 客户端只能通过私有进程环境接收命令输出的 raw token。Streamable HTTP 默认在 loopback 的 `/mcp` 提供服务；公网访问必须位于 TLS 后，并使用 `Authorization: Bearer` 传递 token。完整的首次运行步骤和配置组合见[快速入门](docs/getting-started/README.md)。
+StashSeek Chat（搜藏助手）是为 **EAZO Global Hackathon** 构建的项目。核心 Web 体验、证据优先问答、MCP、YouTube/Bilibili 服务器 connector，以及可选的浏览器插件和 LangBot 入口都已在当前仓库实现；不同部署 profile 的依赖和平台可达性仍需按文档验证。
 
-## 按目标继续阅读
-
-- **配置本地运行时：** [快速入门](docs/getting-started/README.md)
-- **接入 MCP 客户端或浏览器应用：** [接口文档](docs/interfaces/README.md)
-- **通过 LangBot 接入 Telegram 或微信：** [集成文档](docs/integrations/README.md)
-- **部署、升级、备份或排障：** [部署文档](docs/deployment/README.md)
-- **查找所有主题：** [文档总览](docs/README.md)
-
-## 系统架构
-
-```mermaid
-flowchart LR
-    U["用户"] --> I["MCP / Web / Telegram / 微信"]
-    I --> G["Notebook Agent"]
-    G --> A["PydanticAI Agent"]
-    A --> R["按租户检索"]
-    R --> P["PostgreSQL + pgvector"]
-    A --> S["保存操作"]
-    S --> Q["Redis + Celery"]
-    Q --> Y["YouTube 导入"]
-    Y --> O["S3-compatible storage"]
-    Y --> P
-```
-
-## 项目结构
-
-```text
-app/            Agent、渠道、检索、导入、API 与 CLI 核心
-web/            浏览器应用
-integrations/   可选 LangBot bridge 与安全补丁
-docs/           分层的入门、接口、集成与部署文档
-evals/          可选的真实模型评测套件
-tests/          单元、集成、安全与 PostgreSQL 测试
-```
-
-## 验证
-
-```bash
-pytest -q
-.venv/bin/alembic current
-.venv/bin/alembic check
-```
-
-数据库 migration 的 downgrade 验证只能针对临时、可随时丢弃的 PostgreSQL 数据库运行，不能用于日常本地数据或生产环境。
-
----
-
-Built for the **EAZO Global Hackathon** — turning scattered saved content into a private, searchable memory.
+当前项目元数据声明的许可证为 **Proprietary（专有许可）**，仓库未以通用开源许可证发布。

@@ -503,12 +503,14 @@ def test_notification_diagnostic_enforces_numeric_privacy_allowlist(caplog):
 def test_operator_docs_do_not_restore_retired_completion_consumer():
     root = Path(__file__).parents[1]
     readme_zh = (root / "README.zh-CN.md").read_text(encoding="utf-8")
-    deployment = (root / "docs/deployment/README.md").read_text(encoding="utf-8")
-    environment = (root / "docs/getting-started/configuration.md").read_text(
+    troubleshooting = (root / "docs/how-to/troubleshoot.md").read_text(
+        encoding="utf-8"
+    )
+    configuration = (root / "docs/reference/configuration.md").read_text(
         encoding="utf-8"
     )
 
-    combined = "\n".join((readme_zh, deployment, environment))
+    combined = "\n".join((readme_zh, troubleshooting, configuration))
     assert "future idempotent consumer only" not in combined
     assert "真实 consumer 部署前" not in combined
     assert "Completion publisher/consumer" not in combined

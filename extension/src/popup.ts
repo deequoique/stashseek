@@ -17,10 +17,10 @@ const messages: Record<string, string> = {
   extension_pairing_used: "这次配对已经失效，请重新连接。",
   extension_pairing_invalid: "配对凭据不匹配，请重新连接。",
   extension_origin_invalid: "服务器拒绝了当前插件来源，请重新连接；本机开发环境请检查扩展来源配置。",
-  network_unavailable: "无法连接 Notebook Agent，请确认本机服务正在运行。",
-  request_timeout: "连接 Notebook Agent 超时，请确认服务地址和网络后重试。",
+  network_unavailable: "无法连接搜藏助手，请确认服务正在运行。",
+  request_timeout: "连接搜藏助手超时，请确认服务地址和网络后重试。",
   extension_api_origin_invalid: "插件的服务地址配置无效，请重新构建并加载正确版本。",
-  request_failed: "Notebook Agent 没有完成授权，请稍后重试。",
+  request_failed: "搜藏助手没有完成授权，请稍后重试。",
   caption_fetch_failed: "页面字幕暂时读取失败，请刷新视频页面后重试。",
   caption_parse_failed: "页面字幕格式暂时无法解析，请刷新视频页面后重试。",
   stale_player_response: "视频页面刚刚切换，插件没有使用旧视频字幕；请稍后重试。",
@@ -55,10 +55,10 @@ function render(reply: Reply) {
   const pairing = reply.ok && reply.result?.pairing === true;
   action = paired ? "capture" : pairing ? "finish" : "pair";
   showStatus(
-    paired ? "已连接。打开一个视频，然后保存当前页面的字幕。" : pairing ? "请先在刚打开的 Notebook Agent 页面批准连接。" : "连接后，可从当前页面保存字幕。",
+    paired ? "已连接。打开一个视频，然后保存当前页面字幕。" : pairing ? "请先在刚打开的搜藏助手页面批准连接。" : "连接后，可从当前页面保存字幕。",
     paired ? "ready" : "action",
   );
-  primary.textContent = paired ? "保存当前视频" : pairing ? "我已批准，完成连接" : "连接 Notebook Agent";
+  primary.textContent = paired ? "保存当前视频" : pairing ? "我已批准，完成连接" : "连接搜藏助手";
   primary.disabled = false;
   disconnect.hidden = !paired && !pairing;
 }
@@ -82,7 +82,7 @@ primary.addEventListener("click", async () => {
   if (action === "capture") {
     const lifecycle = String(reply.result?.lifecycle ?? "queued");
     showStatus(
-      lifecycle === "needs_asr" ? "视频没有可用字幕，已标记为需要语音转写。" : "已提交到资料库，Notebook Agent 正在整理字幕。",
+      lifecycle === "needs_asr" ? "视频没有可用字幕，已标记为需要语音转写。" : "已提交到收藏内容，搜藏助手正在准备对话。",
       lifecycle === "needs_asr" ? "action" : "success",
     );
     primary.textContent = "再次保存";

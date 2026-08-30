@@ -1,8 +1,10 @@
 # Deployment Lifecycle
 
-Notebook Agent exposes a profile-aware launcher at `scripts/notebook-agent`.
+StashSeek Chat exposes a profile-aware launcher at `scripts/stashseek`.
 It is the preferred single-host deployment entry point; the direct Python,
 Celery, and Docker Compose commands remain supported for advanced operators.
+`scripts/notebook-agent` is a compatibility wrapper and must continue to
+forward arguments, signals, and exit status to the canonical launcher.
 
 ## Runtime profiles
 
@@ -74,7 +76,8 @@ read-only; bucket creation is limited to launcher-owned local Compose MinIO.
 - Neon pooled runtime URLs require TLS and a direct migration URL targeting
   the same host family and database.
 - Non-loopback MCP binding requires the explicit
-  `NOTEBOOK_AGENT_ALLOW_NON_LOOPBACK=true` acknowledgement.
+  `STASHSEEK_ALLOW_NON_LOOPBACK=true` acknowledgement. The former
+  `NOTEBOOK_AGENT_ALLOW_NON_LOOPBACK` key remains a compatibility fallback.
 - Validate custom CA bundles before starting infrastructure or children.
 - Keep health and status snapshots redacted and bounded in size.
 
@@ -86,7 +89,7 @@ Changes to the lifecycle must run at least:
 python -m pytest -q tests/test_deployment_cli.py \
   tests/test_production_caddy_deployment.py tests/test_mcp_server.py \
   tests/test_tasks.py tests/test_ingest_notifications.py
-sh -n scripts/notebook-agent
+sh -n scripts/stashseek scripts/notebook-agent
 git diff --check
 ```
 
@@ -143,7 +146,7 @@ provider credentials or mutate external services.
 - Runtime environment requires `WEB_AUTH_ENABLED=true`,
   `WEB_PUBLIC_ORIGIN=https://notebookai.deequoique.tech`,
   `WEB_COOKIE_SECURE=true`, `MCP_PATH=/mcp`, `MCP_URL_TOKEN_MODE=true`, and a
-  writable `NOTEBOOK_AGENT_LOG_DIR=/var/log/notebook-agent`. This deployment's
+  writable `STASHSEEK_LOG_DIR=/var/log/notebook-agent`. This deployment's
   URL-only evaluator uses the HTTPS `/mcp/c/<token>` capability path; query
   tokens remain rejected and the dedicated Caddy site discards access logs.
 - The combined MCP transport must retain SDK DNS-rebinding protection while
@@ -182,8 +185,8 @@ provider credentials or mutate external services.
 | MinIO is live but bucket admission fails | Dependency unit fails; do not treat liveness as readiness. |
 | Complete Caddy candidate does not validate | Keep the original configuration and do not reload. |
 | New route fails after reload | Restore the backed-up Caddy configuration and gracefully reload it. |
-| An unrelated pre-existing route changes behavior | Roll back only the Notebook Agent site change and investigate. |
-| `NOTEBOOK_AGENT_LOG_DIR` is absent or unwritable | Unit startup fails; do not weaken the systemd filesystem sandbox. |
+| An unrelated pre-existing route changes behavior | Roll back only the StashSeek Chat site change and investigate. |
+| `STASHSEEK_LOG_DIR` is absent or unwritable | Unit startup fails; do not weaken the systemd filesystem sandbox. |
 | Post-switch health check fails | Restore the previous immutable release and restart only owned units. |
 
 ### 5. Good/Base/Bad Cases
@@ -206,11 +209,11 @@ provider credentials or mutate external services.
   dependency port starts with `127.0.0.1`, Redis persistence/auth are enabled,
   and `minio-init` admits the configured bucket.
 - Systemd tests assert worker queues, the unique Beat state paths, migration
-  gating, `NOTEBOOK_AGENT_LOG_DIR`, writable log paths, and separation of
+  gating, `STASHSEEK_LOG_DIR`, writable log paths, and separation of
   runtime versus migration credentials. Gateway/LangBot tests additionally
   assert loopback listeners, dedicated ownership, patched package admission,
   required bridge readiness, and no WeChat adapter configuration.
-- Caddy tests assert only the Notebook Agent hostname and loopback upstream are
+- Caddy tests assert only the StashSeek Chat hostname and loopback upstream are
   present. Operational validation must run `caddy validate` against the full
   candidate configuration before a graceful reload and probe old routes after.
 - Deploy-script tests assert strict SHA parsing, `origin/main` equality,
@@ -234,7 +237,7 @@ ports:
 #### Correct
 
 ```ini
-Environment=NOTEBOOK_AGENT_LOG_DIR=/var/log/notebook-agent
+Environment=STASHSEEK_LOG_DIR=/var/log/notebook-agent
 Environment=MCP_HOST=127.0.0.1
 Environment=MCP_PORT=8800
 ExecStart=/opt/notebook-agent/current/.venv/bin/python -m app.cli mcp-server --transport streamable-http
@@ -244,4 +247,81 @@ ReadWritePaths=/var/log/notebook-agent
 ```yaml
 ports:
   - "127.0.0.1:16379:6379"
+```
+
+## Scenario: Brand-compatible runtime configuration
+
+### 1. Scope / Trigger
+
+- Trigger: a product or repository rename changes developer-facing commands or
+  environment keys while existing local and production installations must keep
+  working without moving state.
+
+### 2. Signatures
+
+```text
+scripts/stashseek <lifecycle command>       # canonical
+scripts/notebook-agent <lifecycle command> # compatibility wrapper
+
+_compat_value(env, canonical, legacy, default)
+_canonicalize_compat_layer(values)
+```
+
+### 3. Contracts
+
+- Source precedence is process canonical → process legacy → operator `.env`
+  canonical → operator legacy → managed `.env.runtime` canonical → managed
+  legacy → default.
+- Normalize the alias inside each source layer before merging layers. Never
+  flatten all sources first and then prefer the canonical spelling.
+- New docs and generated configuration lead with `STASHSEEK_*`; legacy
+  `NOTEBOOK_AGENT_*` keys remain accepted during the compatibility window.
+- Installed `notebook-agent*.service` names and `/opt`, `/etc`, `/var/lib`,
+  `/var/log/notebook-agent` paths are stable operational identifiers. A brand
+  rename does not authorize moving them.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required result |
+| --- | --- |
+| process canonical and process legacy both set | canonical wins |
+| process legacy and lower-layer canonical set | process legacy wins |
+| operator legacy and managed canonical set | operator legacy wins |
+| only legacy key set | same validation and behavior as canonical key |
+| invalid canonical/legacy value | stable canonical-key validation error; no value logging |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a new `STASHSEEK_PROFILE=read` process override wins and the old
+  launcher starts the same plan through its wrapper.
+- Base: an existing `.env.runtime` containing only `NOTEBOOK_AGENT_PROFILE`
+  continues to start unchanged.
+- Bad: merge files and process into one dictionary and then select
+  `STASHSEEK_PROFILE`; a lower-precedence file can silently defeat a process
+  legacy override.
+
+### 6. Tests Required
+
+- Cover canonical-only, legacy-only, same-layer conflict, and every cross-layer
+  conflict with exact selected values.
+- Assert both launcher files are executable and shell-valid.
+- Keep production static tests pinned to stable unit/path identities while
+  asserting canonical `STASHSEEK_*` unit environment values.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+resolved = {**managed, **operator, **process}
+profile = resolved.get("STASHSEEK_PROFILE", resolved.get("NOTEBOOK_AGENT_PROFILE"))
+```
+
+#### Correct
+
+```python
+resolved = {}
+for layer in (managed, operator, process):
+    resolved.update(_canonicalize_compat_layer(layer))
+profile = resolved["STASHSEEK_PROFILE"]
 ```

@@ -22,6 +22,11 @@ There is no Redux, Zustand, persistent query cache, or browser-auth store. The s
   `section_id`, including their status, temporary text, Citation DTOs, and
   streaming/completed/aborted phase. This state is never written to storage or
   treated as conversation history.
+- **Non-sensitive presentation preferences:** versioned product-notice
+  dismissals may use `localStorage` when they contain no account, tenant,
+  content, or authentication data. Storage reads and writes must be guarded;
+  when browser storage is unavailable, the interaction still works for the
+  current component lifetime.
 
 ---
 
@@ -139,6 +144,8 @@ if (hasDurablePendingTurn(latest, question, response.text, baseline)) clearPendi
 ## Common Mistakes
 
 - Storing the session token, CSRF token, or challenge browser secret in Web Storage.
+- Putting account-scoped data or server-query results in the same Web Storage
+  mechanism used for harmless presentation preferences.
 - Reusing cached library data after logout.
 - Deriving retry/archive permissions from UI assumptions.
 - Persisting a transcript cursor after the user leaves the detail session.

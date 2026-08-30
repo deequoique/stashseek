@@ -911,9 +911,9 @@ def test_scope_controls_discovery_and_server_is_lazy():
     assert read.allowed_tool_names == allowed_tool_names("read")
     assert full.allowed_tool_names == allowed_tool_names("full")
     assert set(read.allowed_tool_names) == {
-        "ask_notebook_agent", "list_saved_items", "get_saved_item"
+        "ask_stashseek", "ask_notebook_agent", "list_saved_items", "get_saved_item"
     }
-    assert len(full.allowed_tool_names) == 10
+    assert len(full.allowed_tool_names) == 11
 
 
 def test_mcp_path_rejects_root_and_preserves_custom_non_root_path():
@@ -960,7 +960,7 @@ def test_mutation_readiness_is_bounded_and_full_profile_withholds_mutations():
     )
     server = create_mcp_server(scope="full", facade=facade)
     assert set(server.allowed_tool_names) == {
-        "ask_notebook_agent", "list_saved_items", "get_saved_item",
+        "ask_stashseek", "ask_notebook_agent", "list_saved_items", "get_saved_item",
     }
     output = asyncio.run(facade.update_saved_item(1, "reason"))
     assert output.status == "failed"
@@ -1086,8 +1086,8 @@ async def test_official_sdk_in_memory_protocol_profiles_and_schema_bounds():
     full_tools, _ = await inspect_server(
         create_mcp_server(scope="full", facade=McpToolFacade(grant=_resolved("full")))
     )
-    assert len(read_tools.tools) == 3
-    assert len(full_tools.tools) == 10
+    assert len(read_tools.tools) == 4
+    assert len(full_tools.tools) == 11
     assert read_result.structured_content["error_code"] == "slash_command_not_allowed"
     ask_schema = next(
         tool for tool in read_tools.tools if tool.name == "ask_notebook_agent"
@@ -1151,7 +1151,7 @@ def test_streamable_http_auth_scope_path_mode_and_provider_safe_projection():
                 headers=read_headers,
             )
             assert read_list.status_code == 200
-            assert len(read_list.json()["result"]["tools"]) == 3
+            assert len(read_list.json()["result"]["tools"]) == 4
 
             assert client.post("/mcp", json=initialize, headers=full_headers).status_code == 200
             full_list = client.post(
@@ -1160,7 +1160,7 @@ def test_streamable_http_auth_scope_path_mode_and_provider_safe_projection():
                 headers=full_headers,
             )
             assert full_list.status_code == 200
-            assert len(full_list.json()["result"]["tools"]) == 10
+            assert len(full_list.json()["result"]["tools"]) == 11
             call = client.post(
                 "/mcp",
                 json={
@@ -1243,7 +1243,7 @@ def test_streamable_http_auth_scope_path_mode_and_provider_safe_projection():
                 json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
             )
             assert path_list.status_code == 200
-            assert len(path_list.json()["result"]["tools"]) == 3
+        assert len(path_list.json()["result"]["tools"]) == 4
     finally:
         engine.dispose()
 
@@ -1372,7 +1372,7 @@ run_stdio(
         send({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
         send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
         tools = receive()
-        assert len(tools["result"]["tools"]) == 3
+        assert len(tools["result"]["tools"]) == 4
         send({
             "jsonrpc": "2.0",
             "id": 3,

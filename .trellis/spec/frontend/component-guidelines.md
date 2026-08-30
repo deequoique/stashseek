@@ -1,6 +1,6 @@
 # Component Guidelines
 
-> How React components are built in the Notebook Agent Web client.
+> How React components are built in the StashSeek Chat Web client.
 
 ---
 

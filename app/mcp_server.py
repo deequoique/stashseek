@@ -1,4 +1,4 @@
-"""Typed MCP boundary for Notebook Agent.
+"""Typed MCP boundary for StashSeek Chat.
 
 This module is deliberately a thin adapter.  It translates validated MCP
 arguments into trusted ``ChannelEnvelope`` values for ``ChannelService`` and
@@ -42,6 +42,7 @@ from app.limits import MAX_WHY_SAVED_CHARS
 
 
 MCP_TOOL_NAMES: tuple[str, ...] = (
+    "ask_stashseek",
     "ask_notebook_agent",
     "submit_knowledge_urls",
     "list_saved_items",
@@ -54,7 +55,7 @@ MCP_TOOL_NAMES: tuple[str, ...] = (
     "retry_item_ingestion",
 )
 READ_TOOL_NAMES: frozenset[str] = frozenset(
-    {"ask_notebook_agent", "list_saved_items", "get_saved_item"}
+    {"ask_stashseek", "ask_notebook_agent", "list_saved_items", "get_saved_item"}
 )
 FULL_TOOL_NAMES: frozenset[str] = frozenset(MCP_TOOL_NAMES)
 try:
@@ -63,6 +64,9 @@ try:
     from mcp.server.transport_security import TransportSecuritySettings
 
     _TOOL_ANNOTATIONS = {
+        "ask_stashseek": ToolAnnotations(
+            readOnlyHint=True, destructiveHint=False, idempotentHint=False
+        ),
         "ask_notebook_agent": ToolAnnotations(
             readOnlyHint=True, destructiveHint=False, idempotentHint=False
         ),
@@ -95,7 +99,7 @@ try:
         ),
     }
 except ImportError as exc:  # pragma: no cover - package is a required dep
-    raise RuntimeError("Notebook Agent MCP requires mcp==2.0.0") from exc
+    raise RuntimeError("StashSeek Chat MCP requires mcp==2.0.0") from exc
 _CONVERSATION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _MCP_PATH_TOKEN_RE = re.compile(r"^/mcp/c/([^/?#]+)\Z")
 _MAX_URL_BATCH = 10
@@ -136,7 +140,7 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class AskNotebookAgentInput(_StrictModel):
+class AskStashSeekInput(_StrictModel):
     question: str = Field(min_length=1, max_length=4000)
     conversation_id: str = Field(default="default", min_length=1, max_length=128)
 
@@ -216,7 +220,7 @@ class SavedItemOutput(_StrictModel):
     error_code: str | None = Field(default=None, max_length=64)
 
 
-class AskNotebookAgentOutput(_StrictModel):
+class AskStashSeekOutput(_StrictModel):
     status: str = Field(max_length=32)
     answer: str = Field(max_length=16000)
     # ``KnowledgeServices`` and the Agent runtime expose at most the bounded
@@ -235,6 +239,13 @@ class AskNotebookAgentOutput(_StrictModel):
     @property
     def text(self) -> str:
         return self.answer
+
+
+# Former Python model names remain import-compatible while the canonical model
+# definitions use the StashSeek brand. Keeping one model prevents schema drift
+# between the two MCP tool names.
+AskNotebookAgentInput = AskStashSeekInput
+AskNotebookAgentOutput = AskStashSeekOutput
 
 
 class SubmitKnowledgeURLsInput(_StrictModel):
@@ -692,13 +703,13 @@ class McpToolFacade:
                 getattr(exc, "error_code", None) or "management_unavailable"
             )
 
-    async def ask_notebook_agent(
-        self, question: str | AskNotebookAgentInput, conversation_id: str = "default"
-    ) -> AskNotebookAgentOutput:
+    async def ask_stashseek(
+        self, question: str | AskStashSeekInput, conversation_id: str = "default"
+    ) -> AskStashSeekOutput:
         request = (
             question
-            if isinstance(question, AskNotebookAgentInput)
-            else AskNotebookAgentInput(question=question, conversation_id=conversation_id)
+            if isinstance(question, AskStashSeekInput)
+            else AskStashSeekInput(question=question, conversation_id=conversation_id)
         )
         started = time.monotonic()
         request_id = uuid4().hex
@@ -721,7 +732,7 @@ class McpToolFacade:
                 # Fake services may return a compatible object; projection is
                 # still strict and intentionally excludes arbitrary payloads.
                 answer = AgentAnswer.model_validate(answer)
-            return AskNotebookAgentOutput(
+            return AskStashSeekOutput(
                 status=answer.status,
                 answer=answer.text,
                 citations=[_project_citation(value) for value in answer.citations],
@@ -732,14 +743,14 @@ class McpToolFacade:
                 error_code=answer.error_code,
             )
         except McpToolError as exc:
-            return AskNotebookAgentOutput(
+            return AskStashSeekOutput(
                 status="failed", answer="该请求不支持命令式操作。", citations=[],
                 conversation_id=request.conversation_id, request_id=request_id,
                 elapsed_ms=max(0, int((time.monotonic() - started) * 1000)),
                 error_code=exc.error_code,
             )
         except (McpGrantError, McpAuthenticationError) as exc:
-            return AskNotebookAgentOutput(
+            return AskStashSeekOutput(
                 status="failed", answer="MCP 凭证无效或权限不足。", citations=[],
                 conversation_id=request.conversation_id, request_id=request_id,
                 elapsed_ms=max(0, int((time.monotonic() - started) * 1000)),
@@ -747,12 +758,19 @@ class McpToolFacade:
             )
         except Exception as exc:
             # Never put exception text or provider payloads into MCP output.
-            return AskNotebookAgentOutput(
+            return AskStashSeekOutput(
                 status="failed", answer="知识库服务暂时不可用。", citations=[],
                 conversation_id=request.conversation_id, request_id=request_id,
                 elapsed_ms=max(0, int((time.monotonic() - started) * 1000)),
                 error_code=_safe_error_code(getattr(exc, "error_code", None), "runtime_error"),
             )
+
+    async def ask_notebook_agent(
+        self, question: str | AskStashSeekInput, conversation_id: str = "default"
+    ) -> AskStashSeekOutput:
+        """Compatibility alias for clients using the former MCP tool name."""
+
+        return await self.ask_stashseek(question, conversation_id)
 
     def _failure(self, error_code: str) -> ItemOperationOutput:
         return ItemOperationOutput(
@@ -1074,7 +1092,7 @@ def _register(server, fn: Callable[..., Any], *, description: str = "") -> None:
 
 def create_mcp_server(
     *,
-    name: str = "Notebook Agent",
+    name: str = "StashSeek Chat",
     scope: str = "full",
     facade: McpToolFacade | None = None,
     **facade_kwargs: Any,
@@ -1086,9 +1104,14 @@ def create_mcp_server(
     facade = facade or McpToolFacade(scope=scope, **facade_kwargs)
     server = _new_sdk_server(name, facade.settings)
 
+    async def ask_stashseek(
+        question: QuestionArg, conversation_id: ConversationArg = "default"
+    ) -> AskStashSeekOutput:
+        return await facade.ask_stashseek(question, conversation_id)
+
     async def ask_notebook_agent(
         question: QuestionArg, conversation_id: ConversationArg = "default"
-    ) -> AskNotebookAgentOutput:
+    ) -> AskStashSeekOutput:
         return await facade.ask_notebook_agent(question, conversation_id)
 
     async def submit_knowledge_urls(
@@ -1155,6 +1178,7 @@ def create_mcp_server(
         return await facade.retry_item_ingestion(item_id)
 
     functions: dict[str, Callable[..., Any]] = {
+        "ask_stashseek": ask_stashseek,
         "ask_notebook_agent": ask_notebook_agent,
         "submit_knowledge_urls": submit_knowledge_urls,
         "list_saved_items": list_saved_items,
@@ -1167,7 +1191,8 @@ def create_mcp_server(
         "retry_item_ingestion": retry_item_ingestion,
     }
     descriptions = {
-        "ask_notebook_agent": "Ask Notebook Agent a natural-language knowledge question.",
+        "ask_stashseek": "Chat with everything you've saved and find the matching source video.",
+        "ask_notebook_agent": "Compatibility alias: ask StashSeek Chat a natural-language knowledge question.",
         "submit_knowledge_urls": "Submit bounded knowledge URLs for asynchronous ingestion.",
         "list_saved_items": "List this grant's tenant-scoped saved items.",
         "get_saved_item": "Read one tenant-scoped saved item.",
@@ -1358,9 +1383,9 @@ def run_stdio(server=None, *, settings: Settings | None = None) -> None:
     from app.diagnostics import configure_runtime_logging
 
     configure_runtime_logging(
-        log_dir=settings.notebook_agent_log_dir,
-        max_bytes=settings.notebook_agent_log_max_bytes,
-        backup_count=settings.notebook_agent_log_backup_count,
+        log_dir=settings.stashseek_log_dir,
+        max_bytes=settings.stashseek_log_max_bytes,
+        backup_count=settings.stashseek_log_backup_count,
         console_stream="stderr",
     )
     if server is None:
@@ -1487,7 +1512,8 @@ create_server = create_mcp_server
 
 
 __all__ = [
-    "AskNotebookAgentInput", "AskNotebookAgentOutput", "CitationProjection",
+    "AskNotebookAgentInput", "AskNotebookAgentOutput",
+    "AskStashSeekInput", "AskStashSeekOutput", "CitationProjection",
     "McpAuthMiddleware", "McpAuthenticationError", "McpGrantService",
     "McpMutationReadiness", "assess_mcp_mutation_readiness",
     "probe_mcp_worker",

@@ -1,6 +1,6 @@
 # Frontend Development Guidelines
 
-> The implemented conventions for the Notebook Agent same-origin Web client.
+> The implemented conventions for the StashSeek Chat same-origin Web client.
 
 ---
 
