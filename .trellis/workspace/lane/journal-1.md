@@ -547,3 +547,24 @@ Reframed Notebook Agent around its product value, added public product screensho
 ### Status
 
 [OK] **Completed**
+
+
+## Session 20: Add community and GitHub entry points
+
+**Date**: 2026-08-30
+**Task**: Add community and GitHub entry points
+**Branch**: `dev`
+
+### Summary
+
+Added a dismissible Chinese community announcement, first-level Tencent QQ and GitHub actions, a public GitHub contribution link, responsive styling, persistence fallback, tests, and frontend state guidance.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0deeb7e` | (see git log) |
+
+### Status
+
+[OK] **Completed**
