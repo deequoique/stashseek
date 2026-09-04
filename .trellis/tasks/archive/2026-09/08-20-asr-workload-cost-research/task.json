@@ -1,0 +1,29 @@
+{
+  "id": "asr-workload-cost-research",
+  "name": "asr-workload-cost-research",
+  "title": "ASR 语音转写工作量与成本调研",
+  "description": "调研将 needs_asr 视频转为可检索、带时间戳文本所需的端到端工作量、供应商费用、基础设施成本及产品与隐私取舍。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "research-full-stack-asr",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-20",
+  "completedAt": "2026-09-04",
+  "branch": null,
+  "base_branch": "dev",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "独立调研型规划任务；未授权实施 ASR 或采购服务。等待确认第一版需要覆盖的视频来源范围。",
+  "meta": {
+    "cleanup_disposition": "abandoned_stale",
+    "cleanup_date": "2026-09-04"
+  }
+}

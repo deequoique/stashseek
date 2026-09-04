@@ -1,0 +1,35 @@
+{
+  "id": "channel-save-link-routing",
+  "name": "channel-save-link-routing",
+  "title": "修复渠道保存确认与链接能力回答",
+  "description": "在统一可信 ResponseEnvelope 上实现服务器链接能力说明、结构化引用框 SaveTargetSet、先落库后提问的保存提议，并完成 Bilibili worker 与短链处理。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "backend+integration",
+  "package": "backend",
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-18",
+  "completedAt": "2026-09-04",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/08-18-bilibili-url-plugin"
+  ],
+  "notes": "依赖父任务 08-19-trusted-response-boundary 的 canonical/action section 合同；本任务吸收关联 Bilibili 任务的服务器 connector/短链范围，关联任务仅保留浏览器 companion、登录态字幕兜底和复杂页面形态。",
+  "meta": {
+    "related_task": "08-18-bilibili-url-plugin",
+    "absorbed_scope": "server_bilibili_connector_and_short_url",
+    "incident_date": "2026-08-18",
+    "shared_response_parent": "08-19-trusted-response-boundary",
+    "cleanup_disposition": "abandoned_stale",
+    "cleanup_date": "2026-09-04"
+  }
+}

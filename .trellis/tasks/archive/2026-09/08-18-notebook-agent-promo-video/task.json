@@ -1,0 +1,29 @@
+{
+  "id": "notebook-agent-promo-video",
+  "name": "notebook-agent-promo-video",
+  "title": "制作 Notebook Agent 横屏 Remotion 宣传视频",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "promo/remotion, promo/notebook-agent-promo-script.md",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-18",
+  "completedAt": "2026-09-04",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "cleanup_disposition": "completed_but_unarchived",
+    "cleanup_date": "2026-09-04"
+  }
+}

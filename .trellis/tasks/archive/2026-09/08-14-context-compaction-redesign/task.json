@@ -1,0 +1,29 @@
+{
+  "id": "context-compaction-redesign",
+  "name": "context-compaction-redesign",
+  "title": "上下文分层压缩与 Tool 输出裁剪",
+  "description": "优先投影单次 Agent run 的冗余 tool 输出，并用持久化结构化摘要和单调 checkpoint 保留长对话连续性。",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": "backend",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-14",
+  "completedAt": "2026-09-04",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "cleanup_disposition": "abandoned_stale",
+    "cleanup_date": "2026-09-04"
+  }
+}

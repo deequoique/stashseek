@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/index.md","reason":"Use the backend pre-development and quality routing for retrieval, database and deployment changes."}
+{"file":".trellis/spec/backend/agent-retrieval-convergence.md","reason":"Preserve bounded hybrid candidate pools, item diversification, tenant scoping, no-evidence behavior and Composer citation limits."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Keep Neon pooled/direct URL separation, one Alembic head and isolated-branch migration validation."}
+{"file":".trellis/spec/backend/provider-tls-diagnostics.md","reason":"Preserve embedding/retrieval failure separation and privacy-safe diagnostics during backend changes."}
+{"file":".trellis/spec/backend/knowledge-item-management.md","reason":"Keep deleted/archived lifecycle gates across every lexical, vector and hydration path."}
+{"file":".trellis/tasks/08-26-hybrid-retrieval-bm25-rrf/research/current-state-and-bm25-options.md","reason":"Use the audited current implementation and 2026 Neon extension support/deprecation findings when implementing backend selection and rollout."}

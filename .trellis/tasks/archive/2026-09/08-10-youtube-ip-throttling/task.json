@@ -1,0 +1,29 @@
+{
+  "id": "youtube-ip-throttling",
+  "name": "youtube-ip-throttling",
+  "title": "Route YouTube acquisition through the user's Mac",
+  "description": "Implement an on-demand loopback proxy and reverse SSH tunnel so only YouTube connector requests use the user's working home egress.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-10",
+  "completedAt": "2026-09-04",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "cleanup_disposition": "completed_but_unarchived",
+    "cleanup_date": "2026-09-04"
+  }
+}
