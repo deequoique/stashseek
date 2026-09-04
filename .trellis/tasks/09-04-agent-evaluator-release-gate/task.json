@@ -1,0 +1,31 @@
+{
+  "id": "agent-evaluator-release-gate",
+  "name": "agent-evaluator-release-gate",
+  "title": "Agent evaluator and release gate",
+  "description": "在现有 evals/natural_language 上建立可复现、可审计的 Agent evaluator：冻结四层检索/无答案/工具异常数据集，固定 baseline/candidate 模型参数与工具环境，采集安全轨迹与 usage，先程序验证视频身份/链接/时间戳/字幕证据，再运行 rubric LLM judge 与人工分歧抽检，按结果/轨迹/运行层比较并实施 correctness non-regression + loop/p95 improvement release gate。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "evals/natural_language,dataset-freeze,trajectory-observability,video-evidence,judge,paired-comparison,release-gate,privacy",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-09-04",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/09-04-agent-evaluator-release-gate/prd.md",
+    ".trellis/tasks/09-04-agent-evaluator-release-gate/design.md",
+    ".trellis/tasks/09-04-agent-evaluator-release-gate/implement.md",
+    "evals/natural_language"
+  ],
+  "notes": "Planning only. Do not run task.py start or paid evaluator calls until the user reviews the final planning summary and confirms gate thresholds. Preserve existing dirty worktree changes.",
+  "meta": {}
+}

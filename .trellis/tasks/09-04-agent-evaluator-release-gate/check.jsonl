@@ -1,0 +1,10 @@
+{"file":".trellis/spec/backend/agent-retrieval-convergence.md","reason":"检查多跳决策、检索预算、Citation allow-list、合法 retry 与 no-answer/error 分支没有回归。"}
+{"file":".trellis/spec/backend/agent-execution-streaming.md","reason":"检查工具 lifecycle multiplicity、SSE/diagnostics 隐私和取消/失败状态机没有回归。"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"检查 raw args/results、URL、字幕、问题/答案、secret 和 provider error 没有泄露到 artifact/log/SSE。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"检查 fault injection、unknown/unscorable、retry 和 fail-closed error handling。"}
+{"file":".trellis/spec/backend/youtube-connector.md","reason":"检查 YouTube canonical identity、字幕 track 和 timestamp URL 兼容性。"}
+{"file":".trellis/spec/backend/bilibili-connector.md","reason":"检查 Bilibili `?t=`、canonical URL、SRT 和错误分类回归。"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"检查 resolver 的 tenant/migration/fixture 隔离与无破坏性数据库访问。"}
+{"file":".trellis/tasks/09-04-agent-evaluator-release-gate/research/eval-architecture.md","reason":"核对实现是否复用了现有 evaluator 而未重复造轮子或漏掉已知缺口。"}
+{"file":".trellis/tasks/09-04-agent-evaluator-release-gate/research/trace-observability.md","reason":"核对轨迹指标分子/分母、usage/p95 和隐私边界。"}
+{"file":".trellis/tasks/09-04-agent-evaluator-release-gate/research/video-evidence-validation.md","reason":"核对程序证据验证先于 judge、稳定 fixture 身份和平台深链规则。"}

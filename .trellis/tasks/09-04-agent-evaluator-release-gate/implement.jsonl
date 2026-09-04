@@ -1,0 +1,10 @@
+{"file":".trellis/spec/backend/agent-retrieval-convergence.md","reason":"冻结数据、decision DAG、检索 budget、Citation allow-list 和 recovery 设计必须保持现有 Agent convergence 契约。"}
+{"file":".trellis/spec/backend/agent-execution-streaming.md","reason":"轨迹采集只能使用安全的内部 lifecycle projection，不能泄露参数、结果、provider metadata 或改变 SSE 状态机。"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"参数 canonicalization、trajectory artifact、judge/review export 必须遵守生产日志和跨进程诊断隐私边界。"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"tool_error fault、retry/recovery、stream/provider failure 需要保持 phase-accurate error 语义和 fail-closed 行为。"}
+{"file":".trellis/spec/backend/youtube-connector.md","reason":"YouTube transcript、canonical URL、字幕来源和时间链接校验依赖 connector 的平台约束。"}
+{"file":".trellis/spec/backend/bilibili-connector.md","reason":"Bilibili URL、SRT、深链 query 和错误分类是视频证据 checker 的平台约束。"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"fixture resolver、tenant-scoped read-only lookup、migration head 和测试数据库隔离必须遵守数据库契约。"}
+{"file":".trellis/tasks/09-04-agent-evaluator-release-gate/research/eval-architecture.md","reason":"现有 evaluator、Gold scorer、runner、报告与建议模块边界的代码研究。"}
+{"file":".trellis/tasks/09-04-agent-evaluator-release-gate/research/trace-observability.md","reason":"轨迹、参数合法率、冗余/loop、usage、p95、隐私投影和 paired gate 的研究依据。"}
+{"file":".trellis/tasks/09-04-agent-evaluator-release-gate/research/video-evidence-validation.md","reason":"冻结 fixture 身份、YouTube/Bilibili URL、timestamp、字幕证据和 judge 顺序的研究依据。"}
