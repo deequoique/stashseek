@@ -1,0 +1,336 @@
+revision: benchmark-v1
+catalog_status: dry_run_only
+freeze_date: "2026-08-25"
+query_date_cutoff: "2026-08-24"
+truth_annotation_status: pending_manual
+media_input_status: pending_manual
+probe_snapshot: probe_snapshot.yaml
+runs_per_profile_sample: 3
+processing_scope:
+  max_audio_window_sec: 60
+  max_audio_windows_per_sample: 2
+  frame_bundle_min_frames: 3
+  frame_bundle_max_frames: 6
+  max_frame_bundles_per_sample: 2
+  max_ocr_frames: 3
+  retain_complete_media: false
+  retain_provider_response: false
+  submit_page_url: false
+  submit_signed_url: false
+  submit_credentials: false
+quality_gates:
+  schema_once_pass_rate: 1.0
+  eligible_completion_rate: 0.95
+  top3_video_hit_rate: 0.90
+  top1_video_hit_rate: 0.75
+  temporal_hit_rate: 0.85
+  subgroup_hit_rate: 0.75
+  asr_keyword_recall: 0.90
+  asr_language_subgroup_recall: 0.85
+  ocr_exact_recall: 0.90
+  ocr_small_text_recall: 0.80
+  vision_required_recall: 0.85
+  vision_hallucination_rate: 0.05
+  asr_consistency: 0.90
+  asr_boundary_drift_sec: 2.0
+  ocr_consistency: 0.95
+  vision_consistency_jaccard: 0.75
+official_sources:
+  - https://developers.openai.com/api/docs/guides/speech-to-text#timestamps
+  - https://developers.openai.com/api/docs/models/whisper-1
+  - https://help.aliyun.com/zh/model-studio/non-realtime-speech-recognition-user-guide
+  - https://www.assemblyai.com/docs/getting-started/models
+  - https://docs.cloud.google.com/speech-to-text/docs/models/chirp-2
+  - https://developers.openai.com/api/docs/models
+  - https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash
+  - https://docs.cloud.google.com/vision/docs/ocr
+  - https://help.aliyun.com/zh/ocr/developer-reference/api-ocr-api-2021-07-07-recognizealltext
+  - https://paddlex.paddlepaddle.org.cn/module_usage/tutorials/ocr_modules/text_recognition.html
+rights_note: >-
+  All twelve samples are user-selected public pages, not a representation that
+  the pages carry an open-reuse license. Processing is limited to temporary,
+  benchmark-only 30-60 second audio windows and representative frame bundles;
+  complete media, complete subtitles, provider bodies, signed URLs and
+  credentials are not committed or redistributed.
+samples:
+  - sample_id: YT-01
+    platform: youtube
+    platform_id: 3oAY1j5-KIg
+    public_url: https://www.youtube.com/watch?v=3oAY1j5-KIg
+    title: "P1 机器学习的应用…Machine Learning Specialization"
+    creator: "江湖人家"
+    duration_sec: 268
+    publicly_accessible_at: "2026-08-25"
+    single_video: true
+    probe_status: complete
+    subtitle_tracks:
+      - {language: en-orig, kind: automatic, format: json3, body_probe_status: completed, cue_count: 119, content_start_sec: 2.4, content_end_sec: 269.96, coverage_ratio: 0.998358, coverage_status: complete}
+    subtitle_coverage_status: complete
+    hard_subtitle_status: unknown
+    content_languages: [en, zh]
+    content_tags: [course, slides, machine-learning, terminology]
+    rights_status: uncertain_user_requested
+    rights_evidence_note: "No open-license evidence found in the metadata probe; retained because the user selected all 12 URLs."
+    download_and_processing_scope: "Temporary 30-60 second audio windows and 3-6 representative frames only; no complete media or subtitle retention."
+    classification_status: preliminary
+  - sample_id: YT-02
+    platform: youtube
+    platform_id: Fh5HeQN5kI8
+    public_url: https://www.youtube.com/watch?v=Fh5HeQN5kI8
+    title: "宋美龄：如果人生重来，我不会结婚"
+    creator: "柴静 Chai Jing"
+    duration_sec: 2887
+    publicly_accessible_at: "2026-08-25"
+    single_video: true
+    probe_status: no_platform_track
+    subtitle_tracks: []
+    subtitle_coverage_status: none
+    hard_subtitle_status: unknown
+    content_languages: [zh]
+    content_tags: [interview, documentary, multi-speaker, long-video]
+    rights_status: uncertain_user_requested
+    rights_evidence_note: "No open-license evidence found in the metadata probe; retained because the user selected all 12 URLs."
+    download_and_processing_scope: "Temporary 30-60 second audio windows and 3-6 representative frames only; no complete media or subtitle retention."
+    classification_status: preliminary
+  - sample_id: YT-03
+    platform: youtube
+    platform_id: iSpWZzL2i1o
+    public_url: https://www.youtube.com/watch?v=iSpWZzL2i1o
+    title: "Smooth Drag N Drop: Godot Guide"
+    creator: "Bramwell"
+    duration_sec: 568
+    publicly_accessible_at: "2026-08-25"
+    single_video: true
+    probe_status: complete
+    subtitle_tracks:
+      - {language: en-orig, kind: automatic, format: json3, body_probe_status: completed, cue_count: 276, content_start_sec: 0.0, content_end_sec: 568.86, coverage_ratio: 0.999789, coverage_status: complete}
+    subtitle_coverage_status: complete
+    hard_subtitle_status: unknown
+    content_languages: [en]
+    content_tags: [software, screen-recording, code, ui]
+    rights_status: uncertain_user_requested
+    rights_evidence_note: "No open-license evidence found in the metadata probe; retained because the user selected all 12 URLs."
+    download_and_processing_scope: "Temporary 30-60 second audio windows and 3-6 representative frames only; no complete media or subtitle retention."
+    classification_status: preliminary
+  - sample_id: YT-04
+    platform: youtube
+    platform_id: pt5-G2KgHi8
+    public_url: https://www.youtube.com/watch?v=pt5-G2KgHi8
+    title: "《走线》歪脑首部纪录片长片"
+    creator: "歪脑WHYNOT"
+    duration_sec: 4284
+    publicly_accessible_at: "2026-08-25"
+    single_video: true
+    probe_status: complete
+    subtitle_tracks:
+      - {language: en, kind: manual, format: json3, body_probe_status: completed, cue_count: 1374, content_start_sec: 0.0, content_end_sec: 4208.829, coverage_ratio: 0.679820, coverage_status: partial}
+      - {language: ja, kind: manual, format: json3, body_probe_status: completed, cue_count: 1354, content_start_sec: 0.208, content_end_sec: 4209.246, coverage_ratio: 0.681519, coverage_status: partial}
+    subtitle_coverage_status: partial
+    hard_subtitle_status: unknown
+    content_languages: [zh, en]
+    content_tags: [documentary, interview, charts, real-world, long-video]
+    rights_status: uncertain_user_requested
+    rights_evidence_note: "Official production channel was observed, but no open-license evidence was recorded."
+    download_and_processing_scope: "Temporary 30-60 second audio windows and 3-6 representative frames only; no complete media or subtitle retention."
+    classification_status: preliminary
+  - sample_id: YT-05
+    platform: youtube
+    platform_id: 2wsXC4HU8WI
+    public_url: https://www.youtube.com/watch?v=2wsXC4HU8WI
+    title: "20131230 張懸 關於我愛你"
+    creator: "ytmao"
+    duration_sec: 501
+    publicly_accessible_at: "2026-08-25"
+    single_video: true
+    probe_status: no_platform_track
+    subtitle_tracks: []
+    subtitle_coverage_status: none
+    hard_subtitle_status: unknown
+    content_languages: [zh]
+    content_tags: [live-music, noise, non-speech, real-world]
+    rights_status: uncertain_user_requested
+    rights_evidence_note: "Live-song rights uncertainty is high; retained only within the user-approved minimum benchmark scope."
+    download_and_processing_scope: "Temporary 30-60 second audio windows and 3-6 representative frames only; no complete media or subtitle retention."
+    classification_status: preliminary
+  - sample_id: YT-06
+    platform: youtube
+    platform_id: dQw4w9WgXcQ
+    public_url: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+    title: "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)"
+    creator: "Rick Astley"
+    duration_sec: 213
+    publicly_accessible_at: "2026-08-25"
+    single_video: true
+    probe_status: complete
+    subtitle_tracks:
+      - {language: en, kind: manual, format: json3, body_probe_status: completed, cue_count: 61, content_start_sec: 1.36, content_end_sec: 211.32, coverage_ratio: 0.835493, coverage_status: complete}
+      - {language: en-orig, kind: automatic, format: json3, body_probe_status: completed, cue_count: 52, content_start_sec: 0.32, content_end_sec: 211.879, coverage_ratio: 0.918028, coverage_status: complete}
+      - {language: de-DE, kind: manual, format: json3, body_probe_status: completed, cue_count: 60, content_start_sec: 18.64, content_end_sec: 211.32, coverage_ratio: 0.827605, coverage_status: complete}
+      - {language: ja, kind: manual, format: json3, body_probe_status: completed, cue_count: 60, content_start_sec: 18.64, content_end_sec: 211.32, coverage_ratio: 0.827605, coverage_status: complete}
+      - {language: pt-BR, kind: manual, format: json3, body_probe_status: completed, cue_count: 60, content_start_sec: 18.64, content_end_sec: 211.32, coverage_ratio: 0.827605, coverage_status: complete}
+      - {language: es-419, kind: manual, format: json3, body_probe_status: completed, cue_count: 60, content_start_sec: 18.64, content_end_sec: 211.32, coverage_ratio: 0.827605, coverage_status: complete}
+    subtitle_coverage_status: complete
+    hard_subtitle_status: unknown
+    content_languages: [en]
+    content_tags: [commercial-music-video, singing, people, scene-changes]
+    rights_status: uncertain_user_requested
+    rights_evidence_note: "Commercial music work with no open-license evidence; retained only within the user-approved minimum benchmark scope."
+    download_and_processing_scope: "Temporary 30-60 second audio windows and 3-6 representative frames only; no complete media or subtitle retention."
+    classification_status: preliminary
+  - sample_id: BI-01
+    platform: bilibili
+    platform_id: BV1bx411M7Zx
+    public_url: https://www.bilibili.com/video/BV1bx411M7Zx
+    title: "【官方双语】深度学习之神经网络的结构 Part 1 ver 2.0"
+    creator: "3Blue1Brown"
+    duration_sec: 1153
+    publicly_accessible_at: "2026-08-25"
+    single_video: true
+    probe_status: no_platform_track
+    subtitle_tracks: []
+    subtitle_coverage_status: none
+    hard_subtitle_status: unknown
+    content_languages: [en, zh]
+    content_tags: [course, animation, slides, hard-subtitle-candidate]
+    rights_status: uncertain_user_requested
+    rights_evidence_note: "Metadata describes an official bilingual version, but no open-license evidence was recorded."
+    download_and_processing_scope: "Temporary 30-60 second audio windows and 3-6 representative frames only; no complete media or subtitle retention."
+    classification_status: preliminary
+  - sample_id: BI-02
+    platform: bilibili
+    platform_id: BV1uw4m1S7Cd
+    public_url: https://www.bilibili.com/video/BV1uw4m1S7Cd
+    title: "使用Llama Factory实现中文llama3微调"
+    creator: "胖虎遛二狗"
+    duration_sec: 2127
+    publicly_accessible_at: "2026-08-25"
+    single_video: true
+    probe_status: no_platform_track
+    subtitle_tracks: []
+    subtitle_coverage_status: none
+    hard_subtitle_status: unknown
+    content_languages: [zh, en]
+    content_tags: [software, screen-recording, code, ui, code-switch]
+    rights_status: uncertain_user_requested
+    rights_evidence_note: "No open-license evidence found in the metadata probe; retained because the user selected all 12 URLs."
+    download_and_processing_scope: "Temporary 30-60 second audio windows and 3-6 representative frames only; no complete media or subtitle retention."
+    classification_status: preliminary
+  - sample_id: BI-03
+    platform: bilibili
+    platform_id: BV1AV4y1n7Zt
+    public_url: https://www.bilibili.com/video/BV1AV4y1n7Zt
+    title: "滑动窗口算法核心模板框架"
+    creator: "labuladong"
+    duration_sec: 1970
+    publicly_accessible_at: "2026-08-25"
+    single_video: true
+    probe_status: no_platform_track
+    subtitle_tracks: []
+    subtitle_coverage_status: none
+    hard_subtitle_status: unknown
+    content_languages: [zh]
+    content_tags: [course, code, ui, algorithm]
+    rights_status: uncertain_user_requested
+    rights_evidence_note: "No open-license evidence found in the metadata probe; retained because the user selected all 12 URLs."
+    download_and_processing_scope: "Temporary 30-60 second audio windows and 3-6 representative frames only; no complete media or subtitle retention."
+    classification_status: preliminary
+  - sample_id: BI-04
+    platform: bilibili
+    platform_id: BV13cSoYVEJ1
+    public_url: https://www.bilibili.com/video/BV13cSoYVEJ1
+    title: "【从一开始大都会】#01：非格子城从格子城开始"
+    creator: "天璇OvO"
+    duration_sec: 1134
+    publicly_accessible_at: "2026-08-25"
+    single_video: true
+    probe_status: no_platform_track
+    subtitle_tracks: []
+    subtitle_coverage_status: none
+    hard_subtitle_status: unknown
+    content_languages: [zh]
+    content_tags: [game, screen-recording, dense-ui, numbers]
+    rights_status: uncertain_user_requested
+    rights_evidence_note: "No open-license evidence found in the metadata probe; retained because the user selected all 12 URLs."
+    download_and_processing_scope: "Temporary 30-60 second audio windows and 3-6 representative frames only; no complete media or subtitle retention."
+    classification_status: preliminary
+  - sample_id: BI-05
+    platform: bilibili
+    platform_id: BV1Nt4y1m7kJ
+    public_url: https://www.bilibili.com/video/BV1Nt4y1m7kJ
+    title: "《悲哀藏在现实中》…38部国产文艺片混剪"
+    creator: "泛粥大爷"
+    duration_sec: 294
+    publicly_accessible_at: "2026-08-25"
+    single_video: true
+    probe_status: no_platform_track
+    subtitle_tracks: []
+    subtitle_coverage_status: none
+    hard_subtitle_status: unknown
+    content_languages: [zh]
+    content_tags: [film-montage, music, visual-semantics, rights-risk]
+    rights_status: uncertain_user_requested
+    rights_evidence_note: "Multiple-film montage with high rights uncertainty; retained only within the user-approved minimum benchmark scope."
+    download_and_processing_scope: "Temporary 30-60 second audio windows and 3-6 representative frames only; no complete media or subtitle retention."
+    classification_status: preliminary
+  - sample_id: BI-06
+    platform: bilibili
+    platform_id: BV1h64y1f7jz
+    public_url: https://www.bilibili.com/video/BV1h64y1f7jz
+    title: "超级简单，手残党必学的巴斯克芝士蛋糕"
+    creator: "一人厨"
+    duration_sec: 152
+    publicly_accessible_at: "2026-08-25"
+    single_video: true
+    probe_status: no_platform_track
+    subtitle_tracks: []
+    subtitle_coverage_status: none
+    hard_subtitle_status: unknown
+    content_languages: [zh]
+    content_tags: [cooking, hands-on, real-world, action]
+    rights_status: uncertain_user_requested
+    rights_evidence_note: "No open-license evidence found in the metadata probe; retained because the user selected all 12 URLs."
+    download_and_processing_scope: "Temporary 30-60 second audio windows and 3-6 representative frames only; no complete media or subtitle retention."
+    classification_status: preliminary
+queries:
+  - {query_id: speech-01, kind: speech, query: "Manual annotation required: speech-01", sample_scope_ids: [YT-01], required_modalities: [asr], annotation_note: "Review a representative spoken learning segment; do not infer truth from metadata."}
+  - {query_id: speech-02, kind: speech, query: "Manual annotation required: speech-02", sample_scope_ids: [YT-01], required_modalities: [asr], annotation_note: "Review a second spoken segment and record key terms and time range."}
+  - {query_id: speech-03, kind: speech, query: "Manual annotation required: speech-03", sample_scope_ids: [YT-02], required_modalities: [asr], annotation_note: "Review a Mandarin interview segment."}
+  - {query_id: speech-04, kind: speech, query: "Manual annotation required: speech-04", sample_scope_ids: [YT-02], required_modalities: [asr], annotation_note: "Review a second Mandarin interview segment."}
+  - {query_id: speech-05, kind: speech, query: "Manual annotation required: speech-05", sample_scope_ids: [YT-03], required_modalities: [asr], annotation_note: "Review spoken software terminology."}
+  - {query_id: speech-06, kind: speech, query: "Manual annotation required: speech-06", sample_scope_ids: [YT-03], required_modalities: [asr], annotation_note: "Review code-switching or product-name terminology."}
+  - {query_id: speech-07, kind: speech, query: "Manual annotation required: speech-07", sample_scope_ids: [YT-04], required_modalities: [asr], annotation_note: "Review a documentary speech segment."}
+  - {query_id: speech-08, kind: speech, query: "Manual annotation required: speech-08", sample_scope_ids: [YT-04], required_modalities: [asr], annotation_note: "Review a second documentary speech segment."}
+  - {query_id: speech-09, kind: speech, query: "Manual annotation required: speech-09", sample_scope_ids: [YT-05], required_modalities: [asr], annotation_note: "Review whether a short live-music window contains usable speech."}
+  - {query_id: speech-10, kind: speech, query: "Manual annotation required: speech-10", sample_scope_ids: [YT-06], required_modalities: [asr], annotation_note: "Review a singing/non-speech boundary; do not assume lyric correctness."}
+  - {query_id: speech-11, kind: speech, query: "Manual annotation required: speech-11", sample_scope_ids: [BI-01], required_modalities: [asr], annotation_note: "Review narration in the bilingual animation."}
+  - {query_id: speech-12, kind: speech, query: "Manual annotation required: speech-12", sample_scope_ids: [BI-02], required_modalities: [asr], annotation_note: "Review Mandarin and English technical terms."}
+  - {query_id: visual-01, kind: visual, query: "Manual annotation required: visual-01", sample_scope_ids: [BI-03], required_modalities: [vision], annotation_note: "Annotate a code/UI scene and evidence frame times."}
+  - {query_id: visual-02, kind: visual, query: "Manual annotation required: visual-02", sample_scope_ids: [BI-04], required_modalities: [vision], annotation_note: "Annotate a dense game UI scene."}
+  - {query_id: visual-03, kind: visual, query: "Manual annotation required: visual-03", sample_scope_ids: [BI-05], required_modalities: [vision], annotation_note: "Annotate a visual montage scene without identifying people."}
+  - {query_id: visual-04, kind: visual, query: "Manual annotation required: visual-04", sample_scope_ids: [BI-06], required_modalities: [vision], annotation_note: "Annotate a cooking action scene."}
+  - {query_id: visual-05, kind: visual, query: "Manual annotation required: visual-05", sample_scope_ids: [YT-04], required_modalities: [vision], annotation_note: "Annotate documentary scene or chart semantics."}
+  - {query_id: visual-06, kind: visual, query: "Manual annotation required: visual-06", sample_scope_ids: [YT-05], required_modalities: [vision], annotation_note: "Annotate live-stage visual evidence."}
+  - {query_id: visual-07, kind: visual, query: "Manual annotation required: visual-07", sample_scope_ids: [YT-06], required_modalities: [vision], annotation_note: "Annotate people/action/scene-change evidence."}
+  - {query_id: visual-08, kind: visual, query: "Manual annotation required: visual-08", sample_scope_ids: [BI-01], required_modalities: [vision], annotation_note: "Annotate animation or diagram semantics."}
+  - {query_id: ocr-01, kind: ocr, query: "Manual annotation required: ocr-01", sample_scope_ids: [YT-01], required_modalities: [ocr], annotation_note: "Annotate exact slide or screen text and polygon."}
+  - {query_id: ocr-02, kind: ocr, query: "Manual annotation required: ocr-02", sample_scope_ids: [YT-03], required_modalities: [ocr], annotation_note: "Annotate code/UI text and small-text status."}
+  - {query_id: ocr-03, kind: ocr, query: "Manual annotation required: ocr-03", sample_scope_ids: [BI-02], required_modalities: [ocr], annotation_note: "Annotate technical screen text."}
+  - {query_id: ocr-04, kind: ocr, query: "Manual annotation required: ocr-04", sample_scope_ids: [BI-03], required_modalities: [ocr], annotation_note: "Annotate code and UI text."}
+  - {query_id: ocr-05, kind: ocr, query: "Manual annotation required: ocr-05", sample_scope_ids: [BI-04], required_modalities: [ocr], annotation_note: "Annotate numbers and small game UI text."}
+  - {query_id: ocr-06, kind: ocr, query: "Manual annotation required: ocr-06", sample_scope_ids: [BI-06], required_modalities: [ocr], annotation_note: "Annotate on-screen cooking text if present."}
+  - {query_id: combined-01, kind: combined, query: "Manual annotation required: combined-01", sample_scope_ids: [YT-02], required_modalities: [asr, vision], annotation_note: "Align spoken content with a nearby visual event."}
+  - {query_id: combined-02, kind: combined, query: "Manual annotation required: combined-02", sample_scope_ids: [YT-04], required_modalities: [asr, vision], annotation_note: "Align narration with documentary imagery or charts."}
+  - {query_id: combined-03, kind: combined, query: "Manual annotation required: combined-03", sample_scope_ids: [BI-01], required_modalities: [asr, vision], annotation_note: "Align narration with an animation/diagram frame."}
+  - {query_id: combined-04, kind: combined, query: "Manual annotation required: combined-04", sample_scope_ids: [BI-05], required_modalities: [asr, vision], annotation_note: "Align audio and montage evidence without identity inference."}
+profiles:
+  - {profile_id: asr-qwen-filetrans, modality: asr, provider: aliyun, model_alias: qwen-audio-3.0-asr-flash-filetrans, role: "Chinese and code-switching primary candidate", required_env: [DASHSCOPE_API_KEY], queried_at: "2026-08-24", supports_fixture: true, official_sources: [https://help.aliyun.com/zh/model-studio/asr-model, https://help.aliyun.com/zh/model-studio/non-realtime-speech-recognition-user-guide]}
+  - {profile_id: asr-whisper-1, modality: asr, provider: openai, model_alias: whisper-1, role: "Timestamp protocol baseline", required_env: [OPENAI_API_KEY], queried_at: "2026-08-24", supports_fixture: true, official_sources: [https://developers.openai.com/api/docs/guides/speech-to-text#timestamps, https://developers.openai.com/api/docs/models/whisper-1]}
+  - {profile_id: asr-assemblyai-universal-2, modality: asr, provider: assemblyai, model_alias: universal-2, role: "Cross-provider multilingual comparison", required_env: [ASSEMBLYAI_API_KEY], queried_at: "2026-08-24", supports_fixture: true, official_sources: [https://www.assemblyai.com/docs/getting-started/models]}
+  - {profile_id: asr-google-chirp-2, modality: asr, provider: google_cloud, model_alias: chirp_2, role: "Enterprise cloud timestamp comparison", required_env: [GOOGLE_APPLICATION_CREDENTIALS], queried_at: "2026-08-24", supports_fixture: true, official_sources: [https://docs.cloud.google.com/speech-to-text/docs/models/chirp-2]}
+  - {profile_id: vision-gpt-5-6-luna, modality: vision, provider: openai, model_alias: gpt-5.6-luna, role: "Low-cost default candidate", required_env: [OPENAI_API_KEY], queried_at: "2026-08-24", supports_fixture: true, official_sources: [https://developers.openai.com/api/docs/models]}
+  - {profile_id: vision-gpt-5-6-terra, modality: vision, provider: openai, model_alias: gpt-5.6-terra, role: "Quality fallback", required_env: [OPENAI_API_KEY], queried_at: "2026-08-24", supports_fixture: true, official_sources: [https://developers.openai.com/api/docs/models]}
+  - {profile_id: vision-gpt-5-6-sol, modality: vision, provider: openai, model_alias: gpt-5.6-sol, role: "Quality ceiling", required_env: [OPENAI_API_KEY], queried_at: "2026-08-24", supports_fixture: true, official_sources: [https://developers.openai.com/api/docs/models]}
+  - {profile_id: vision-gemini-3-7-flash, modality: vision, provider: google, model_alias: gemini-3.7-flash, role: "Non-OpenAI multimodal comparison", required_env: [GEMINI_API_KEY], queried_at: "2026-08-24", supports_fixture: true, official_sources: [https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash]}
+  - {profile_id: ocr-google-cloud-vision, modality: ocr, provider: google_cloud_vision, model_alias: TEXT_DETECTION, role: "Hosted OCR default candidate", required_env: [GOOGLE_APPLICATION_CREDENTIALS], queried_at: "2026-08-24", supports_fixture: true, official_sources: [https://docs.cloud.google.com/vision/docs/ocr, https://docs.cloud.google.com/vision/docs/languages]}
+  - {profile_id: ocr-aliyun-recognize-all-text, modality: ocr, provider: aliyun, model_alias: RecognizeAllText, role: "Chinese OCR comparison", required_env: [DASHSCOPE_API_KEY], queried_at: "2026-08-24", supports_fixture: true, official_sources: [https://help.aliyun.com/zh/ocr/developer-reference/api-ocr-api-2021-07-07-recognizealltext]}
+  - {profile_id: ocr-pp-ocrv6-small, modality: ocr, provider: local, model_alias: PP-OCRv6_small, role: "Local quality and fallback comparison", required_env: [], queried_at: "2026-08-24", supports_fixture: true, official_sources: [https://paddlex.paddlepaddle.org.cn/module_usage/tutorials/ocr_modules/text_recognition.html]}

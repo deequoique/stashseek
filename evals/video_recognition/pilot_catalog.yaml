@@ -1,0 +1,220 @@
+# Product-acceptance pilot planning manifest.
+#
+# This is deliberately not a frozen benchmark and must not authorize provider
+# calls.  The twelve-sample catalog remains the regression-pool provenance;
+# this file only scopes the first 4-sample planning pass.
+revision: pilot-v1
+status: planning_only
+regression_catalog_revision: benchmark-v1
+regression_catalog_path: catalog.yaml
+regression_pool_sample_count: 12
+selected_sample_ids: [YT-01, YT-03, BI-01, BI-06]
+truth_annotation_status: pending_manual
+media_input_status: pending_manual
+public_evidence_status: pending
+
+queries:
+  - query_id: pilot-speech-01
+    kind: speech
+    query: "哪一段讲到计算机视觉用于谷歌地图街景和广告？"
+    sample_scope_ids: [YT-01]
+    expected_video_ids: []
+    acceptable_time_ranges: {}
+    required_modalities: [asr]
+    required_key_terms: [computer vision, Google Maps Street View, advertising]
+    distractor_video_ids: [BI-01]
+    annotation_status: pending_manual
+    annotation_note: "候选证据：公开视频字幕约 88 秒出现相关 cue，建议复核 83–95 秒 ASR 窗口与完整语义；查询措辞、视频绝对范围和关键术语仍待人工确认。"
+    time_origin: pending
+  - query_id: pilot-visual-01
+    kind: visual
+    query: "讲师坐在显示机器学习应用幻灯片的屏幕旁边是哪段？"
+    sample_scope_ids: [YT-01]
+    expected_video_ids: []
+    acceptable_time_ranges: {}
+    required_modalities: [vision]
+    required_key_terms: [讲师, 显示器, Applications of Machine Learning]
+    distractor_video_ids: [BI-01]
+    annotation_status: pending_manual
+    annotation_note: "候选证据：代表帧 bundle [18, 20, 50] 用于观察讲师和机器学习应用幻灯片；候选画面边界、描述措辞和正确视频仍待人工回放确认。"
+    time_origin: pending
+  - query_id: pilot-ocr-01
+    kind: ocr
+    query: "哪段字幕提到 AI 和机器学习将额外创造 13 万亿美元？"
+    sample_scope_ids: [YT-01]
+    expected_video_ids: []
+    acceptable_time_ranges: {}
+    required_modalities: [ocr]
+    required_key_terms: [AI and machine learning, 13 trillion US]
+    distractor_video_ids: [BI-01]
+    annotation_status: pending_manual
+    annotation_note: "候选证据：190 秒代表帧可见相关字幕 cue，但相邻帧尚未补齐；精确屏幕文字、查询措辞和可接受范围仍待人工核对。"
+    time_origin: pending
+
+  - query_id: pilot-speech-02
+    kind: speech
+    query: "哪段讲到把 current object 交给 rest node？"
+    sample_scope_ids: [YT-03]
+    expected_video_ids: []
+    acceptable_time_ranges: {}
+    required_modalities: [asr]
+    required_key_terms: [current object, rest node]
+    distractor_video_ids: [BI-02, BI-03]
+    annotation_status: pending_manual
+    annotation_note: "候选证据：公开视频字幕约 350 秒出现 current object / rest node cue，建议复核 347–354 秒 ASR 窗口；完整语义和视频绝对范围仍待人工确认。"
+    time_origin: pending
+  - query_id: pilot-visual-02
+    kind: visual
+    query: "Godot 的 Input Map 设置界面出现在哪段？"
+    sample_scope_ids: [YT-03]
+    expected_video_ids: []
+    acceptable_time_ranges: {}
+    required_modalities: [vision]
+    required_key_terms: [Godot, Input Map, UI]
+    distractor_video_ids: [BI-02, BI-03]
+    annotation_status: pending_manual
+    annotation_note: "候选证据：约 55.9 秒观察到 Godot Input Map 界面，但当前只有一个同场景锚点；需补充相邻代表帧并人工确认场景边界。"
+    time_origin: pending
+  - query_id: pilot-combined-01
+    kind: combined
+    query: "画面是代码编辑器，同时讲到 current object 和 rest node 的片段"
+    sample_scope_ids: [YT-03]
+    expected_video_ids: []
+    acceptable_time_ranges: {}
+    required_modalities: [asr, vision]
+    required_key_terms: [code editor, current object, rest node]
+    distractor_video_ids: [BI-02, BI-03]
+    annotation_status: pending_manual
+    annotation_note: "候选证据：330/350 秒画面和 347–354 秒 ASR 窗口分别支持代码场景与术语 cue；缺少完整同场景帧且边界受重复广告影响，仍待人工复核。"
+    time_origin: pending
+
+  - query_id: pilot-speech-03
+    kind: speech
+    query: "讲到多层节点和编号输出节点的那一段在哪？"
+    sample_scope_ids: [BI-01]
+    expected_video_ids: []
+    acceptable_time_ranges: {}
+    required_modalities: [asr]
+    required_key_terms: []
+    distractor_video_ids: [YT-01]
+    annotation_status: pending_manual
+    annotation_note: "候选证据：105 秒附近观察到多层节点与编号输出节点画面，但没有人工听取或平台字幕 cue；不得据视觉证据推断语音关键词，需补有界音频复核。"
+    time_origin: pending
+  - query_id: pilot-ocr-02
+    kind: ocr
+    query: "多层节点图下方同时出现中英文字幕的是哪段？"
+    sample_scope_ids: [BI-01]
+    expected_video_ids: []
+    acceptable_time_ranges: {}
+    required_modalities: [ocr]
+    required_key_terms: []
+    distractor_video_ids: [YT-01]
+    annotation_status: pending_manual
+    annotation_note: "候选证据：105 秒 OCR 观察确认节点图下方存在双语硬字幕，但精确字幕文字未核对且缺少相邻帧；查询范围和关键词仍待人工复核。"
+    time_origin: pending
+  - query_id: pilot-combined-02
+    kind: combined
+    query: "先出现像素格数字 3、再出现多层节点图的讲解片段是哪段？"
+    sample_scope_ids: [BI-01]
+    expected_video_ids: []
+    acceptable_time_ranges: {}
+    required_modalities: [asr, vision]
+    required_key_terms: [像素网格, 数字 3, 节点, 边]
+    distractor_video_ids: [YT-01]
+    annotation_status: pending_manual
+    annotation_note: "候选证据：30/105/301 秒代表帧支持像素网格、数字和节点图的视觉顺序，但没有音频证据；combined 真值与严格范围仍待人工听取和回放确认。"
+    time_origin: pending
+
+  - query_id: pilot-speech-04
+    kind: speech
+    query: "讲到加入淡奶油并过筛搅拌的是哪段？"
+    sample_scope_ids: [BI-06]
+    expected_video_ids: []
+    acceptable_time_ranges: {}
+    required_modalities: [asr]
+    required_key_terms: []
+    distractor_video_ids: [YT-05, BI-05]
+    annotation_status: pending_manual
+    annotation_note: "候选证据：现有观察只支持加入配料、过筛和搅拌等画面动作，没有音频或字幕 cue；不能据视觉证据写入语音关键词，需补有界音频复核。"
+    time_origin: pending
+  - query_id: pilot-visual-03
+    kind: visual
+    query: "前半段准备容器、铺油纸并加入配料的步骤"
+    sample_scope_ids: [BI-06]
+    expected_video_ids: []
+    acceptable_time_ranges: {}
+    required_modalities: [vision]
+    required_key_terms: [容器, 油纸, 砂糖, 淡奶油]
+    distractor_video_ids: [YT-05, BI-05]
+    annotation_status: pending_manual
+    annotation_note: "候选证据：前半段代表帧 [5, 21, 46, 76] 支持容器、油纸和配料准备动作；单帧与动作边界仍需最终人工回放确认。"
+    time_origin: pending
+  - query_id: pilot-combined-03
+    kind: combined
+    query: "后半段从搅拌、烘烤成品到切块的步骤是哪段？"
+    sample_scope_ids: [BI-06]
+    expected_video_ids: []
+    acceptable_time_ranges: {}
+    required_modalities: [asr, vision]
+    required_key_terms: [搅拌, 烘烤成品, 切块]
+    distractor_video_ids: [YT-05, BI-05]
+    annotation_status: pending_manual
+    annotation_note: "候选证据：后半段代表帧 [106, 136, 151] 支持搅拌、烘烤成品和切块动作，但没有音频证据；combined 真值与范围仍待人工复核。"
+    time_origin: pending
+
+# Media is scoped from the query modalities.  These are evidence-bounded
+# candidates only: selection and input status remain pending, and no candidate
+# range or frame is execution truth until the manual review is complete.
+media_selections:
+  - sample_id: YT-01
+    required_modalities: [asr, vision, ocr]
+    selection_status: pending_manual_review
+    audio_windows: [{start_sec: 83, end_sec: 95}]
+    frame_bundles: [[18, 20, 50]]
+    ocr_frame_times: [190]
+  - sample_id: YT-03
+    required_modalities: [asr, vision]
+    selection_status: pending_manual_review
+    audio_windows: [{start_sec: 347, end_sec: 354}]
+    frame_bundles: []
+    ocr_frame_times: []
+  - sample_id: BI-01
+    required_modalities: [asr, vision, ocr]
+    selection_status: pending_manual_review
+    audio_windows: []
+    frame_bundles: []
+    ocr_frame_times: [105]
+  - sample_id: BI-06
+    required_modalities: [asr, vision]
+    selection_status: pending_manual_review
+    audio_windows: []
+    frame_bundles: [[5, 21, 46, 76], [106, 136, 151]]
+    ocr_frame_times: []
+
+# The registry contains candidates, but public-evidence selection is explicitly
+# pending.  Nulls here are intentional: no model winner is invented in a
+# checked-in planning manifest.
+profile_selections:
+  - modality: asr
+    selection_status: pending
+    default_profile_id: null
+    fallback_profile_id: null
+    fallback_allowed_triggers: []
+    public_evidence_note: "Selection remains pending; see modality-default-fallback-freeze-proposal-2026-08-28.md for the unapproved proposal and unresolved evidence."
+  - modality: vision
+    selection_status: pending
+    default_profile_id: null
+    fallback_profile_id: null
+    fallback_allowed_triggers: []
+    public_evidence_note: "Selection remains pending; see modality-default-fallback-freeze-proposal-2026-08-28.md for the unapproved proposal and unresolved evidence."
+  - modality: ocr
+    selection_status: pending
+    default_profile_id: null
+    fallback_profile_id: null
+    fallback_allowed_triggers: []
+    public_evidence_note: "Selection remains pending; see modality-default-fallback-freeze-proposal-2026-08-28.md for the unapproved proposal and unresolved evidence."
+
+retry_policy:
+  default_runs_per_unit: 1
+  max_retries: 2
+  allowed_reasons: [provider_transient, protocol_instability]

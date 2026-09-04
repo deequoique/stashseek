@@ -1,0 +1,12 @@
+{
+  "protocol_version": "discovery-segment.v1",
+  "segment_id": "yt-01.asr.1",
+  "sample_id": "YT-01",
+  "time_range": {"start_sec": 5.0, "end_sec": 14.0},
+  "text": "A benchmark speech segment",
+  "scene_type": null,
+  "search_terms": ["benchmark", "speech"],
+  "evidence_modalities": ["asr"],
+  "evidence_frame_times": [],
+  "answer_eligible": true
+}

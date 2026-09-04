@@ -40,6 +40,7 @@ include = ["app*", "evals*"]
 
 [tool.setuptools.package-data]
 "evals.natural_language" = ["catalog.yaml", "README.md"]
+"evals.video_recognition" = ["catalog.yaml", "pilot_catalog.yaml", "probe_snapshot.yaml", "README.md", "fixtures/*.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

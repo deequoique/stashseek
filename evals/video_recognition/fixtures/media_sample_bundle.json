@@ -1,0 +1,11 @@
+{
+  "protocol_version": "media-sample-bundle.v1",
+  "bundle_id": "yt-01.bundle",
+  "sample_id": "YT-01",
+  "revision": "benchmark-v1",
+  "audio_windows": [{"start_sec": 0.0, "end_sec": 30.0}, {"start_sec": 60.0, "end_sec": 90.0}],
+  "frame_bundles": [[0.0, 5.0, 10.0, 15.0], [60.0, 65.0, 70.0, 75.0]],
+  "ocr_frame_times": [0.0, 60.0],
+  "ephemeral_only": true,
+  "complete_media_present": false
+}
