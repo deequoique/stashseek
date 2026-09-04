@@ -1,0 +1,28 @@
+{
+  "id": "async-recognition-agent-continuation",
+  "name": "async-recognition-agent-continuation",
+  "title": "Agent 异步识别与自动续答",
+  "description": "在现有主 Agent 中实现结构化模态路由、recognition_pending、事件观测、中断和 PendingAnswer 自动续答。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "backend-agent-channels",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "08-24-intent-aware-video-recognition-routing",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "6"
+  }
+}

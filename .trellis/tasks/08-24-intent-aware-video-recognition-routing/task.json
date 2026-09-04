@@ -1,0 +1,36 @@
+{
+  "id": "intent-aware-video-recognition-routing",
+  "name": "intent-aware-video-recognition-routing",
+  "title": "按意图按需分配视频识别能力",
+  "description": "设计两层视频理解：入库时建立时间段级发现索引，提问时由主 Agent 按证据需要异步触发 ASR、视觉或 OCR，并自动续答。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "backend-agent-ingest",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-24-video-recognition-benchmark",
+    "08-24-discovery-index-foundation",
+    "08-24-public-video-media-sampling",
+    "08-24-multimodal-recognition-runtime",
+    "08-24-discovery-retrieval-evidence-gate",
+    "08-24-async-recognition-agent-continuation",
+    "08-24-video-recognition-rollout-backfill"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "task_role": "parent"
+  }
+}

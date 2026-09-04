@@ -1,0 +1,28 @@
+{
+  "id": "discovery-index-foundation",
+  "name": "discovery-index-foundation",
+  "title": "时间段发现索引与字幕质量基础",
+  "description": "扩展 Segment 与发现覆盖生命周期，实现字幕质量门、缺口区间、语义切分、索引 revision 和旧数据兼容回填。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "backend-ingest-retrieval",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "08-24-intent-aware-video-recognition-routing",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "2"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "id": "multimodal-recognition-runtime",
+  "name": "multimodal-recognition-runtime",
+  "title": "异步多模态识别运行时",
+  "description": "实现 RecognitionJob、独立队列、托管 ASR/视觉适配、时间轴融合、索引发布、事件和清理收敛。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "backend-recognition-infrastructure",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "08-24-intent-aware-video-recognition-routing",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "4"
+  }
+}

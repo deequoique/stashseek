@@ -1,0 +1,28 @@
+{
+  "id": "discovery-retrieval-evidence-gate",
+  "name": "discovery-retrieval-evidence-gate",
+  "title": "视频发现检索与多模态证据门",
+  "description": "实现候选视频检索、partial/complete 覆盖投影、answer eligibility、模态证据校验和可信引用边界。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "backend-agent-retrieval",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-24",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "08-24-intent-aware-video-recognition-routing",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "5"
+  }
+}
