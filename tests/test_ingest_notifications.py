@@ -555,6 +555,35 @@ def test_sweep_releases_all_unsent_claims_before_stale_timeout():
     assert poller.released == claims
 
 
+def test_targeted_event_delivery_does_not_run_global_candidate_scan(monkeypatch):
+    settings = SimpleNamespace(ingest_notification_max_duration_seconds=8.0)
+    poller = IngestNotificationPoller(
+        lambda: (_ for _ in ()).throw(AssertionError("database scan is not allowed")),
+        _NeverSendClient(),
+        settings=settings,
+        clock=lambda: 0.0,
+    )
+    monkeypatch.setattr(
+        poller,
+        "_claim_batch",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("targeted delivery must not call _claim_batch")
+        ),
+    )
+    monkeypatch.setattr(poller, "_claim_event", lambda _event_id, **_kwargs: None)
+
+    result = poller.deliver_event(41)
+
+    assert result.as_dict() == {
+        "claimed": 0,
+        "succeeded": 0,
+        "skipped": 0,
+        "failed": 0,
+        "deferred": 0,
+        "duration_ms": 0,
+    }
+
+
 def test_langbot_non_loopback_http_is_rejected():
     with pytest.raises(ValueError, match="HTTPS"):
         LangBotOutboundClient("http://langbot.internal:5300", "key")

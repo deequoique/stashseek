@@ -435,7 +435,7 @@ class Settings:
     # legacy ingest-completion publisher settings above remain for rollback
     # compatibility but are no longer scheduled by the worker.
     ingest_notification_interval_seconds: int = field(
-        default_factory=lambda: _env_int("INGEST_NOTIFICATION_INTERVAL_SECONDS", 10)
+        default_factory=lambda: _env_int("INGEST_NOTIFICATION_INTERVAL_SECONDS", 600)
     )
     ingest_notification_batch_size: int = field(
         default_factory=lambda: _env_int("INGEST_NOTIFICATION_BATCH_SIZE", 20)

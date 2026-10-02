@@ -15,7 +15,7 @@ API key、完整 DSN、MCP URL capability、浏览器 Bearer 或 HMAC secret 写
 
 | 变量/文件 | 默认值 | 作用 |
 | --- | --- | --- |
-| `STASHSEEK_PROFILE` | launcher 选择 | `read`、`full` 或 `langbot`；仅 launcher 使用 |
+| `STASHSEEK_PROFILE` | `read`（未指定 launcher profile 时） | `read`、`full` 或 `langbot`；仅 launcher 使用 |
 | `STASHSEEK_ENV` | `production` | 只能是 `development` 或 `production` |
 | `STASHSEEK_LOG_DIR` | `.runtime/logs` | 私有日志目录；生产 systemd 通常设为 `/var/log/notebook-agent` |
 | `STASHSEEK_LOG_MAX_BYTES` | `10485760` | 单个日志文件轮转上限 |
@@ -121,14 +121,14 @@ backend；MinIO 保存受租户前缀保护的原始字幕对象。
 | `INGEST_MAX_SEGMENTS_PER_ITEM` | `5000` | 否 | 最终 searchable segment 上限 |
 | `INGEST_MAX_EMBEDDING_CHARS_PER_ITEM` | `2000000` | 否 | 单条 embedding 文本预算 |
 
-completion 与 notification poller 的维护参数也由 worker/Beat 读取：
+completion 与 notification delivery/repair 的维护参数也由 worker/Beat 读取：
 
 | 变量 | 默认值 | 作用 |
 | --- | --- | --- |
-| `INGEST_NOTIFICATION_INTERVAL_SECONDS` | `10` | PostgreSQL completion notification poller 周期 |
+| `INGEST_NOTIFICATION_INTERVAL_SECONDS` | `600` | 事件入队失败时的 PostgreSQL completion notification repair 周期；正常投递不等待此 sweep |
 | `INGEST_NOTIFICATION_BATCH_SIZE` | `20` | 每次 poller claim 数量 |
 | `INGEST_NOTIFICATION_CLAIM_TIMEOUT_SECONDS` | `300` | poller claim 超时 |
-| `INGEST_NOTIFICATION_MAX_DURATION_SECONDS` | `8` | 一次 poller sweep 总预算，必须小于 interval |
+| `INGEST_NOTIFICATION_MAX_DURATION_SECONDS` | `8` | 一次 repair sweep 总预算，必须小于 interval |
 | `INGEST_NOTIFICATION_MAX_ATTEMPTS` | `5` | notification delivery attempt 上限 |
 | `INGEST_NOTIFICATION_RETRY_BASE_SECONDS` | `5` | retry backoff 起点 |
 | `INGEST_NOTIFICATION_RETRY_MAX_SECONDS` | `300` | retry backoff 上限 |
@@ -138,8 +138,9 @@ completion 与 notification poller 的维护参数也由 worker/Beat 读取：
 | `INGEST_COMPLETION_MAX_DURATION_SECONDS` | `30` | 旧 completion publisher sweep budget |
 
 `INGEST_COMPLETION_*` 保留用于 rollback/schema compatibility；当前权威的
-notification delivery 使用 `INGEST_NOTIFICATION_*`，不要重新启用已退役的
-`ingest-completion` queue。
+notification delivery 由 terminal completion event 通过 Celery 事件入队，使用
+`INGEST_NOTIFICATION_*` 的 delivery ledger。`INGEST_NOTIFICATION_INTERVAL_SECONDS`
+只控制有界 repair sweep，不要重新启用已退役的 `ingest-completion` queue。
 
 worker 必须同时监听 `ingest` 和 `maintenance`。Beat 负责周期性 purge、
 completion notification 和维护任务；不要让新的部署监听已经退役的

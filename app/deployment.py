@@ -751,8 +751,8 @@ def start(profile: str | None, *, foreground: bool) -> None:
         initialize(_auto_init_profile(profile))
     env = load_environment()
     selected = profile or (
-        _compat_value(env, "STASHSEEK_PROFILE", "NOTEBOOK_AGENT_PROFILE", "full")
-        or "full"
+        _compat_value(env, "STASHSEEK_PROFILE", "NOTEBOOK_AGENT_PROFILE", "read")
+        or "read"
     )
     previous_handlers = {}
     process: subprocess.Popen | None = None
@@ -871,9 +871,9 @@ def _auto_init_profile(explicit: str | None) -> str:
     )
     selected = (
         _compat_value(
-            initial_env, "STASHSEEK_PROFILE", "NOTEBOOK_AGENT_PROFILE", "full"
+            initial_env, "STASHSEEK_PROFILE", "NOTEBOOK_AGENT_PROFILE", "read"
         )
-        or "full"
+        or "read"
     )
     if selected not in PROFILES:
         raise DeploymentError(f"unknown profile: {selected}")
@@ -1367,7 +1367,7 @@ def _parser() -> argparse.ArgumentParser:
         metavar="{init,start,stop,restart,status,logs}",
     )
     init = commands.add_parser("init", help="create a minimal private configuration")
-    init.add_argument("--profile", choices=PROFILES, default="full")
+    init.add_argument("--profile", choices=PROFILES, default="read")
     init.add_argument("--force", action="store_true")
     start_cmd = commands.add_parser("start", help="prepare and start the selected runtime")
     start_cmd.add_argument("--profile", choices=PROFILES)

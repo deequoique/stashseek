@@ -117,8 +117,10 @@ dimensions。YouTube/Bilibili provider 的 rate limit、timeout、no-caption 和
 
 ## 6. 完成通知没有送达
 
-视频已经 ready、但原聊天入口没有收到完成通知时，先确认 Beat 与监听
-`maintenance` 的 worker 都在运行。每次 poller tick 会写入
+视频已经 ready、但原聊天入口没有收到完成通知时，先确认 terminal worker 能访问
+broker，并确认监听 `maintenance` 的 worker 都在运行。正常通知由 committed
+completion event 直接 enqueue 一个 event-scoped Celery task；Beat 的 600 秒 repair
+sweep 只兜底处理 enqueue/broker 失败和历史 backlog。repair tick 会写入
 `notification_poller_heartbeat`；它只包含计数、耗时和 backlog age，不含用户、标题、
 URL 或消息正文：
 
@@ -128,9 +130,9 @@ URL 或消息正文：
   | tail -n 5
 ```
 
-`oldest_eligible_backlog_age_seconds=0` 表示没有可领取事件。长时间没有 heartbeat 时，
-先检查唯一 Beat、worker 的 `maintenance` queue 和 PostgreSQL；heartbeat 不是 MCP
-readiness，不要通过重启 MCP 处理。
+`oldest_eligible_backlog_age_seconds=0` 表示 repair sweep 没有可领取事件。长时间没有
+heartbeat 时，先检查唯一 Beat、worker 的 `maintenance` queue 和 PostgreSQL；heartbeat
+不是 MCP readiness，不要通过重启 MCP 处理。
 
 当前通知由 PostgreSQL completion event 与 delivery ledger 驱动。使用受保护的 operator
 连接查询计数和时间年龄；不要读取或导出通知正文、目标地址或用户信息。下面的 `300`
@@ -181,8 +183,9 @@ PY
 unset EVENT_ID
 ```
 
-hook 只把失败 delivery 重新设为下一次 Beat tick 可领取，不会重跑 ingestion，也不会
-在当前命令中直接发送 HTTP。确认下一条 heartbeat 和 failed-ledger 计数后再结束事件。
+hook 只把失败 delivery 重新设为下一次 event task 或 repair sweep 可领取，不会重跑
+ingestion，也不会在当前命令中直接发送 HTTP。确认下一条 targeted delivery 或
+heartbeat 和 failed-ledger 计数后再结束事件。
 
 旧的 Redis `ingest-completion` queue 已退役。可以只检查遗留 backlog 数量，但绝不能
 让 worker 监听、消费或重放它，也不能恢复旧 completion producer/consumer：
@@ -191,7 +194,7 @@ hook 只把失败 delivery 重新设为下一次 Beat tick 可领取，不会重
 docker compose exec -T redis redis-cli LLEN ingest-completion
 ```
 
-暂停 poller 时只暂停它的 Beat entry，并保留 PostgreSQL event 与 delivery ledger；
+暂停 repair sweep 时只暂停它的 Beat entry，并保留 PostgreSQL event 与 delivery ledger；
 不要清空 ledger 来制造“已送达”状态。
 
 ## 7. 浏览器伴侣配对或捕获失败
