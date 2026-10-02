@@ -107,6 +107,129 @@ The direct credential exists only for bounded migration admission.
 
 ---
 
+## Scenario: Never hold a development Neon compute awake
+
+### 1. Scope / Trigger
+
+Apply this contract whenever running the application against a Neon
+`DATABASE_URL` outside production: local development, manual testing, eval
+runs, and any unattended process left running between work sessions. Neon
+bills compute by the second while the endpoint is active, so an idle-but-awake
+development compute costs the same as a serving one.
+
+### 2. Signatures
+
+```bash
+# profile `read` -> components ("mcp",). No worker, no Beat, no DB polling.
+./scripts/stashseek start --profile read
+
+# profile `full` -> ("worker", "beat", "mcp", "gateway"). Beat polls the DB.
+./scripts/stashseek start --profile full
+./scripts/stashseek stop
+```
+
+```dotenv
+# Beat's bounded notification repair sweep queries PostgreSQL once per tick.
+# Normal delivery is event-triggered through Celery.
+INGEST_NOTIFICATION_INTERVAL_SECONDS=600
+TRASH_PURGE_INTERVAL_SECONDS=3600
+```
+
+### 3. Contracts
+
+- Neon suspends a compute only after its suspend timeout of inactivity
+  (project default: 300s). Any recurring database access with a period shorter
+  than that timeout makes scale-to-zero unreachable for as long as the process
+  lives.
+- Terminal completion events enqueue
+  `app.ingest.tasks.deliver_ingest_notification_task` with the internal event
+  ID after commit. Its targeted claim path never runs the global candidate
+  scan. `app.ingest.tasks.deliver_pending_ingest_notifications_task` remains a
+  bounded repair sweep every `INGEST_NOTIFICATION_INTERVAL_SECONDS` (default
+  600) for enqueue/broker failures and historical backlog.
+- Development work that does not exercise ingestion uses the `read` profile.
+  Only start `full` / `langbot` for the duration of an ingestion test, then
+  stop it.
+- Never leave a `full` / `langbot` runtime, a notebook kernel, a REPL, or a
+  paused debugger holding `app.db.get_engine()` open overnight. The engine is
+  `@lru_cache`d with SQLAlchemy's default `QueuePool` (`pool_size=5`,
+  `pool_recycle=-1`), so pooled connections are never retired by age.
+- For long unattended sessions, either shut the runtime down or point
+  `DATABASE_URL` at a local PostgreSQL instead of Neon.
+- Never set a development endpoint's `suspend_timeout_seconds` to `-1`
+  (never suspend). `0` means "use the project default" and is correct.
+- Cost of getting this wrong, at the observed 0.5 CU: `0.5 x 86400 = 43,200`
+  CU-seconds = **12 CU-hours per day**, every day, for zero served traffic.
+  Even at the 0.25 CU autoscaling floor it is 6 CU-hours per day.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Daily `compute_unit_seconds` is flat at `min_cu x 86400` | Treat as a stuck-awake compute, not as real load; find the poller and stop it. |
+| Ingestion test finished | Stop the `full` / `langbot` runtime; do not leave Beat running. |
+| A new periodic task needs a period shorter than the suspend timeout | It must be justified for production and must not be scheduled by default in development. |
+| Endpoint reports `suspend_timeout_seconds: -1` on a development branch | Restore it to `0` and record why it was changed. |
+| Unattended work needs a live database for hours | Use local PostgreSQL, not a Neon branch. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a developer runs `--profile read` all day; the Neon compute suspends
+  within 5 minutes of each burst of query activity and daily CU is a few
+  CU-minutes.
+- Base: an ingestion test runs `--profile full` for 40 minutes and is then
+  stopped; that day shows a single bounded block of CU, not a flat line.
+- Bad: `--profile full` is left running over a weekend; Beat's 10-second sweep
+  keeps the compute awake continuously and burns 12 CU-hours per day with no
+  user traffic.
+
+### 6. Verification Required
+
+- Audit development CU with the Neon consumption API before assuming a bill is
+  real load:
+
+  ```bash
+  neon api "/consumption_history/v2/projects\
+  ?from=<ISO8601>&to=<ISO8601>&granularity=daily\
+  &org_id=<ORG_ID>&metrics=compute_unit_seconds"
+  ```
+
+  Divide `compute_unit_seconds` by 3600 for CU-hours. Days with zero
+  consumption are omitted from the response entirely.
+- Confirm the endpoint's suspend setting is untouched:
+
+  ```bash
+  neon api "/projects/<PROJECT_ID>/endpoints"   # expect suspend_timeout_seconds: 0
+  ```
+
+- A flat daily value equal to `autoscaling_limit_min_cu x 86400` is the
+  signature of a keepalive, and is the first thing to check.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```bash
+# Left running between work sessions against a Neon DATABASE_URL.
+./scripts/stashseek start --profile full
+```
+
+Even a 10-minute repair sweep performs recurring database work; use the read
+profile for unattended sessions so Neon can still scale to zero between use.
+
+#### Correct
+
+```bash
+# Default development runtime: no Beat, no periodic database traffic.
+./scripts/stashseek start --profile read
+
+# Ingestion work is bounded and explicitly torn down.
+./scripts/stashseek start --profile full   # ... run the test ...
+./scripts/stashseek stop
+```
+
+---
+
 ## Query Patterns
 
 ## Scenario: Project paged parent rows with their latest child row

@@ -70,7 +70,11 @@ SAFE_ERROR_CODES = frozenset(
     }
 )
 _NOTIFICATION_DIAGNOSTIC_EVENTS = frozenset(
-    {"notification_sweep", "notification_poller_heartbeat"}
+    {
+        "notification_sweep",
+        "notification_event_delivery",
+        "notification_poller_heartbeat",
+    }
 )
 _NOTIFICATION_DIAGNOSTIC_FIELDS = frozenset(
     {
@@ -523,6 +527,114 @@ class IngestNotificationPoller:
             db.commit()
         return claims
 
+    def _claim_event(
+        self,
+        event_id: int,
+        *,
+        now: datetime,
+        settings: Settings,
+        budget_seconds: float | None = None,
+    ) -> DeliveryClaim | None:
+        """Claim one event without running the global candidate scan.
+
+        The completion event row is the serialization root for both the
+        missing-ledger-row insert and duplicate task delivery.  Keeping this
+        transaction event-scoped means a normal terminal hook can enqueue one
+        cheap Celery message without making the worker pay for a sweep of
+        every historical completion event.
+        """
+
+        stale_before = now - timedelta(
+            seconds=settings.ingest_notification_claim_timeout_seconds
+        )
+        with self._session_factory() as db:
+            _set_notification_statement_timeout(db, budget_seconds)
+            now = _db_now(db)
+            stale_before = now - timedelta(
+                seconds=settings.ingest_notification_claim_timeout_seconds
+            )
+            event = db.scalar(
+                select(IngestCompletionEvent)
+                .where(IngestCompletionEvent.id == int(event_id))
+                .with_for_update()
+            )
+            if event is None:
+                return None
+
+            delivery = IngestCompletionDelivery
+            row = db.scalar(
+                select(delivery)
+                .where(
+                    delivery.event_id == event.id,
+                    delivery.handler_key == HANDLER_KEY,
+                )
+                .with_for_update()
+            )
+            if row is None:
+                row = delivery(
+                    event_id=event.id,
+                    handler_key=HANDLER_KEY,
+                    status="claimed",
+                    claim_token=self._token_factory(),
+                    claimed_at=now,
+                    attempts=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                db.add(row)
+                db.flush()
+            elif row.status == "succeeded":
+                return None
+            elif (
+                row.status == "claimed"
+                and _as_utc(row.claimed_at) is not None
+                and _as_utc(row.claimed_at) > stale_before
+            ):
+                return None
+            elif row.status == "failed" and (
+                row.next_attempt_at is None
+                or _as_utc(row.next_attempt_at) > now
+            ):
+                return None
+            else:
+                manual_redrive = row.last_error_code == "manual_redrive"
+                deadline_deferred = row.last_error_code == "notification_deferred"
+                row.status = "claimed"
+                row.disposition = None
+                row.claim_token = self._token_factory()
+                row.claimed_at = now
+                if manual_redrive:
+                    row.attempts = 1
+                elif deadline_deferred:
+                    row.attempts = max(1, int(row.attempts or 1))
+                else:
+                    row.attempts = int(row.attempts or 0) + 1
+                row.next_attempt_at = None
+                row.last_error_code = None
+                row.completed_at = None
+                row.updated_at = now
+
+            if row.attempts > settings.ingest_notification_max_attempts:
+                row.status = "failed"
+                row.disposition = "retry_exhausted"
+                row.last_error_code = "retry_exhausted"
+                row.claim_token = None
+                row.claimed_at = None
+                row.next_attempt_at = None
+                row.completed_at = None
+                row.updated_at = now
+                db.commit()
+                return None
+
+            claim = DeliveryClaim(
+                event_id=int(event.id),
+                delivery_id=int(row.id),
+                claim_token=str(row.claim_token),
+                attempts=int(row.attempts),
+            )
+            db.commit()
+            return claim
+
     def _load_target(
         self,
         db: Session,
@@ -794,6 +906,208 @@ class IngestNotificationPoller:
             db.commit()
             return len(rows)
 
+    def _deliver_claim(
+        self,
+        claim: DeliveryClaim,
+        *,
+        settings: Settings,
+        client: LangBotOutboundClient,
+        deadline: float,
+        work_deadline: float,
+    ) -> tuple[int, int, int, int, bool]:
+        """Deliver one claimed event and return safe counters.
+
+        The final boolean indicates that no outbound request was started and
+        the claim can be released immediately when the caller still has SQL
+        budget.  ACKs remain token-fenced through the same methods used by the
+        repair sweep.
+        """
+
+        succeeded = skipped = failed = deferred = 0
+        unsent = False
+        try:
+            target_budget = work_deadline - self._clock()
+            if target_budget <= 0:
+                return succeeded, skipped, failed, 1, True
+            with self._session_factory() as db:
+                target, terminal = self._load_target(
+                    db, claim.event_id, budget_seconds=target_budget
+                )
+            if target is None:
+                ack_budget = deadline - self._clock()
+                if ack_budget <= 0:
+                    return succeeded, skipped, failed, 1, False
+                if terminal == "terminal_failure":
+                    acknowledged, _ = self._ack_failure(
+                        claim,
+                        error_code="notification_internal_failure",
+                        settings=settings,
+                        now=datetime.now(UTC),
+                        budget_seconds=ack_budget,
+                        terminal=True,
+                    )
+                    if acknowledged:
+                        failed += 1
+                elif self._ack_succeeded(
+                    claim,
+                    disposition=terminal,
+                    now=datetime.now(UTC),
+                    budget_seconds=ack_budget,
+                ):
+                    succeeded += 1
+                    skipped += 1
+                return succeeded, skipped, failed, deferred, unsent
+
+            body = render_completion_notification(
+                target.outcome,
+                target.item_state,
+                target.title,
+            )
+            outbound_budget = work_deadline - self._clock()
+            if outbound_budget <= 0:
+                return succeeded, skipped, failed, 1, True
+            client.send_message(
+                bot_uuid=target.account_id,
+                conversation_id=target.conversation_id,
+                text=body,
+                timeout_seconds=min(
+                    settings.langbot_outbound_timeout_seconds,
+                    outbound_budget,
+                ),
+            )
+            ack_budget = deadline - self._clock()
+            if ack_budget <= 0:
+                return succeeded, skipped, failed, 1, False
+            if self._ack_succeeded(
+                claim,
+                disposition="sent",
+                now=datetime.now(UTC),
+                budget_seconds=ack_budget,
+            ):
+                succeeded += 1
+        except NotificationTransportError as exc:
+            try:
+                ack_budget = deadline - self._clock()
+                if ack_budget <= 0:
+                    return succeeded, skipped, failed, 1, False
+                if exc.retryable:
+                    acknowledged, exhausted = self._ack_failure(
+                        claim,
+                        error_code=exc.error_code,
+                        settings=settings,
+                        now=datetime.now(UTC),
+                        budget_seconds=ack_budget,
+                    )
+                    if acknowledged:
+                        failed += 1
+                        if exhausted:
+                            skipped += 1
+                else:
+                    acknowledged, _ = self._ack_failure(
+                        claim,
+                        error_code=exc.error_code,
+                        settings=settings,
+                        now=datetime.now(UTC),
+                        budget_seconds=ack_budget,
+                        terminal=True,
+                    )
+                    if acknowledged:
+                        failed += 1
+            except Exception:
+                # A database outage while ACKing one transport failure must
+                # not abort a batch or turn a targeted task into a global
+                # retry. The stale claim is the crash-safe recovery path.
+                deferred += 1
+        except Exception:
+            # Keep event failures isolated and diagnostics privacy-safe.
+            try:
+                ack_budget = deadline - self._clock()
+                if ack_budget <= 0:
+                    return succeeded, skipped, failed, 1, False
+                acknowledged, exhausted = self._ack_failure(
+                    claim,
+                    error_code="notification_internal_failure",
+                    settings=settings,
+                    now=datetime.now(UTC),
+                    budget_seconds=ack_budget,
+                )
+                if acknowledged:
+                    failed += 1
+                    if exhausted:
+                        skipped += 1
+            except Exception:
+                deferred += 1
+        return succeeded, skipped, failed, deferred, unsent
+
+    def deliver_event(self, event_id: int) -> NotificationSweepResult:
+        """Deliver one completion event without querying other events."""
+
+        settings = self._settings_or_default()
+        started = self._clock()
+        deadline = started + settings.ingest_notification_max_duration_seconds
+        release_reserve = min(
+            1.0, settings.ingest_notification_max_duration_seconds * 0.25
+        )
+        work_deadline = deadline - release_reserve
+        try:
+            client = self._client_or_default(settings)
+            claim_budget = work_deadline - self._clock()
+            if claim_budget <= 0:
+                return NotificationSweepResult(deferred=1, duration_ms=0)
+            claim = self._claim_event(
+                int(event_id),
+                now=datetime.now(UTC),
+                settings=settings,
+                budget_seconds=claim_budget,
+            )
+        except Exception:
+            duration = max(0, int((self._clock() - started) * 1000))
+            _notification_diagnostic(
+                "notification_event_delivery", failed=1, duration_ms=duration
+            )
+            return NotificationSweepResult(failed=1, duration_ms=duration)
+
+        if claim is None:
+            duration = max(0, int((self._clock() - started) * 1000))
+            return NotificationSweepResult(duration_ms=duration)
+
+        succeeded, skipped, failed, deferred, unsent = self._deliver_claim(
+            claim,
+            settings=settings,
+            client=client,
+            deadline=deadline,
+            work_deadline=work_deadline,
+        )
+        if unsent:
+            release_budget = deadline - self._clock()
+            if release_budget > 0:
+                try:
+                    self._release_deferred_claims(
+                        (claim,), budget_seconds=release_budget
+                    )
+                except Exception:
+                    # The stale-claim path remains the crash-safe fallback.
+                    pass
+        duration = max(0, int((self._clock() - started) * 1000))
+        result = NotificationSweepResult(
+            claimed=1,
+            succeeded=succeeded,
+            skipped=skipped,
+            failed=failed,
+            deferred=deferred,
+            duration_ms=duration,
+        )
+        _notification_diagnostic(
+            "notification_event_delivery",
+            claimed=result.claimed,
+            succeeded=result.succeeded,
+            skipped=result.skipped,
+            failed=result.failed,
+            deferred=result.deferred,
+            duration_ms=result.duration_ms,
+        )
+        return result
+
     def _emit_successful_tick_heartbeat(
         self,
         *,
@@ -971,33 +1285,38 @@ class IngestNotificationPoller:
                 ):
                     succeeded += 1
             except NotificationTransportError as exc:
-                ack_budget = deadline - self._clock()
-                if ack_budget <= 0:
+                try:
+                    ack_budget = deadline - self._clock()
+                    if ack_budget <= 0:
+                        deferred += 1
+                        continue
+                    if exc.retryable:
+                        acknowledged, exhausted = self._ack_failure(
+                            claim,
+                            error_code=exc.error_code,
+                            settings=settings,
+                            now=datetime.now(UTC),
+                            budget_seconds=ack_budget,
+                        )
+                        if acknowledged:
+                            failed += 1
+                            if exhausted:
+                                skipped += 1
+                    else:
+                        acknowledged, _ = self._ack_failure(
+                            claim,
+                            error_code=exc.error_code,
+                            settings=settings,
+                            now=datetime.now(UTC),
+                            budget_seconds=ack_budget,
+                            terminal=True,
+                        )
+                        if acknowledged:
+                            failed += 1
+                except Exception:
+                    # Keep peer events independent if the ACK database is
+                    # unavailable after the outbound classification.
                     deferred += 1
-                    continue
-                if exc.retryable:
-                    acknowledged, exhausted = self._ack_failure(
-                        claim,
-                        error_code=exc.error_code,
-                        settings=settings,
-                        now=datetime.now(UTC),
-                        budget_seconds=ack_budget,
-                    )
-                    if acknowledged:
-                        failed += 1
-                        if exhausted:
-                            skipped += 1
-                else:
-                    acknowledged, _ = self._ack_failure(
-                        claim,
-                        error_code=exc.error_code,
-                        settings=settings,
-                        now=datetime.now(UTC),
-                        budget_seconds=ack_budget,
-                        terminal=True,
-                    )
-                    if acknowledged:
-                        failed += 1
             except Exception:
                 # Keep peer events independent and diagnostics privacy-safe.
                 try:

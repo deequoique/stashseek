@@ -28,20 +28,25 @@ consumer boundary.
 
 ## Broker boundary
 
-The historical broker publisher is now a rollback-compatible, disabled path.
-The authoritative user-facing sink is the PostgreSQL periodic poller:
+The historical completion broker publisher is now a rollback-compatible,
+disabled path. The authoritative user-facing sink is an event-scoped
+notification task, with the PostgreSQL poller retained only as repair:
 
 ```text
 handler: source-channel.notification.v1
-task: app.ingest.tasks.deliver_pending_ingest_notifications_task
+task: app.ingest.tasks.deliver_ingest_notification_task
 queue: maintenance
-schedule: INGEST_NOTIFICATION_INTERVAL_SECONDS (default 10 seconds)
+payload: [completion_event_id]
+repair task: app.ingest.tasks.deliver_pending_ingest_notifications_task
+repair schedule: INGEST_NOTIFICATION_INTERVAL_SECONDS (default 600 seconds)
 ```
 
-Terminal worker hooks create the durable event but do not publish a Redis
-envelope. The poller ignores ``publish_state`` and claims a separate
-``ingest_completion_delivery`` row with ``UNIQUE(event_id, handler_key)``.
-Only the existing ``ingest,maintenance`` worker is required. The retired
+Terminal worker hooks create the durable event and best-effort enqueue only its
+internal event ID after commit. The targeted task claims a separate
+``ingest_completion_delivery`` row with ``UNIQUE(event_id, handler_key)`` and
+never runs the global candidate scan. If enqueue fails, the durable event is
+claimed by the bounded repair sweep. Only the existing ``ingest,maintenance``
+worker is required. The retired
 ``ingest-completion`` queue must not be added to that worker; operators stop
 old producers, verify database event coverage, and explicitly inspect/drain
 old backlog before deleting it. A future broker subscriber must use a distinct

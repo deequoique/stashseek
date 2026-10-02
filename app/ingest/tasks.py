@@ -59,11 +59,14 @@ MAX_SEMANTIC_BOUNDARY_CUES = 512
 
 COMPLETION_QUEUE = "ingest-completion"
 COMPLETION_TASK_NAME = "app.ingest.completion.consume"
+NOTIFICATION_QUEUE = "maintenance"
+NOTIFICATION_TASK_NAME = "app.ingest.tasks.deliver_ingest_notification_task"
 _COMPLETION_QUEUES = (
     Queue("ingest", durable=True, auto_delete=False),
     Queue("maintenance", durable=True, auto_delete=False),
     Queue(COMPLETION_QUEUE, durable=True, auto_delete=False),
 )
+_NOTIFICATION_QUEUE_DECLARATION = _COMPLETION_QUEUES[1]
 
 celery_app = Celery(
     "kb",
@@ -80,6 +83,7 @@ celery_app.conf.task_routes = {
     "app.ingest.tasks.deliver_pending_ingest_notifications_task": {
         "queue": "maintenance"
     },
+    NOTIFICATION_TASK_NAME: {"queue": NOTIFICATION_QUEUE},
     COMPLETION_TASK_NAME: {"queue": COMPLETION_QUEUE},
 }
 
@@ -114,6 +118,7 @@ def _completion_diagnostic(
         "ingest_too_large",
         "item_deleted",
         "completion_publish_failed",
+        "notification_enqueue_failed",
         "broker_unavailable",
     }
     if error_code in safe_error_codes:
@@ -519,6 +524,49 @@ def publish_ingest_dispatch(
         return str(result.id)
 
 
+def enqueue_ingest_notification(
+    event_id: int,
+    *,
+    settings: Settings | None = None,
+    budget_seconds: float | None = None,
+) -> str | None:
+    """Enqueue one event-scoped notification task with bounded broker I/O.
+
+    The event itself and the delivery ledger remain PostgreSQL state.  This
+    helper only publishes the internal event ID after the terminal event
+    transaction has committed; a broker failure therefore leaves the event
+    available to the repair sweep.
+    """
+
+    settings = settings or get_settings()
+    options = _bounded_publish_options(settings, budget_seconds=budget_seconds)
+    connect_timeout = options.pop("_connect_timeout")
+    socket_timeout = options.pop("_socket_timeout")
+    options.pop("_total_timeout")
+    celery_app.conf.broker_connection_timeout = connect_timeout
+    transport_options = dict(celery_app.conf.broker_transport_options or {})
+    transport_options.update(
+        socket_timeout=socket_timeout,
+        socket_connect_timeout=connect_timeout,
+    )
+    celery_app.conf.broker_transport_options = transport_options
+    with celery_app.connection_for_write(
+        connect_timeout=connect_timeout,
+        transport_options=transport_options,
+    ) as connection:
+        producer = Producer(connection)
+        result = celery_app.send_task(
+            NOTIFICATION_TASK_NAME,
+            args=[int(event_id)],
+            queue=NOTIFICATION_QUEUE,
+            producer=producer,
+            declare=[_NOTIFICATION_QUEUE_DECLARATION],
+            delivery_mode=2,
+            **options,
+        )
+    return str(getattr(result, "id", "") or "") or None
+
+
 @dataclass(frozen=True)
 class CompletionSweepResult:
     """Safe counters returned by one bounded completion repair pass."""
@@ -777,6 +825,17 @@ def deliver_pending_ingest_notifications_task() -> dict[str, int]:
     return result.as_dict()
 
 
+@celery_app.task(name=NOTIFICATION_TASK_NAME)
+def deliver_ingest_notification_task(event_id: int) -> dict[str, int]:
+    """Deliver one completion notification without a global candidate scan."""
+
+    settings = get_settings()
+    result = IngestNotificationPoller(
+        get_session_factory(), settings=settings
+    ).deliver_event(int(event_id))
+    return result.as_dict()
+
+
 @celery_app.task(name="app.ingest.tasks.purge_expired_items_task")
 def purge_expired_items_task() -> dict[str, int]:
     """Run one bounded recycle-bin sweep and emit only safe counters."""
@@ -827,7 +886,7 @@ def _completion_interval_from_env() -> int:
 def _notification_interval_from_env() -> int:
     """Fail closed for the bounded source-channel notification schedule."""
 
-    raw_value = os.getenv("INGEST_NOTIFICATION_INTERVAL_SECONDS", "10")
+    raw_value = os.getenv("INGEST_NOTIFICATION_INTERVAL_SECONDS", "600")
     try:
         value = int(raw_value)
     except (TypeError, ValueError) as exc:
@@ -1086,8 +1145,13 @@ def _complete_dispatch(
                 item_state=event_item_state,
                 error_code="item_deleted" if event_outcome == "failed" else None,
             )
-        # The event is durable and independently discoverable by the
-        # notification ledger poller; no immediate broker publication here.
+        # Enqueue only after the terminal transaction commits.  The event row
+        # remains the repair source of truth if the broker is unavailable.
+        _enqueue_ingest_notification_best_effort(
+            event_id,
+            outcome=event_outcome,
+            item_state=event_item_state,
+        )
     return event_id
 
 
@@ -1443,6 +1507,29 @@ def _publish_completion_event_best_effort(
         return None
 
 
+def _enqueue_ingest_notification_best_effort(
+    event_id: int,
+    *,
+    outcome: str | None = None,
+    item_state: str | None = None,
+) -> str | None:
+    """Best-effort post-commit enqueue with a fixed safe diagnostic."""
+
+    try:
+        return enqueue_ingest_notification(event_id)
+    except Exception:
+        # The committed completion event remains the repair source of truth;
+        # never serialize broker exception text, URLs, or credentials here.
+        _completion_diagnostic(
+            "completion_notification_enqueue_failed",
+            event_id=event_id,
+            outcome=outcome,
+            item_state=item_state,
+            error_code="notification_enqueue_failed",
+        )
+        return None
+
+
 def _mark_dispatch_failed(
     dispatch_id: int,
     exc: BaseException,
@@ -1549,8 +1636,13 @@ def _mark_dispatch_failed(
                 item_state=event_item_state,
                 error_code=event_error_code,
             )
-        # Notification delivery is deliberately decoupled from this terminal
-        # transaction and is picked up by the maintenance poller.
+        # Enqueue only after the terminal transaction commits.  The event row
+        # remains the repair source of truth if the broker is unavailable.
+        _enqueue_ingest_notification_best_effort(
+            event_id,
+            outcome=event_outcome,
+            item_state=event_item_state,
+        )
     return event_id
 
 

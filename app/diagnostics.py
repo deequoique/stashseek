@@ -26,7 +26,8 @@ _STAGES = frozenset({
     "citation_validated", "context_compressed", "agent_failed", "action_validated",
     "recovery", "todo_used",
     "completion_event_created", "completion_event_enqueued",
-    "completion_event_publish_failed", "completion_event_sweep",
+    "completion_event_publish_failed", "completion_notification_enqueue_failed",
+    "completion_event_sweep",
 })
 _ROUTES = frozenset({"agent", "command", "duplicate", "action"})
 _TOOLS = frozenset({
@@ -76,6 +77,7 @@ _ERRORS = frozenset({
     "channel_unavailable", "challenge_invalid", "challenge_expired",
     "challenge_used", "account_disabled", "web_login_unavailable",
     "ingestion_failed", "transient_fetch_failed", "ingest_too_large", "completion_publish_failed",
+    "notification_enqueue_failed",
     "transient_read", "read_unavailable", "answer_validation", "provider_failure",
     "todo_incomplete", "item_scope_required",
 })

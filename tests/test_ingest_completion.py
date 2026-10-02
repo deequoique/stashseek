@@ -8,11 +8,14 @@ from app.config import Settings
 from app.ingest.tasks import (
     COMPLETION_QUEUE,
     COMPLETION_TASK_NAME,
+    NOTIFICATION_QUEUE,
+    NOTIFICATION_TASK_NAME,
     _COMPLETION_QUEUES,
     _completion_interval_from_env,
     _set_completion_statement_timeout,
     _terminal_item_state,
     celery_app,
+    enqueue_ingest_notification,
     publish_ingest_completion_event,
 )
 from app.models import IngestCompletionEvent
@@ -93,6 +96,39 @@ def test_completion_publisher_sends_only_internal_event_id(monkeypatch):
         "declare",
         "delivery_mode",
     }
+
+
+def test_notification_enqueue_sends_only_internal_event_id(monkeypatch):
+    calls = []
+
+    class Result:
+        id = "notification-task-id"
+
+    monkeypatch.setattr(
+        "app.ingest.tasks.celery_app.connection_for_write",
+        lambda **_kwargs: Connection("memory://"),
+    )
+    monkeypatch.setattr(
+        "app.ingest.tasks.celery_app.send_task",
+        lambda name, **kwargs: calls.append((name, kwargs)) or Result(),
+    )
+
+    task_id = enqueue_ingest_notification(
+        41,
+        settings=replace(
+            Settings(),
+            broker_publish_timeout_seconds=0.2,
+            broker_publish_max_retries=0,
+            agent_timeout_seconds=2,
+            agent_tool_timeout_seconds=1,
+        ),
+    )
+
+    assert task_id == "notification-task-id"
+    assert calls[0][0] == NOTIFICATION_TASK_NAME
+    assert calls[0][1]["args"] == [41]
+    assert calls[0][1]["queue"] == NOTIFICATION_QUEUE
+    assert calls[0][1]["delivery_mode"] == 2
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "not-a-number"])
