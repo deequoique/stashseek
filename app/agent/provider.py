@@ -59,6 +59,26 @@ def composer_model_settings(model: Model | str, *, max_tokens: int) -> ModelSett
     return settings
 
 
+def retrieval_model_settings(model: Model | str) -> ModelSettings:
+    """Return the retrieval phase's provider request settings.
+
+    Intentionally does NOT disable thinking (decision B1, 2026-10-07). A
+    2026-10-07 production-path verification rerun with retrieval thinking
+    disabled answered 27/30 instead of the 30/30 baseline: two content
+    questions ended with no search call at all (`search_required`). A
+    controlled A/B retry confirmed the cause -- with thinking off the model
+    skipped the mandatory `search_segments` call on 2/3 attempts for each of
+    those two questions; with thinking left on (this function's current
+    behavior) both succeeded 3/3. Thinking stays on in the retrieval phase
+    even though it costs roughly 300-1,200 extra output tokens and ~3s per
+    turn; only `parallel_tool_calls=False` is sent, unchanged from before this
+    task. Do not reintroduce a thinking-disable here without re-validating
+    against this regression.
+    """
+
+    return {"parallel_tool_calls": False}
+
+
 def model_supports_streaming(model: Model | str) -> bool:
     """Return whether a concrete model overrides PydanticAI's stream seam.
 

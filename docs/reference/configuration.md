@@ -79,7 +79,7 @@ API key、完整 DSN、MCP URL capability、浏览器 Bearer 或 HMAC secret 写
 | `AGENT_TOOL_TIMEOUT_SECONDS` | `15` | Agent tool 调用上限 |
 | `AGENT_REQUEST_LIMIT` | `8` | primary Agent 请求上限 |
 | `AGENT_TOOL_CALLS_LIMIT` | `10` | tool call 总上限 |
-| `AGENT_OUTPUT_TOKEN_LIMIT` | `2000` | stage 输出 token 上限 |
+| `AGENT_OUTPUT_TOKEN_LIMIT` | `3000` | stage 输出 token 上限（检索阶段开启思考时峰值约 2000，见 10-07-retrieval-agent-budget） |
 | `AGENT_COMPOSER_MAX_TOKENS` | `1000` | evidence-backed answer Composer 每次尝试的 provider cap |
 | `AGENT_STREAMING_ENABLED` | `true` | Web SSE 是否可用；关闭后使用 JSON 兼容路径 |
 | `CONTEXT_MAX_TURNS` | `8` | 对话上下文 turn 数上限 |

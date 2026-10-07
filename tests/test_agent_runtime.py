@@ -160,6 +160,22 @@ async def test_agent_rejects_model_answer_that_skips_retrieval():
 
 
 @pytest.mark.asyncio
+async def test_agent_allows_greeting_without_retrieval():
+    settings = replace(Settings(), agent_timeout_seconds=2)
+    runtime = KnowledgeAgent(
+        TestModel(call_tools=[], custom_output_text="你好，很高兴帮助你。"),
+        settings,
+        lambda _: FakeServices([]),
+    )
+
+    result = await runtime.run(replace(request(), question="你好"))
+
+    assert result.answer.status == "ok"
+    assert result.answer.error_code is None
+    assert result.answer.text == "你好，很高兴帮助你。"
+
+
+@pytest.mark.asyncio
 async def test_agent_empty_search_fails_closed():
     settings = replace(Settings(), agent_timeout_seconds=2)
     runtime = KnowledgeAgent(
@@ -427,6 +443,25 @@ def test_model_tool_schemas_never_expose_trusted_identifiers():
             "request_key",
             "task_id",
         }.isdisjoint(properties)
+
+
+def test_bounded_autonomy_instructions_never_name_an_unregistered_tool():
+    """The system prompt must not steer the model toward a tool that isn't
+
+    registered. A prior release-port draft left a stale ``search_media``
+    mention in the retrieval-tool list (that tool belongs to the in-progress
+    multimodal feature and is not wired up by ``register_retrieval_tools``
+    in this build), which would prompt the model to attempt calling a
+    nonexistent tool.
+    """
+
+    from app.agent.agent_builder import BOUNDED_AUTONOMY_INSTRUCTIONS
+
+    agent = build_agent(TestModel())
+    registered_tools = set(agent._function_toolset.tools)
+    for candidate in ("search_media", "inspect_media"):
+        assert candidate not in registered_tools
+        assert candidate not in BOUNDED_AUTONOMY_INSTRUCTIONS
 
 
 def test_runtime_facade_exports_supported_surface():
@@ -820,24 +855,12 @@ async def test_answer_agent_retries_invalid_drafts_three_times_then_succeeds():
     [
         ("unsafe_text", "unsafe_text"),
         ("forged_id", "unknown_citation"),
-        ("too_many_segments", "too_many_segments"),
     ],
 )
 async def test_answer_agent_feedback_guides_second_attempt_without_private_content(
     failure_kind, expected_reason
 ):
     citations = _recovery_citations()
-    if failure_kind == "too_many_segments":
-        citations = [
-            Citation(
-                item_id=1,
-                segment_id=segment_id,
-                title="Video one",
-                excerpt=f"evidence {segment_id}",
-                url=f"https://example.test/one?t={segment_id}",
-            )
-            for segment_id in range(11, 20)
-        ]
     instructions: list[str] = []
     composer_calls = 0
 
@@ -849,22 +872,13 @@ async def test_answer_agent_feedback_guides_second_attempt_without_private_conte
             if failure_kind == "unsafe_text":
                 text = "draft https://private.invalid/provider-body [S11]"
                 ids = [11]
-            elif failure_kind == "forged_id":
-                text = "draft"
-                ids = [999]
             else:
                 text = "draft"
-                ids = list(range(11, 20))
+                ids = [999]
         else:
             text = "grounded"
             ids = [11]
-        if failure_kind == "too_many_segments" and composer_calls == 1:
-            sections = [
-                {"text": text, "citation_ids": list(range(11, 19))},
-                {"text": text, "citation_ids": [19]},
-            ]
-        else:
-            sections = [{"text": text, "citation_ids": ids}]
+        sections = [{"text": text, "citation_ids": ids}]
         return ModelResponse(
             parts=[
                 TextPart(
@@ -892,7 +906,13 @@ async def test_answer_agent_feedback_guides_second_attempt_without_private_conte
 
 
 @pytest.mark.asyncio
-async def test_answer_agent_feedback_on_third_attempt_is_bounded_and_safe():
+async def test_answer_agent_normalizes_over_cap_citations_on_first_attempt(caplog):
+    """A too-many-segments draft is clamped by round-robin, not retried.
+
+    Decision F1: duplicate/over-cap segment citations are no longer rejected;
+    the server normalizes them and emits one ``citation_normalized`` event.
+    """
+
     citations = [
         Citation(
             item_id=1,
@@ -903,6 +923,65 @@ async def test_answer_agent_feedback_on_third_attempt_is_bounded_and_safe():
         )
         for segment_id in range(11, 20)
     ]
+    composer_calls = 0
+
+    def composer(_messages, _info):
+        nonlocal composer_calls
+        composer_calls += 1
+        sections = [
+            {"text": "一", "citation_ids": list(range(11, 19))},
+            {"text": "二", "citation_ids": [19]},
+        ]
+        return ModelResponse(
+            parts=[TextPart(json.dumps({"kind": "grounded", "sections": sections}))]
+        )
+
+    diagnostics = RequestDiagnostics.start("request", 1, "f" * 32)
+    with caplog.at_level(logging.INFO, logger="notebook_agent.runtime"):
+        result = await KnowledgeAgent(
+            TestModel(call_tools=["search_segments"], custom_output_text="stop"),
+            replace(Settings(), agent_timeout_seconds=2),
+            lambda _: FakeServices(citations),
+            composer_model=FunctionModel(composer),
+        ).run(request(), diagnostics=diagnostics)
+
+    assert result.answer.status == "ok"
+    assert composer_calls == 1
+    assert [citation.segment_id for citation in result.answer.citations] == [
+        11, 12, 13, 14, 15, 16, 17, 19,
+    ]
+    payloads = [
+        record.diagnostic_payload
+        for record in caplog.records
+        if hasattr(record, "diagnostic_payload")
+    ]
+    normalized = [value for value in payloads if value.get("stage") == "citation_normalized"]
+    assert len(normalized) == 1
+    assert normalized[0]["failure_reason"] == "too_many_segments"
+    assert normalized[0]["result_count"] == 8
+    assert normalized[0]["retry_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_answer_agent_feedback_on_third_attempt_is_bounded_and_safe():
+    """Two distinct still-fail-closed categories guide attempts 2 and 3.
+
+    ``too_many_segments``/``duplicate_citation`` are no longer rejected for
+    segment-only drafts (decision F1), so this uses ``unknown_citation`` then
+    ``too_many_items`` (six items, over the five-item cap) to keep exercising
+    bounded, safe feedback through a third, successful attempt.
+    """
+
+    citations = [
+        Citation(
+            item_id=item_id,
+            segment_id=100 + item_id,
+            title=f"Video {item_id}",
+            excerpt="evidence",
+            url=f"https://example.test/{item_id}",
+        )
+        for item_id in range(1, 7)
+    ]
     citation = citations[0]
     instructions: list[str] = []
     composer_calls = 0
@@ -912,18 +991,12 @@ async def test_answer_agent_feedback_on_third_attempt_is_bounded_and_safe():
         composer_calls += 1
         instructions.append(info.instructions or "")
         if composer_calls == 1:
-            text, ids = "forged", [999]
+            ids = [999]
         elif composer_calls == 2:
-            text, ids = "too many", list(range(11, 20))
+            ids = [item.segment_id for item in citations]
         else:
-            text, ids = "grounded", [citation.segment_id]
-        if composer_calls == 2:
-            sections = [
-                {"text": text, "citation_ids": list(range(11, 19))},
-                {"text": text, "citation_ids": [19]},
-            ]
-        else:
-            sections = [{"text": text, "citation_ids": ids}]
+            ids = [citation.segment_id]
+        sections = [{"text": "按选择顺序回答", "citation_ids": ids}]
         return ModelResponse(
             parts=[
                 TextPart(
@@ -943,7 +1016,7 @@ async def test_answer_agent_feedback_on_third_attempt_is_bounded_and_safe():
     assert result.answer.citations == [citation]
     assert composer_calls == 3
     assert "unknown_citation" in instructions[1]
-    assert "too_many_segments" in instructions[2]
+    assert "too_many_items" in instructions[2]
     assert len(instructions) == 3
 
 
@@ -1029,10 +1102,99 @@ def test_answer_draft_schema_removes_top_level_selection_and_advertises_disposit
 
 
 @pytest.mark.asyncio
+async def test_answer_agent_allows_same_segment_in_two_sections_with_deduped_sources():
+    """A composer draft citing the same segment from two sections succeeds.
+
+    Decision F1: the same segment may support several sections. The public
+    citations/source list is still deduplicated by segment id.
+    """
+
+    citations = _recovery_citations()
+    composer_calls = 0
+
+    def composer(_messages, _info):
+        nonlocal composer_calls
+        composer_calls += 1
+        return ModelResponse(
+            parts=[
+                TextPart(
+                    json.dumps(
+                        {
+                            "kind": "grounded",
+                            "sections": [
+                                {"text": "第一部分", "citation_ids": [11, 21]},
+                                {"text": "第二部分", "citation_ids": [11, 31]},
+                            ],
+                        }
+                    )
+                )
+            ]
+        )
+
+    result = await KnowledgeAgent(
+        _answer_recovery_primary_model(),
+        replace(Settings(), agent_timeout_seconds=2, agent_tool_calls_limit=1),
+        lambda _: FakeServices(citations),
+        composer_model=FunctionModel(composer),
+    ).run(request())
+
+    assert result.answer.status == "ok"
+    assert composer_calls == 1
+    # The public citations/source list is deduplicated by segment id, while
+    # each section's own marker keeps citing the shared segment.
+    assert [citation.segment_id for citation in result.answer.citations] == [11, 21, 31]
+    # Each section keeps its own marker (two), plus one source-list line.
+    assert result.answer.text.count("[S11]") == 3
+    assert result.answer.text.count("来源：") == 1
+    assert result.answer.text.count("Video one") == 1
+
+
+@pytest.mark.asyncio
+async def test_answer_agent_normalizes_in_section_duplicate_on_first_attempt():
+    """An in-section duplicate citation is deduplicated, not rejected.
+
+    Decision F1: ``normalize_section_citations`` drops the repeat and keeps
+    the first occurrence, so the draft succeeds on the first attempt instead
+    of retrying with a ``duplicate_citation`` failure reason.
+    """
+
+    citations = _recovery_citations()
+    composer_calls = 0
+
+    def composer(_messages, _info):
+        nonlocal composer_calls
+        composer_calls += 1
+        return ModelResponse(
+            parts=[
+                TextPart(
+                    json.dumps(
+                        {
+                            "kind": "grounded",
+                            "sections": [
+                                {"text": "按选择顺序回答", "citation_ids": [11, 11]}
+                            ],
+                        }
+                    )
+                )
+            ]
+        )
+
+    result = await KnowledgeAgent(
+        _answer_recovery_primary_model(),
+        replace(Settings(), agent_timeout_seconds=2, agent_tool_calls_limit=1),
+        lambda _: FakeServices(citations),
+        composer_model=FunctionModel(composer),
+    ).run(request())
+
+    assert result.answer.status == "ok"
+    assert composer_calls == 1
+    assert [citation.segment_id for citation in result.answer.citations] == [11]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("case", "expected_reason"),
     [
-        ("duplicate_section", "duplicate_citation"),
         ("unknown_section", "unknown_citation"),
         ("too_many_items", "too_many_items"),
     ],
@@ -1056,8 +1218,8 @@ async def test_answer_agent_requires_unique_section_selection_and_projects_its_o
         valid_selected = list(range(101, 106))
     else:
         citations = _recovery_citations()
-        invalid_selected = [11, 19] if case == "duplicate_section" else [999]
-        invalid_section_ids = [11, 11] if case == "duplicate_section" else [999]
+        invalid_selected = [999]
+        invalid_section_ids = [999]
         valid_selected = [19, 11]
     composer_calls = 0
 
@@ -1368,7 +1530,14 @@ async def test_retrieval_loop_converges_before_hard_limit_and_disables_parallel_
 
 
 @pytest.mark.asyncio
-async def test_provider_batch_executes_one_backend_retrieval_per_model_step():
+async def test_provider_batch_executes_every_retrieval_within_stage_budgets():
+    """A batched provider response no longer loses calls to a same-step gate.
+
+    Every retrieval call in a model response executes sequentially as long as
+    the server-owned stage budgets (2 searches, 3 expansions, 5 total) allow
+    it; only a call beyond those budgets is skipped.
+    """
+
     citation = Citation(
         item_id=2,
         segment_id=3,
@@ -1390,28 +1559,32 @@ async def test_provider_batch_executes_one_backend_retrieval_per_model_step():
             if isinstance(part, ToolReturnPart)
         ]
         if not returns:
+            # Three searches in one batch: the 2-search budget lets the first
+            # two execute and skips only the third.
             return ModelResponse(
                 parts=[
                     ToolCallPart("search_segments", json.dumps({"query": "one"}), tool_call_id="search-one"),
                     ToolCallPart("search_segments", json.dumps({"query": "two"}), tool_call_id="search-two"),
+                    ToolCallPart("search_segments", json.dumps({"query": "three"}), tool_call_id="search-three"),
                 ],
                 usage=RequestUsage(output_tokens=700),
             )
-        if len(returns) == 2:
-            assert [part.content["status"] for part in returns] == ["ok", "skipped"]
-            assert returns[1].content["reason"] == "same_model_step"
+        if len(returns) == 3:
+            assert [part.content["status"] for part in returns] == ["ok", "ok", "skipped"]
+            assert returns[2].content["reason"] == "budget_exhausted"
+            # Three expansions in one batch: 2 retrieval calls already spent,
+            # so the 3-expansion and 5-total budgets both have exactly enough
+            # room for all three to execute.
             return ModelResponse(
                 parts=[
                     ToolCallPart("get_neighbors", json.dumps({"segment_id": 3}), tool_call_id="neighbors-one"),
                     ToolCallPart("get_neighbors", json.dumps({"segment_id": 3}), tool_call_id="neighbors-two"),
-                    ToolCallPart("get_item", json.dumps({"item_id": 2}), tool_call_id="item-three"),
+                    ToolCallPart("get_neighbors", json.dumps({"segment_id": 3}), tool_call_id="neighbors-three"),
                 ],
                 usage=RequestUsage(output_tokens=700),
             )
-        assert [part.content["status"] for part in returns[-3:]] == [
-            "ok", "skipped", "skipped",
-        ]
-        return ModelResponse(parts=[TextPart("retrieval stop")], usage=RequestUsage(output_tokens=666))
+        assert [part.content["status"] for part in returns[-3:]] == ["ok", "ok", "ok"]
+        return ModelResponse(parts=[TextPart("检索完成")], usage=RequestUsage(output_tokens=10))
 
     result = await KnowledgeAgent(
         FunctionModel(batched_model),
@@ -1422,11 +1595,108 @@ async def test_provider_batch_executes_one_backend_retrieval_per_model_step():
 
     assert result.answer.status == "ok"
     assert result.answer.citations == [citation]
-    assert services.calls == ["search_segments", "get_neighbors"]
+    assert services.calls == [
+        "search_segments", "search_segments",
+        "get_neighbors", "get_neighbors", "get_neighbors",
+    ]
     assert all(info.model_settings["parallel_tool_calls"] is False for info in requests)
     assert all("max_tokens" not in info.model_settings for info in requests)
+    # Decision B1 (2026-10-07): retrieval-phase thinking stays on, so no
+    # ``thinking``/``extra_body`` key is ever sent for the retrieval phase;
+    # see ``test_knowledge_agent_wires_retrieval_model_settings_from_the_primary_model``
+    # and ``test_retrieval_settings_keep_generic_model_thinking_on_per_decision_b1``.
     assert all("thinking" not in info.model_settings for info in requests)
+    assert all("extra_body" not in info.model_settings for info in requests)
     assert len(requests) == 3
+
+
+def test_knowledge_agent_wires_retrieval_model_settings_from_the_primary_model():
+    """Decision B1 (2026-10-07): retrieval thinking stays on; see
+    ``app.agent.provider.retrieval_model_settings`` for the full rationale."""
+
+    primary_model = FunctionModel(lambda _messages, _info: None)
+    agent = KnowledgeAgent(
+        primary_model,
+        replace(Settings(), agent_timeout_seconds=2),
+        lambda _: FakeServices([]),
+    )
+
+    assert agent._retrieval_model_settings == {"parallel_tool_calls": False}
+
+
+@pytest.mark.asyncio
+async def test_empty_search_recovery_grant_required_within_one_batch(caplog):
+    """A same-batch reformulated search still spends a recovery action.
+
+    Before this change a second search in the same model response could
+    never execute a real backend call (the same-step gate skipped it even
+    after a recovery action was already consumed). Now the sequential local
+    execution order lets it run, so the consumed action actually buys a real
+    reformulated search.
+    """
+
+    citation = Citation(
+        item_id=1,
+        segment_id=10,
+        title="source",
+        excerpt="evidence",
+        url="https://example.test/source",
+    )
+    calls: list[str] = []
+
+    class _EmptyThenHitServices:
+        def search_segments(self, query, *, limit=6, item_id=None):
+            calls.append(query)
+            return [] if query == "原问题" else [citation]
+
+        def get_neighbors(self, *_args, **_kwargs):
+            return []
+
+        def get_item(self, *_args, **_kwargs):
+            return None
+
+        def open_at(self, *_args, **_kwargs):
+            return None
+
+    def batched_model(messages, _info):
+        returns = [
+            part
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, ToolReturnPart)
+        ]
+        if not returns:
+            # Two searches in the same batch: the first is empty, the second
+            # (a different query) requires a reformulate_search grant.
+            return ModelResponse(
+                parts=[
+                    ToolCallPart("search_segments", json.dumps({"query": "原问题"}), tool_call_id="search-one"),
+                    ToolCallPart("search_segments", json.dumps({"query": "改写问题"}), tool_call_id="search-two"),
+                ],
+            )
+        return ModelResponse(parts=[TextPart("检索完成")])
+
+    diagnostics = RequestDiagnostics.start("a" * 32, 1)
+    with caplog.at_level("INFO", logger="notebook_agent.runtime"):
+        result = await KnowledgeAgent(
+            FunctionModel(batched_model),
+            replace(Settings(), agent_timeout_seconds=2),
+            lambda _: _EmptyThenHitServices(),
+            composer_model=composer_for(10),
+        ).run(request(), diagnostics=diagnostics)
+
+    assert calls == ["原问题", "改写问题"]
+    assert result.answer.status == "ok"
+    assert result.answer.citations == [citation]
+    recovery = [
+        record.diagnostic_payload
+        for record in caplog.records
+        if record.diagnostic_payload.get("stage") == "recovery"
+    ]
+    actions = [entry for entry in recovery if entry.get("recovery_action")]
+    assert [entry.get("recovery_action") for entry in actions] == ["reformulate_search"]
+    assert [entry.get("recovery_outcome") for entry in actions] == ["consumed"]
 
 
 @pytest.mark.asyncio
@@ -1474,7 +1744,7 @@ async def test_composer_output_limit_exhausts_answer_recovery_with_diagnostics(c
     assert result.answer.error_code == "answer_unavailable"
     assert result.answer.citations == []
     assert "自动总结未完成" not in result.answer.text
-    assert answer_limit[-1]["limit_value"] == 2000
+    assert answer_limit[-1]["limit_value"] == 1000
     assert answer_limit[-1]["used_value"] == 2001
     assert composer_calls == 3
     assert not any(

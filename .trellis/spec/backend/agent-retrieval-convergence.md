@@ -101,11 +101,10 @@ MAX_SOURCE_ITEMS = 5
 SEARCH_RESULT_LIMIT = 10
 SEARCH_CANDIDATE_POOL_LIMIT = 50
 COMPRESSED_EVIDENCE_LIMIT = 8
-COMPOSER_EVIDENCE_EXCERPT_CHARS = 360
+COMPOSER_EVIDENCE_EXCERPT_CHARS = 1200  # fits one upper-bound (200-word) segment; see ingestion-chunking-embedding.md
 
 class AgentDeps:
     citations: dict[int, Citation]       # keyed by segment_id, insertion order
-    last_retrieval_run_step: int | None
     def reserve_retrieval(
         self, *, run_step: int, kind: RetrievalKind
     ) -> ReservationResult: ...
@@ -113,7 +112,7 @@ class AgentDeps:
 class RetrievalToolPayload(TypedDict):
     status: Literal["ok", "skipped"]
     evidence: list[dict]
-    reason: Literal["same_model_step", "budget_exhausted"] | None
+    reason: Literal["budget_exhausted"] | None
 
 class AnswerSection(BaseModel):
     text: str
@@ -148,13 +147,25 @@ for each answer-agent attempt. It must be positive and must not exceed
   advisory provider hint, never a correctness boundary.
 - The retrieval Agent uses local sequential tool execution. Before a retrieval
   tool reaches a service, `AgentDeps.reserve_retrieval()` holds one lock and
-  atomically checks the current `run_step`, total 5-call budget, search 2-call
-  budget, and expansion 3-call budget. Only its first successful reservation
-  in a model step invokes a backend service.
-- Other retrieval calls in the same provider batch return a typed
-  `skipped/same_model_step` payload. Calls after a exhausted stage budget
-  return `skipped/budget_exhausted`. Neither kind performs embedding, SQL, or
-  storage work, records a Citation, or pretends that a search found no hits.
+  atomically checks the total 5-call budget, search 2-call budget, and
+  expansion 3-call budget. There is no "one retrieval per model step" rule:
+  every call within these budgets executes, in the local sequential order, no
+  matter how many calls one provider response batches.
+- Only a call beyond an exhausted stage budget returns a typed
+  `skipped/budget_exhausted` payload. It performs no embedding, SQL, or
+  storage work, records no Citation, and never pretends that a search found
+  no hits.
+- Once the current turn has executed any retrieval tool (`search_segments`
+  or an expansion), the primary Turn Agent's own final text is
+  never shown to the user, by prompt contract: the model is instructed to stop
+  after a minimal "检索完成" completion rather than writing answer prose or
+  `[S<segment_id>]` markers. The server does not depend on the model obeying
+  this: with evidence it always routes to the structured Composer, and
+  without evidence it returns the canonical no-evidence result regardless of
+  what primary text was produced; a disobedient model only wastes output
+  tokens. No-search turns (social/capability replies, clarification,
+  inventory/management reads) are unaffected and keep returning the primary
+  model's natural text.
 - `search_segments` is public-limit bounded to 10. It obtains a bounded
   over-fetch pool (`min(50, max(20, limit * 5))`) from each hybrid retrieval
   backend, removes exact duplicate segment IDs using the best score, ranks
@@ -184,13 +195,36 @@ for each answer-agent attempt. It must be positive and must not exceed
   `invalid_citation`, `too_many_segments`, `too_many_items`,
   `missing_scope_item`, or `provider_failure`). Previous drafts, questions,
   Citation values, URLs, and provider payloads never enter the feedback.
+- A repeated or over-cap segment-only citation selection is never
+  fail-closed. After unknown-ID rejection, the stream plan and the Composer
+  draft each normalize their selection with a section round-robin: an
+  in-section repeat keeps its first occurrence, the same segment may still
+  support several different sections, and when distinct segments exceed the
+  eight-segment cap the round-robin keeps each grounded section's first
+  surviving citation, then each section's second, and so on, until exactly
+  eight distinct segments remain. Every grounded section keeps at least one
+  citation because grounded sections are bounded to eight. Item/scope
+  coverage (`too_many_items`, `missing_scope_item`) is re-checked on the
+  normalized selection, not the raw one, and normalization never consumes one
+  of the three answer attempts; it emits one `citation_normalized`
+  diagnostic event instead. On the Composer path only, a section's text was
+  already generated together with its original citations, so a dropped
+  citation's sentence is attributed to that section's remaining citations
+  (accepted risk); the stream-plan path stays exact because section text is
+  generated after the plan's citations are locked.
 - Every Composer request sends `AGENT_COMPOSER_MAX_TOKENS` as the provider's
   actual `max_tokens` generation cap. For DeepSeek Chat Completions, the model
   profile must retain DeepSeek response/tool semantics, map the field to
   `max_tokens` rather than `max_completion_tokens`, and send
   `thinking: {"type": "disabled"}` without `reasoning_effort=none`.
   Other compatible Composer models request provider-neutral `thinking=False`
-  when supported. Retrieval model settings remain unchanged.
+  when supported. Retrieval model settings remain unchanged (only
+  `parallel_tool_calls=False`): decision B1 (2026-10-07) keeps retrieval
+  thinking on after a verification rerun showed a thinking-disabled retrieval
+  phase skipping the mandatory `search_segments` call on some content
+  questions (`search_required`), confirmed by a controlled A/B retry. The hard
+  `AGENT_OUTPUT_TOKEN_LIMIT` ceiling remains the retrieval phase's real safety
+  bound regardless.
 - The server projects all bounded current-run evidence in retrieval order for
   answer selection. Invalid citations, output-token exhaustion, provider
   failures, and timeouts consume one of the three answer attempts. No
@@ -224,6 +258,10 @@ for each answer-agent attempt. It must be positive and must not exceed
   error class, attempt index, failure category, allow-listed validation
   `failure_reason`, and validated integer `http_status` when applicable; they
   never pass provider exception objects.
+  A `stage_usage` event is emitted once per retrieval-stage run (every exit
+  path: success, limit, timeout, or exception) with only sanitized,
+  non-negative integers (`request_count`, `input_tokens`, `output_tokens`,
+  `tool_call_count`) and `agent_phase=retrieval`; it carries no model text.
   Primary retrieval `ModelHTTPError` diagnostics retain the existing
   development-only detail policy, while production forbids its body and
   message. Production logs never include questions, tool arguments/results,
@@ -233,8 +271,9 @@ for each answer-agent attempt. It must be positive and must not exceed
 
 | Condition | Required behavior |
 | --- | --- |
-| provider emits several retrieval calls in one response | exactly one backend retrieval runs; remaining calls are typed skipped results |
+| provider emits several retrieval calls in one response | every call within the stage budgets executes sequentially; only calls beyond the budgets return typed `skipped/budget_exhausted` results |
 | normal search/expansion budgets are exhausted | no further backend retrieval; existing trusted evidence remains usable |
+| the current turn has executed any retrieval tool | primary model text/markers are discarded by server routing regardless of prompt compliance; Composer or no-evidence result decides the visible answer |
 | successful searches have no evidence | bounded empty-search recovery or `not_found/no_evidence`, no answer-agent recovery |
 | primary timeout or usage limit after evidence | log retrieval phase/kind and run the three-attempt answer Agent |
 | Web request reaches one retrieval-stage timeout with evidence | transport remains open for answer attempts; do not return a premature 504 |
@@ -242,6 +281,7 @@ for each answer-agent attempt. It must be positive and must not exceed
 | non-empty search candidates | enter structured Composer; unsupported sections render fixed server text |
 | natural answer has unknown/missing IDs or six item IDs | run the bounded Composer against the same evidence allow-list |
 | answer draft is invalid, truncated, over limit, timed out, or provider fails | consume one of three answer attempts; after exhaustion return `failed/answer_unavailable` with no Citations or draft persistence |
+| draft/plan repeats or exceeds the eight-segment cap | normalize by section round-robin; re-check item/scope on the normalized selection; emit one `citation_normalized` event; no attempt consumed |
 | provider stream is empty/unsupported before any section is public | use one whole-answer compatibility delta; do not expose a section lifecycle |
 | provider stream fails after a section is public | emit/propagate section abort and a failed terminal state; do not silently replay the answer |
 | streamed section is cancelled, disconnected, timed out, or incomplete | remove the temporary section and persist no partial conversation turn |
@@ -252,27 +292,39 @@ for each answer-agent attempt. It must be positive and must not exceed
 
 ## 5. Good / Base / Bad Cases
 
-- Good: a provider ignores its parallel-tool-call hint and emits two searches;
-  the first executes, the second gets `same_model_step`, and the structured
-  Composer uses only the cached source IDs.
+- Good: a provider ignores its parallel-tool-call hint and emits two searches
+  in one response; both execute sequentially under the 2-search budget, a
+  third would get `budget_exhausted`, and the structured Composer uses only
+  the cached source IDs.
 - Good: one video dominates raw segment scores but bounded over-fetch exposes
   five relevant item groups. The answer shows one top-level row per video and
   preserves two distant links for the selected first video.
 - Base: one search provides sufficient evidence. The Composer returns a
   valid cited answer, and canonical history contains only the normalized
   question and final answer.
+- Good: a draft cites the same segment from two sections and a third section
+  pushes the distinct-segment count to twelve. The round-robin clamp returns
+  a grounded answer with eight distinct segments, every grounded section
+  keeps at least one citation, and one `citation_normalized` event is logged
+  with no IDs or text.
 - Bad: rely on `parallel_tool_calls=False` alone, treat skipped tools as zero
   results, rerun search to fix citation formatting, bypass Composer after
-  non-empty retrieval, fabricate chapter names, or log private evidence or
-  exception text.
+  non-empty retrieval, fabricate chapter names, log private evidence or
+  exception text, or reject a segment-only duplicate/over-cap draft instead of
+  normalizing it.
 
 ## 6. Tests Required
 
-- A batched `FunctionModel` returns two searches, then two neighbor calls and
-  one metadata call with non-zero `RequestUsage.output_tokens` totaling 2066.
-  Assert one backend retrieval per model step, typed skipped payloads, no
-  extra embedding/SQL work, and a trusted final answer or bounded answer-agent
-  recovery result.
+- A batched `FunctionModel` returns three searches in one response (the first
+  two execute, the third is `skipped/budget_exhausted`), then three expansion
+  calls in one response that all execute within the remaining budget, with
+  non-zero `RequestUsage.output_tokens`. Assert every in-budget call executes
+  sequentially, only out-of-budget calls are skipped, no extra embedding/SQL
+  work happens, and a trusted final answer or bounded answer-agent recovery
+  result follows. Separately assert that an empty-search `reformulate_search`
+  grant is still required between two sequential calls in the same batch, and
+  that a minimal post-search completion text (e.g. "检索完成") is discarded
+  exactly like any other primary text once evidence exists.
 - Cover normal 5/2/3 convergence, zero-hit exit, hard request/tool limits,
   phase-correct output-token diagnostics, and retrieval embedding/database
   failures.
@@ -288,6 +340,14 @@ for each answer-agent attempt. It must be positive and must not exceed
 - Cover hybrid duplicate collapse, one-item crowding, six-item selection,
   distant same-item segments, public limit clamping, bounded candidate pool,
   and PostgreSQL tenant predicates during hydration.
+- Cover segment-citation normalization directly: no-op under the cap,
+  in-section duplicate removal, a cross-section duplicate kept and counted
+  once, round-robin clamping that leaves every grounded section with at least
+  one citation, and order preservation; cover the stream-plan and Composer
+  wiring with an over-cap and a duplicate selection, asserting a grounded
+  answer, a de-duplicated public Citation list, one `citation_normalized`
+  event, and unchanged fail-closed behavior for unknown IDs, too many items,
+  and missing scope items.
 - Re-run action/pending-confirmation, persistence, duplicate message,
   multi-user tenant isolation, source grouping, diagnostics privacy, and the
   complete test suite.
@@ -303,17 +363,23 @@ result = await turn_agent.run(..., model_settings={"parallel_tool_calls": False}
 # Formatting failure wastes an embedding request and loses the original budget.
 if invalid_citation:
     return await turn_agent.run(question_again)
+
+# A same-step gate wastes real budget: two real searches in one batch would
+# only ever let the first one reach a backend.
+if deps.last_retrieval_run_step == run_step:
+    return {"status": "skipped", "evidence": [], "reason": "same_model_step"}
 ```
 
 #### Correct
 
 ```python
 with turn_agent.parallel_tool_call_execution_mode("sequential"):
-    await turn_agent.run(...)
+    await turn_agent.run(..., model_settings=retrieval_model_settings(model))
 
-# The locked reservation decides whether a retrieval backend may run.
+# The locked reservation only checks the server-owned stage budgets; every
+# call within them executes, however many calls one batch contains.
 if deps.reserve_retrieval(run_step=ctx.run_step, kind=kind) is not EXECUTE:
-    return {"status": "skipped", "evidence": [], "reason": "same_model_step"}
+    return {"status": "skipped", "evidence": [], "reason": "budget_exhausted"}
 
 # Each tool-free answer-agent attempt can use only trusted cached evidence;
 # the outer recovery stage allows at most three total attempts.
@@ -456,4 +522,115 @@ if parsed.is_bare_supported_url_batch:
 services.set_reference_scope(parsed.references or None)
 # SQL predicates and citation validation both enforce the exact scope.
 citations = services.search_segments(current_question)
+```
+
+## Scenario: Tenant-scoped vector search must filter before ranking
+
+### 1. Scope / Trigger
+
+Use this contract whenever adding or changing a pgvector nearest-neighbor
+query in a multi-tenant table (segment embeddings, media embeddings, or any
+future embedding column). It applies to every caller of `vector_search`
+and to any new vector search this project adds.
+
+### 2. Signatures
+
+```python
+def filter_first_vector_rank(
+    db,
+    candidates: Select,          # already restricted to ONE tenant
+    *,
+    id_column: str,
+    embedding_column: str,
+    query_vector: Sequence[float],
+    k: int,
+) -> list[tuple[int, float]]:    # (id, 1 - cosine_distance), best first, len <= k
+```
+
+`app/retrieval/search.py:filter_first_vector_rank` is the one reusable
+ranking helper. `vector_search` (segment embeddings) calls it today; any
+media vector search must call it too, restricted by `app_user_id` plus the
+embedding-space columns (`model`, `revision`, `protocol_version`,
+`dimensions`) rather than re-implementing ranking.
+
+### 3. Contracts
+
+- Resolve the tenant's own eligible rows (an indexed, tenant-owned predicate
+  such as `item_id = ANY(:ids)` or `app_user_id = :tenant`) **before** any
+  nearest-neighbor ranking runs. Tenant filtering is never a post-filter
+  applied after an approximate scan.
+- No approximate ANN index (HNSW, IVFFlat, or similar) may exist on a
+  multi-tenant embedding column when the only available scope key is a
+  cross-tenant global index. An approximate index built without a matching
+  per-tenant partition silently truncates results for any tenant whose rows
+  fall outside the index's bounded candidate window (`ef_search`/`probes`),
+  with no error surfaced to the caller.
+- `filter_first_vector_rank` wraps the tenant-restricted candidate `Select`
+  in a `WITH ... AS MATERIALIZED` CTE, which is an optimization fence: the
+  planner must evaluate the tenant-restricted set first, then perform an
+  *exact* cosine-distance sort over exactly those rows.
+- Re-apply the same tenant/lifecycle predicates at hydration time, as
+  defense in depth against a row changing scope between the filter query and
+  the ranking query.
+- A future large-tenant path (benchmarking `lakebase_ann` with
+  `prefilter = on`, or per-tenant partitioning) is evaluated only once a
+  tenant's own row count or measured exact-scan latency crosses a recorded
+  threshold; it does not change this ordering contract.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Tenant has zero eligible rows | Return `[]` with no vector-ranking query issued |
+| A global ANN index exists on a multi-tenant embedding column | Reject in review; drop it or scope it per tenant before merging |
+| `k < 1` | `filter_first_vector_rank` returns `[]` without querying |
+| A row's scope changes between the filter and ranking queries | Hydration re-check drops it; never hydrate a now out-of-scope row |
+
+### 5. Good / Base / Bad Cases
+
+- Good: a tenant with 60k rows in a 1M-row table still gets its true top-k,
+  because ranking only ever sees that tenant's own rows.
+- Base: a small tenant's query already returns exact results today; the
+  filter-first shape keeps it exact and does not change its plan
+  meaningfully.
+- Bad: a global HNSW/IVFFlat index ranks the whole table and then filters by
+  tenant, silently returning fewer than `k` rows (or zero) for a tenant whose
+  rows are not among the index's approximate candidates.
+
+### 6. Tests Required
+
+- Compiled-SQL assertions (no live database) proving: the eligible-rows query
+  predicates, the `= ANY(:ids)` plus `IS NOT NULL` ranking query wrapped in a
+  `MATERIALIZED` CTE, and the re-applied hydration predicates.
+- An empty-tenant case that issues no ranking query.
+- Model metadata must declare no HNSW/IVFFlat index on a multi-tenant
+  embedding column (`Base.metadata` inspection or migration review).
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+stmt = (
+    select(Segment, ContentItem, (1 - distance).label("score"))
+    .join(ContentItem)
+    .where(ContentItem.user_id == user_id, ...)   # tenant filter is a post-filter
+    .order_by(distance)                            # the HNSW index ranks globally first
+    .limit(k)
+)
+```
+
+#### Correct
+
+```python
+item_ids = db.execute(_eligible_item_ids_stmt(user_id=user_id, ...)).scalars().all()
+if not item_ids:
+    return []
+candidates = select(Segment.id, Segment.embedding).where(
+    Segment.item_id == any_(bindparam("item_ids", value=item_ids, type_=ARRAY(BigInteger))),
+    Segment.embedding.isnot(None),
+)
+ranked = filter_first_vector_rank(db, candidates, id_column="id",
+                                   embedding_column="embedding",
+                                   query_vector=query_vector, k=k)
 ```

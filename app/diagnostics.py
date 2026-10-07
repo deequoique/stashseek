@@ -23,8 +23,8 @@ _STAGES = frozenset({
     "accepted", "route", "duplicate", "gateway_response_ready", "agent_started",
     "model_attempt", "tool_call", "embedding_started", "embedding_completed",
     "embedding_failed", "retrieval_started", "retrieval_completed", "retrieval_failed",
-    "citation_validated", "context_compressed", "agent_failed", "action_validated",
-    "recovery", "todo_used",
+    "citation_validated", "citation_normalized", "context_compressed", "agent_failed",
+    "action_validated", "recovery", "todo_used", "stage_usage",
     "completion_event_created", "completion_event_enqueued",
     "completion_event_publish_failed", "completion_notification_enqueue_failed",
     "completion_event_sweep",
@@ -327,7 +327,11 @@ class RequestDiagnostics:
               error_class: str | None = None,
               failure_reason: str | None = None,
               disposition: str | None = None,
-              todo_used: bool | None = None) -> None:
+              todo_used: bool | None = None,
+              request_count: int | None = None,
+              input_tokens: int | None = None,
+              output_tokens: int | None = None,
+              tool_call_count: int | None = None) -> None:
         try:
             safe_error_class = _safe_error_class(error_class)
             payload: dict[str, Any] = {
@@ -371,7 +375,13 @@ class RequestDiagnostics:
                     payload["provider_response_body"] = _debug_json_value(
                         getattr(exception, "body")
                     )
-            for key, value in {"call_index": call_index, "result_count": result_count, "retry_count": retry_count, "limit_value": limit_value, "used_value": used_value, "projected_value": projected_value}.items():
+            for key, value in {
+                "call_index": call_index, "result_count": result_count,
+                "retry_count": retry_count, "limit_value": limit_value,
+                "used_value": used_value, "projected_value": projected_value,
+                "request_count": request_count, "input_tokens": input_tokens,
+                "output_tokens": output_tokens, "tool_call_count": tool_call_count,
+            }.items():
                 projected = _safe_int(value, none=True)
                 if projected is not None: payload[key] = projected
             if limit_kind in _LIMITS: payload["limit_kind"] = limit_kind

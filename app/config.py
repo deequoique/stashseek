@@ -380,7 +380,7 @@ class Settings:
         default_factory=lambda: _env_int("AGENT_TOOL_CALLS_LIMIT", 10)
     )
     agent_output_token_limit: int = field(
-        default_factory=lambda: _env_int("AGENT_OUTPUT_TOKEN_LIMIT", 2000)
+        default_factory=lambda: _env_int("AGENT_OUTPUT_TOKEN_LIMIT", 3000)
     )
     agent_composer_max_tokens: int = field(
         default_factory=lambda: _env_int("AGENT_COMPOSER_MAX_TOKENS", 1000)

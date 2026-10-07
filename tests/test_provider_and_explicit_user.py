@@ -7,7 +7,7 @@ import pytest
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.models.function import FunctionModel
 
-from app.agent.provider import build_model, composer_model_settings
+from app.agent.provider import build_model, composer_model_settings, retrieval_model_settings
 from app.agent.runtime import ComposerDeps, build_composer
 from app.agent.types import Citation
 from app.bootstrap import build_embedding_provider, build_knowledge_agent
@@ -126,6 +126,37 @@ def test_generic_composer_requests_provider_neutral_non_thinking():
     assert settings["max_tokens"] == 1000
     assert settings["thinking"] is False
     assert "extra_body" not in settings
+
+
+def test_retrieval_settings_keep_deepseek_thinking_on_per_decision_b1():
+    model = build_model(replace(
+        Settings(),
+        agent_model="deepseek:deepseek-v4-flash",
+        agent_api_key="test-key",
+        agent_base_url=None,
+    ))
+
+    settings = retrieval_model_settings(model)
+
+    # Decision B1 (2026-10-07): a verification rerun showed thinking-off made
+    # the retrieval model skip the mandatory search call on some questions, so
+    # retrieval keeps thinking at its provider default (only the existing
+    # parallel-tool-call hint is set) regardless of provider.
+    assert settings == {"parallel_tool_calls": False}
+    assert "thinking" not in settings
+    assert "extra_body" not in settings
+    assert "max_tokens" not in settings
+
+
+def test_retrieval_settings_keep_generic_model_thinking_on_per_decision_b1():
+    model = FunctionModel(lambda _messages, _info: None)
+
+    settings = retrieval_model_settings(model)
+
+    assert settings == {"parallel_tool_calls": False}
+    assert "thinking" not in settings
+    assert "extra_body" not in settings
+    assert "max_tokens" not in settings
 
 
 def test_query_embedding_provider_receives_the_resolved_ca_context():
