@@ -1,0 +1,8 @@
+{"file": ".trellis/tasks/archive/2026-10/10-06-fix-chunk-merge/design.md", "reason": "Chunking fix contents to port."}
+{"file": ".trellis/tasks/archive/2026-10/10-06-fix-answer-fail-closed/design.md", "reason": "Answer-stage fix contents to port (types/response relaxations, normalization)."}
+{"file": ".trellis/tasks/archive/2026-10/10-06-fix-embed-transient-errors/prd.md", "reason": "Embedding retry contents to port."}
+{"file": ".trellis/tasks/archive/2026-10/10-06-rq1-retrieval-quality/design.md", "reason": "Eval modules to copy."}
+{"file": ".trellis/tasks/archive/2026-10/10-06-tenant-vector-filter-first/design.md", "reason": "Filter-first search + HNSW drop migration to port."}
+{"file": ".trellis/tasks/archive/2026-10/10-07-retrieval-agent-budget/design.md", "reason": "Budget fix contents to port (B1: thinking unchanged)."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Single head, migration admission, test-branch discipline."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Adapting fixes across WIP-free main code."}

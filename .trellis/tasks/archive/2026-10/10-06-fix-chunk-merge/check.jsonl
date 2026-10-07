@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/browser-companion-capture.md", "reason": "Verify >512-cue cost rule and 120 s ceiling unchanged."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Code quality bar."}
+{"file": ".trellis/tasks/10-06-meeting-qa-quality/research/findings-20261006.md", "reason": "Expected behavior change to verify (median size moves from ~12 words into 80–200)."}

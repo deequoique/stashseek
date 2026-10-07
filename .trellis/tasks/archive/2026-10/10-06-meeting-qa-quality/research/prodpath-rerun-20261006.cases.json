@@ -1,0 +1,1440 @@
+[
+ {
+  "case_id": "qmsum:Bed002:specific:2",
+  "domain": "Academic(icsi)",
+  "answer_status": "failed",
+  "agent_error_code": "answer_unavailable",
+  "agent_citation_count": 0,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [
+   "provider_failure"
+  ],
+  "stream_failures": [
+   {
+    "code": "answer_unavailable",
+    "exception": "NaturalAnswerValidationError",
+    "message": "unsafe streamed text",
+    "cause": null
+   }
+  ],
+  "guard_rejections": [
+   {
+    "rule": "answer text must not be empty",
+    "malformed_markers": [],
+    "valid_markers": 0
+   }
+  ],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "search_segments:skipped": 1,
+   "get_neighbors:started": 1,
+   "get_neighbors:succeeded": 1
+  },
+  "elapsed_seconds": 18.6,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 0.0,
+   "chunk_recall@5": 0.0,
+   "chunk_group_any@5": 0.0,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.2857142857142857,
+   "chunk_group_any@10": 0.3333333333333333,
+   "pool_chunks": 14,
+   "pool_words": 500,
+   "pool_hit": 1.0,
+   "pool_recall": 0.2857142857142857
+  },
+  "chunk_citation": null
+ },
+ {
+  "case_id": "qmsum:Bed002:specific:4",
+  "domain": "Academic(icsi)",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 3,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "search_segments:skipped": 2,
+   "get_neighbors:started": 2,
+   "get_neighbors:succeeded": 2,
+   "get_neighbors:skipped": 1
+  },
+  "elapsed_seconds": 16.0,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 0.0,
+   "chunk_recall@5": 0.0,
+   "chunk_group_any@5": 0.0,
+   "chunk_hit@10": 0.0,
+   "chunk_recall@10": 0.0,
+   "chunk_group_any@10": 0.0,
+   "pool_chunks": 19,
+   "pool_words": 1277,
+   "pool_hit": 1.0,
+   "pool_recall": 0.07142857142857142
+  },
+  "chunk_citation": {
+   "cited_chunks": 3,
+   "cited_chunk_precision": 0.0,
+   "cited_gold_recall": 0.0,
+   "cited_group_any": 0.0,
+   "cited_any_gold": 0.0
+  }
+ },
+ {
+  "case_id": "qmsum:Bed002:specific:5",
+  "domain": "Academic(icsi)",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 4,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "search_segments:skipped": 1,
+   "get_neighbors:started": 1,
+   "get_neighbors:succeeded": 1,
+   "get_neighbors:skipped": 1
+  },
+  "elapsed_seconds": 12.3,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 0.0,
+   "chunk_recall@5": 0.0,
+   "chunk_group_any@5": 0.0,
+   "chunk_hit@10": 0.0,
+   "chunk_recall@10": 0.0,
+   "chunk_group_any@10": 0.0,
+   "pool_chunks": 15,
+   "pool_words": 723,
+   "pool_hit": 0.0,
+   "pool_recall": 0.0
+  },
+  "chunk_citation": {
+   "cited_chunks": 4,
+   "cited_chunk_precision": 0.0,
+   "cited_gold_recall": 0.0,
+   "cited_group_any": 0.0,
+   "cited_any_gold": 0.0
+  }
+ },
+ {
+  "case_id": "qmsum:Bed010:specific:1",
+  "domain": "Academic(icsi)",
+  "answer_status": "failed",
+  "agent_error_code": "answer_unavailable",
+  "agent_citation_count": 0,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [
+   "provider_failure"
+  ],
+  "stream_failures": [
+   {
+    "code": "answer_unavailable",
+    "exception": "NaturalAnswerValidationError",
+    "message": "unsafe streamed text",
+    "cause": null
+   }
+  ],
+  "guard_rejections": [
+   {
+    "rule": "answer text must not be empty",
+    "malformed_markers": [],
+    "valid_markers": 0
+   }
+  ],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "get_neighbors:started": 2,
+   "get_neighbors:succeeded": 2,
+   "get_neighbors:skipped": 1
+  },
+  "elapsed_seconds": 14.2,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 1.0,
+   "chunk_recall@3": 0.16666666666666666,
+   "chunk_group_any@3": 0.3333333333333333,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.16666666666666666,
+   "chunk_group_any@5": 0.3333333333333333,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.3333333333333333,
+   "chunk_group_any@10": 0.6666666666666666,
+   "pool_chunks": 21,
+   "pool_words": 492,
+   "pool_hit": 1.0,
+   "pool_recall": 0.5
+  },
+  "chunk_citation": null
+ },
+ {
+  "case_id": "qmsum:Bed015:specific:2",
+  "domain": "Academic(icsi)",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 7,
+  "citation_failures": [],
+  "limits": [
+   {
+    "kind": "output_tokens",
+    "phase": "retrieval"
+   }
+  ],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "search_segments:skipped": 1,
+   "get_neighbors:started": 3,
+   "get_neighbors:succeeded": 3,
+   "get_neighbors:skipped": 2
+  },
+  "elapsed_seconds": 20.7,
+  "chunk_retrieval": null,
+  "chunk_citation": null
+ },
+ {
+  "case_id": "qmsum:Bmr026:specific:0",
+  "domain": "Academic(icsi)",
+  "answer_status": "failed",
+  "agent_error_code": "answer_unavailable",
+  "agent_citation_count": 0,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [],
+  "stream_failures": [
+   {
+    "code": "answer_unavailable",
+    "exception": "UnexpectedModelBehavior",
+    "message": "Exceeded maximum output retries (0)",
+    "cause": "ToolRetryError: 计划引用的 segment 数量超过上限。"
+   }
+  ],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "get_neighbors:started": 2,
+   "get_neighbors:succeeded": 2,
+   "get_neighbors:skipped": 2
+  },
+  "elapsed_seconds": 15.5,
+  "chunk_retrieval": {
+   "chunk_hit@1": 1.0,
+   "chunk_recall@1": 0.07692307692307693,
+   "chunk_group_any@1": 0.16666666666666666,
+   "chunk_hit@3": 1.0,
+   "chunk_recall@3": 0.07692307692307693,
+   "chunk_group_any@3": 0.16666666666666666,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.15384615384615385,
+   "chunk_group_any@5": 0.3333333333333333,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.23076923076923078,
+   "chunk_group_any@10": 0.5,
+   "pool_chunks": 19,
+   "pool_words": 333,
+   "pool_hit": 1.0,
+   "pool_recall": 0.3076923076923077
+  },
+  "chunk_citation": null
+ },
+ {
+  "case_id": "qmsum:Bro005:specific:3",
+  "domain": "Academic(icsi)",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 8,
+  "citation_failures": [
+   "too_many_segments"
+  ],
+  "limits": [
+   {
+    "kind": "output_tokens",
+    "phase": "retrieval"
+   }
+  ],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 2,
+   "search_segments:succeeded": 2,
+   "get_neighbors:started": 3,
+   "get_neighbors:succeeded": 3,
+   "get_neighbors:skipped": 1
+  },
+  "elapsed_seconds": 22.5,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 0.0,
+   "chunk_recall@5": 0.0,
+   "chunk_group_any@5": 0.0,
+   "chunk_hit@10": 0.0,
+   "chunk_recall@10": 0.0,
+   "chunk_group_any@10": 0.0,
+   "pool_chunks": 31,
+   "pool_words": 544,
+   "pool_hit": 0.0,
+   "pool_recall": 0.0
+  },
+  "chunk_citation": {
+   "cited_chunks": 8,
+   "cited_chunk_precision": 0.0,
+   "cited_gold_recall": 0.0,
+   "cited_group_any": 0.0,
+   "cited_any_gold": 0.0
+  }
+ },
+ {
+  "case_id": "qmsum:Bro011:specific:3",
+  "domain": "Academic(icsi)",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 8,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 2,
+   "search_segments:succeeded": 2,
+   "get_neighbors:started": 1,
+   "get_neighbors:succeeded": 1,
+   "get_neighbors:skipped": 1,
+   "search_segments:skipped": 1
+  },
+  "elapsed_seconds": 14.9,
+  "chunk_retrieval": {
+   "chunk_hit@1": 1.0,
+   "chunk_recall@1": 0.6666666666666666,
+   "chunk_group_any@1": 1.0,
+   "chunk_hit@3": 1.0,
+   "chunk_recall@3": 1.0,
+   "chunk_group_any@3": 1.0,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 1.0,
+   "chunk_group_any@5": 1.0,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 1.0,
+   "chunk_group_any@10": 1.0,
+   "pool_chunks": 18,
+   "pool_words": 909,
+   "pool_hit": 1.0,
+   "pool_recall": 1.0
+  },
+  "chunk_citation": {
+   "cited_chunks": 8,
+   "cited_chunk_precision": 0.25,
+   "cited_gold_recall": 1.0,
+   "cited_group_any": 1.0,
+   "cited_any_gold": 1.0
+  }
+ },
+ {
+  "case_id": "qmsum:Bro022:specific:0",
+  "domain": "Academic(icsi)",
+  "answer_status": "failed",
+  "agent_error_code": "answer_unavailable",
+  "agent_citation_count": 0,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [
+   "provider_failure"
+  ],
+  "stream_failures": [
+   {
+    "code": "answer_unavailable",
+    "exception": "NaturalAnswerValidationError",
+    "message": "unsafe streamed text",
+    "cause": null
+   }
+  ],
+  "guard_rejections": [
+   {
+    "rule": "answer text must not be empty",
+    "malformed_markers": [],
+    "valid_markers": 0
+   }
+  ],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "get_neighbors:started": 2,
+   "get_neighbors:succeeded": 2,
+   "get_neighbors:skipped": 1
+  },
+  "elapsed_seconds": 13.0,
+  "chunk_retrieval": {
+   "chunk_hit@1": 1.0,
+   "chunk_recall@1": 0.2,
+   "chunk_group_any@1": 0.3333333333333333,
+   "chunk_hit@3": 1.0,
+   "chunk_recall@3": 0.2,
+   "chunk_group_any@3": 0.3333333333333333,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.2,
+   "chunk_group_any@5": 0.3333333333333333,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.2,
+   "chunk_group_any@10": 0.3333333333333333,
+   "pool_chunks": 20,
+   "pool_words": 520,
+   "pool_hit": 1.0,
+   "pool_recall": 0.6
+  },
+  "chunk_citation": null
+ },
+ {
+  "case_id": "qmsum:Bro022:specific:3",
+  "domain": "Academic(icsi)",
+  "answer_status": "failed",
+  "agent_error_code": "answer_unavailable",
+  "agent_citation_count": 0,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [
+   "provider_failure"
+  ],
+  "stream_failures": [
+   {
+    "code": "answer_unavailable",
+    "exception": "NaturalAnswerValidationError",
+    "message": "unsafe streamed text",
+    "cause": null
+   }
+  ],
+  "guard_rejections": [
+   {
+    "rule": "answer text must not be empty",
+    "malformed_markers": [],
+    "valid_markers": 0
+   }
+  ],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "get_neighbors:started": 2,
+   "get_neighbors:succeeded": 2,
+   "get_neighbors:skipped": 2
+  },
+  "elapsed_seconds": 12.4,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 0.0,
+   "chunk_recall@5": 0.0,
+   "chunk_group_any@5": 0.0,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.25,
+   "chunk_group_any@10": 0.25,
+   "pool_chunks": 22,
+   "pool_words": 666,
+   "pool_hit": 1.0,
+   "pool_recall": 0.5
+  },
+  "chunk_citation": null
+ },
+ {
+  "case_id": "qmsum:ES2006b:specific:3",
+  "domain": "Product(ami)",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 7,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "search_segments:skipped": 1,
+   "get_neighbors:started": 1,
+   "get_neighbors:succeeded": 1,
+   "get_neighbors:skipped": 1
+  },
+  "elapsed_seconds": 14.6,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 0.0,
+   "chunk_recall@5": 0.0,
+   "chunk_group_any@5": 0.0,
+   "chunk_hit@10": 0.0,
+   "chunk_recall@10": 0.0,
+   "chunk_group_any@10": 0.0,
+   "pool_chunks": 13,
+   "pool_words": 276,
+   "pool_hit": 0.0,
+   "pool_recall": 0.0
+  },
+  "chunk_citation": {
+   "cited_chunks": 7,
+   "cited_chunk_precision": 0.0,
+   "cited_gold_recall": 0.0,
+   "cited_group_any": 0.0,
+   "cited_any_gold": 0.0
+  }
+ },
+ {
+  "case_id": "qmsum:ES2006b:specific:5",
+  "domain": "Product(ami)",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 2,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "search_segments:skipped": 1,
+   "get_neighbors:started": 3,
+   "get_neighbors:succeeded": 3,
+   "get_neighbors:skipped": 2
+  },
+  "elapsed_seconds": 12.1,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 1.0,
+   "chunk_recall@3": 0.14285714285714285,
+   "chunk_group_any@3": 0.3333333333333333,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.14285714285714285,
+   "chunk_group_any@5": 0.3333333333333333,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.2857142857142857,
+   "chunk_group_any@10": 0.6666666666666666,
+   "pool_chunks": 24,
+   "pool_words": 402,
+   "pool_hit": 1.0,
+   "pool_recall": 0.2857142857142857
+  },
+  "chunk_citation": {
+   "cited_chunks": 2,
+   "cited_chunk_precision": 0.5,
+   "cited_gold_recall": 0.14285714285714285,
+   "cited_group_any": 0.3333333333333333,
+   "cited_any_gold": 1.0
+  }
+ },
+ {
+  "case_id": "qmsum:ES2006c:specific:2",
+  "domain": "Product(ami)",
+  "answer_status": "failed",
+  "agent_error_code": "answer_unavailable",
+  "agent_citation_count": 0,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [
+   "provider_failure"
+  ],
+  "stream_failures": [
+   {
+    "code": "answer_unavailable",
+    "exception": "NaturalAnswerValidationError",
+    "message": "unsafe streamed text",
+    "cause": null
+   }
+  ],
+  "guard_rejections": [
+   {
+    "rule": "answer text must not be empty",
+    "malformed_markers": [],
+    "valid_markers": 0
+   }
+  ],
+  "tool_events": {
+   "search_segments:started": 2,
+   "search_segments:succeeded": 2,
+   "get_neighbors:started": 3,
+   "get_neighbors:succeeded": 3,
+   "get_neighbors:skipped": 1,
+   "search_segments:skipped": 1
+  },
+  "elapsed_seconds": 14.5,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 0.0,
+   "chunk_recall@5": 0.0,
+   "chunk_group_any@5": 0.0,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.2222222222222222,
+   "chunk_group_any@10": 0.5,
+   "pool_chunks": 35,
+   "pool_words": 741,
+   "pool_hit": 1.0,
+   "pool_recall": 0.3333333333333333
+  },
+  "chunk_citation": null
+ },
+ {
+  "case_id": "qmsum:ES2006d:specific:2",
+  "domain": "Product(ami)",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 6,
+  "citation_failures": [
+   "too_many_segments"
+  ],
+  "limits": [
+   {
+    "kind": "output_tokens",
+    "phase": "retrieval"
+   }
+  ],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 2,
+   "search_segments:succeeded": 2,
+   "get_neighbors:started": 3,
+   "get_neighbors:succeeded": 3,
+   "get_neighbors:skipped": 2,
+   "search_segments:skipped": 1
+  },
+  "elapsed_seconds": 27.6,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 1.0,
+   "chunk_recall@3": 0.1,
+   "chunk_group_any@3": 0.25,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.1,
+   "chunk_group_any@5": 0.25,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.1,
+   "chunk_group_any@10": 0.25,
+   "pool_chunks": 26,
+   "pool_words": 452,
+   "pool_hit": 1.0,
+   "pool_recall": 1.0
+  },
+  "chunk_citation": {
+   "cited_chunks": 6,
+   "cited_chunk_precision": 0.8333333333333334,
+   "cited_gold_recall": 0.6,
+   "cited_group_any": 1.0,
+   "cited_any_gold": 1.0
+  }
+ },
+ {
+  "case_id": "qmsum:ES2009b:specific:3",
+  "domain": "Product(ami)",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 7,
+  "citation_failures": [],
+  "limits": [
+   {
+    "kind": "output_tokens",
+    "phase": "retrieval"
+   }
+  ],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 2,
+   "search_segments:succeeded": 2,
+   "search_segments:skipped": 1,
+   "get_neighbors:started": 2,
+   "get_neighbors:succeeded": 2,
+   "get_neighbors:skipped": 2
+  },
+  "elapsed_seconds": 20.3,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 0.0,
+   "chunk_recall@5": 0.0,
+   "chunk_group_any@5": 0.0,
+   "chunk_hit@10": 0.0,
+   "chunk_recall@10": 0.0,
+   "chunk_group_any@10": 0.0,
+   "pool_chunks": 22,
+   "pool_words": 1336,
+   "pool_hit": 0.0,
+   "pool_recall": 0.0
+  },
+  "chunk_citation": {
+   "cited_chunks": 7,
+   "cited_chunk_precision": 0.0,
+   "cited_gold_recall": 0.0,
+   "cited_group_any": 0.0,
+   "cited_any_gold": 0.0
+  }
+ },
+ {
+  "case_id": "qmsum:ES2009c:specific:0",
+  "domain": "Product(ami)",
+  "answer_status": "failed",
+  "agent_error_code": "answer_unavailable",
+  "agent_citation_count": 0,
+  "citation_failures": [
+   "too_many_segments",
+   "duplicate_citation",
+   "too_many_segments"
+  ],
+  "limits": [
+   {
+    "kind": "output_tokens",
+    "phase": "retrieval"
+   }
+  ],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 2,
+   "search_segments:succeeded": 2,
+   "list_saved_items:started": 1,
+   "list_saved_items:succeeded": 1,
+   "search_segments:skipped": 1,
+   "get_neighbors:started": 3,
+   "get_neighbors:succeeded": 3,
+   "get_neighbors:skipped": 2
+  },
+  "elapsed_seconds": 47.0,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.08333333333333333,
+   "chunk_group_any@5": 0.3333333333333333,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.08333333333333333,
+   "chunk_group_any@10": 0.3333333333333333,
+   "pool_chunks": 36,
+   "pool_words": 959,
+   "pool_hit": 1.0,
+   "pool_recall": 0.16666666666666666
+  },
+  "chunk_citation": null
+ },
+ {
+  "case_id": "qmsum:IS1006a:specific:4",
+  "domain": "Product(ami)",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 5,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "search_segments:skipped": 1,
+   "get_neighbors:started": 2,
+   "get_neighbors:succeeded": 2,
+   "get_neighbors:skipped": 1
+  },
+  "elapsed_seconds": 11.3,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 0.0,
+   "chunk_recall@5": 0.0,
+   "chunk_group_any@5": 0.0,
+   "chunk_hit@10": 0.0,
+   "chunk_recall@10": 0.0,
+   "chunk_group_any@10": 0.0,
+   "pool_chunks": 17,
+   "pool_words": 266,
+   "pool_hit": 0.0,
+   "pool_recall": 0.0
+  },
+  "chunk_citation": {
+   "cited_chunks": 5,
+   "cited_chunk_precision": 0.0,
+   "cited_gold_recall": 0.0,
+   "cited_group_any": 0.0,
+   "cited_any_gold": 0.0
+  }
+ },
+ {
+  "case_id": "qmsum:IS1006c:specific:8",
+  "domain": "Product(ami)",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 6,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "search_segments:skipped": 1,
+   "get_neighbors:started": 3,
+   "get_neighbors:succeeded": 3,
+   "get_neighbors:skipped": 2
+  },
+  "elapsed_seconds": 17.2,
+  "chunk_retrieval": null,
+  "chunk_citation": null
+ },
+ {
+  "case_id": "qmsum:TS3009c:specific:0",
+  "domain": "Product(ami)",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 4,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 2,
+   "search_segments:succeeded": 2,
+   "list_saved_items:started": 1,
+   "list_saved_items:succeeded": 1,
+   "get_neighbors:started": 1,
+   "get_neighbors:succeeded": 1,
+   "get_neighbors:skipped": 1
+  },
+  "elapsed_seconds": 21.0,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 0.0,
+   "chunk_recall@5": 0.0,
+   "chunk_group_any@5": 0.0,
+   "chunk_hit@10": 0.0,
+   "chunk_recall@10": 0.0,
+   "chunk_group_any@10": 0.0,
+   "pool_chunks": 21,
+   "pool_words": 317,
+   "pool_hit": 0.0,
+   "pool_recall": 0.0
+  },
+  "chunk_citation": {
+   "cited_chunks": 4,
+   "cited_chunk_precision": 0.0,
+   "cited_gold_recall": 0.0,
+   "cited_group_any": 0.0,
+   "cited_any_gold": 0.0
+  }
+ },
+ {
+  "case_id": "qmsum:TS3010a:specific:1",
+  "domain": "Product(ami)",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 8,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "get_neighbors:started": 1,
+   "get_neighbors:succeeded": 1,
+   "get_neighbors:skipped": 1
+  },
+  "elapsed_seconds": 12.2,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.07142857142857142,
+   "chunk_group_any@5": 0.16666666666666666,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.07142857142857142,
+   "chunk_group_any@10": 0.16666666666666666,
+   "pool_chunks": 16,
+   "pool_words": 415,
+   "pool_hit": 1.0,
+   "pool_recall": 0.14285714285714285
+  },
+  "chunk_citation": {
+   "cited_chunks": 8,
+   "cited_chunk_precision": 0.25,
+   "cited_gold_recall": 0.14285714285714285,
+   "cited_group_any": 0.3333333333333333,
+   "cited_any_gold": 1.0
+  }
+ },
+ {
+  "case_id": "qmsum:education_0:specific:4",
+  "domain": "Committee",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 6,
+  "citation_failures": [
+   "too_many_segments"
+  ],
+  "limits": [
+   {
+    "kind": "output_tokens",
+    "phase": "retrieval"
+   }
+  ],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 2,
+   "search_segments:succeeded": 2,
+   "get_neighbors:started": 3,
+   "get_neighbors:succeeded": 3,
+   "get_neighbors:skipped": 2,
+   "search_segments:skipped": 1
+  },
+  "elapsed_seconds": 21.8,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 1.0,
+   "chunk_recall@3": 0.3333333333333333,
+   "chunk_group_any@3": 0.3333333333333333,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.3333333333333333,
+   "chunk_group_any@5": 0.3333333333333333,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.5,
+   "chunk_group_any@10": 0.6666666666666666,
+   "pool_chunks": 31,
+   "pool_words": 1011,
+   "pool_hit": 1.0,
+   "pool_recall": 1.0
+  },
+  "chunk_citation": {
+   "cited_chunks": 6,
+   "cited_chunk_precision": 0.6666666666666666,
+   "cited_gold_recall": 0.6666666666666666,
+   "cited_group_any": 0.6666666666666666,
+   "cited_any_gold": 1.0
+  }
+ },
+ {
+  "case_id": "qmsum:education_0:specific:8",
+  "domain": "Committee",
+  "answer_status": "failed",
+  "agent_error_code": "answer_unavailable",
+  "agent_citation_count": 0,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [
+   "provider_failure"
+  ],
+  "stream_failures": [
+   {
+    "code": "answer_unavailable",
+    "exception": "NaturalAnswerValidationError",
+    "message": "unsafe streamed text",
+    "cause": null
+   }
+  ],
+  "guard_rejections": [
+   {
+    "rule": "answer text must not be empty",
+    "malformed_markers": [],
+    "valid_markers": 0
+   }
+  ],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "search_segments:skipped": 1,
+   "get_neighbors:started": 1,
+   "get_neighbors:succeeded": 1
+  },
+  "elapsed_seconds": 9.4,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 1.0,
+   "chunk_recall@3": 0.14285714285714285,
+   "chunk_group_any@3": 0.25,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.14285714285714285,
+   "chunk_group_any@5": 0.25,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.2857142857142857,
+   "chunk_group_any@10": 0.5,
+   "pool_chunks": 14,
+   "pool_words": 239,
+   "pool_hit": 1.0,
+   "pool_recall": 0.2857142857142857
+  },
+  "chunk_citation": null
+ },
+ {
+  "case_id": "qmsum:education_10:specific:1",
+  "domain": "Committee",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 4,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "get_neighbors:started": 1,
+   "get_neighbors:succeeded": 1
+  },
+  "elapsed_seconds": 15.8,
+  "chunk_retrieval": {
+   "chunk_hit@1": 1.0,
+   "chunk_recall@1": 0.16666666666666666,
+   "chunk_group_any@1": 0.25,
+   "chunk_hit@3": 1.0,
+   "chunk_recall@3": 0.16666666666666666,
+   "chunk_group_any@3": 0.25,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.16666666666666666,
+   "chunk_group_any@5": 0.25,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.16666666666666666,
+   "chunk_group_any@10": 0.25,
+   "pool_chunks": 14,
+   "pool_words": 442,
+   "pool_hit": 1.0,
+   "pool_recall": 0.3333333333333333
+  },
+  "chunk_citation": {
+   "cited_chunks": 4,
+   "cited_chunk_precision": 0.75,
+   "cited_gold_recall": 0.3333333333333333,
+   "cited_group_any": 0.5,
+   "cited_any_gold": 1.0
+  }
+ },
+ {
+  "case_id": "qmsum:education_10:specific:11",
+  "domain": "Committee",
+  "answer_status": "failed",
+  "agent_error_code": "answer_unavailable",
+  "agent_citation_count": 0,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [],
+  "stream_failures": [
+   {
+    "code": "answer_unavailable",
+    "exception": "UnexpectedModelBehavior",
+    "message": "Exceeded maximum output retries (0)",
+    "cause": "ToolRetryError: 计划引用的 segment 数量超过上限。"
+   }
+  ],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "get_neighbors:started": 2,
+   "get_neighbors:succeeded": 2,
+   "get_neighbors:skipped": 1
+  },
+  "elapsed_seconds": 17.7,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 0.0,
+   "chunk_recall@5": 0.0,
+   "chunk_group_any@5": 0.0,
+   "chunk_hit@10": 0.0,
+   "chunk_recall@10": 0.0,
+   "chunk_group_any@10": 0.0,
+   "pool_chunks": 21,
+   "pool_words": 656,
+   "pool_hit": 1.0,
+   "pool_recall": 0.8
+  },
+  "chunk_citation": null
+ },
+ {
+  "case_id": "qmsum:education_18:specific:2",
+  "domain": "Committee",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 3,
+  "citation_failures": [],
+  "limits": [
+   {
+    "kind": "output_tokens",
+    "phase": "retrieval"
+   }
+  ],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 2,
+   "search_segments:succeeded": 2,
+   "search_segments:skipped": 2,
+   "get_neighbors:started": 2,
+   "get_neighbors:succeeded": 2,
+   "get_neighbors:skipped": 2
+  },
+  "elapsed_seconds": 21.1,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.25,
+   "chunk_group_any@5": 0.16666666666666666,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.25,
+   "chunk_group_any@10": 0.16666666666666666,
+   "pool_chunks": 30,
+   "pool_words": 864,
+   "pool_hit": 1.0,
+   "pool_recall": 0.875
+  },
+  "chunk_citation": {
+   "cited_chunks": 3,
+   "cited_chunk_precision": 0.6666666666666666,
+   "cited_gold_recall": 0.5,
+   "cited_group_any": 0.5,
+   "cited_any_gold": 1.0
+  }
+ },
+ {
+  "case_id": "qmsum:education_18:specific:3",
+  "domain": "Committee",
+  "answer_status": "failed",
+  "agent_error_code": "answer_unavailable",
+  "agent_citation_count": 0,
+  "citation_failures": [
+   "too_many_segments",
+   "too_many_segments",
+   "too_many_segments"
+  ],
+  "limits": [
+   {
+    "kind": "output_tokens",
+    "phase": "retrieval"
+   }
+  ],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 2,
+   "search_segments:succeeded": 2,
+   "get_neighbors:started": 3,
+   "get_neighbors:succeeded": 3,
+   "search_segments:skipped": 1
+  },
+  "elapsed_seconds": 43.1,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 0.0,
+   "chunk_recall@5": 0.0,
+   "chunk_group_any@5": 0.0,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.16666666666666666,
+   "chunk_group_any@10": 0.16666666666666666,
+   "pool_chunks": 29,
+   "pool_words": 687,
+   "pool_hit": 1.0,
+   "pool_recall": 0.5
+  },
+  "chunk_citation": null
+ },
+ {
+  "case_id": "qmsum:education_18:specific:5",
+  "domain": "Committee",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 3,
+  "citation_failures": [],
+  "limits": [
+   {
+    "kind": "output_tokens",
+    "phase": "retrieval"
+   }
+  ],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 2,
+   "search_segments:succeeded": 2,
+   "search_segments:skipped": 1,
+   "get_neighbors:started": 3,
+   "get_neighbors:succeeded": 3,
+   "get_neighbors:skipped": 1
+  },
+  "elapsed_seconds": 22.6,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 1.0,
+   "chunk_recall@3": 0.6666666666666666,
+   "chunk_group_any@3": 0.6666666666666666,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.6666666666666666,
+   "chunk_group_any@5": 0.6666666666666666,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.6666666666666666,
+   "chunk_group_any@10": 0.6666666666666666,
+   "pool_chunks": 29,
+   "pool_words": 629,
+   "pool_hit": 1.0,
+   "pool_recall": 0.6666666666666666
+  },
+  "chunk_citation": {
+   "cited_chunks": 3,
+   "cited_chunk_precision": 1.0,
+   "cited_gold_recall": 0.6666666666666666,
+   "cited_group_any": 0.6666666666666666,
+   "cited_any_gold": 1.0
+  }
+ },
+ {
+  "case_id": "qmsum:education_22:specific:4",
+  "domain": "Committee",
+  "answer_status": "completed",
+  "agent_error_code": null,
+  "agent_citation_count": 6,
+  "citation_failures": [],
+  "limits": [
+   {
+    "kind": "tool_calls",
+    "phase": "retrieval"
+   }
+  ],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 2,
+   "search_segments:succeeded": 2,
+   "search_segments:skipped": 1,
+   "get_neighbors:started": 2,
+   "get_neighbors:succeeded": 2,
+   "get_neighbors:skipped": 3,
+   "list_saved_items:started": 1,
+   "list_saved_items:succeeded": 1
+  },
+  "elapsed_seconds": 20.1,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 1.0,
+   "chunk_recall@3": 0.25,
+   "chunk_group_any@3": 0.5,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.25,
+   "chunk_group_any@5": 0.5,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.5,
+   "chunk_group_any@10": 0.5,
+   "pool_chunks": 25,
+   "pool_words": 393,
+   "pool_hit": 1.0,
+   "pool_recall": 0.5
+  },
+  "chunk_citation": {
+   "cited_chunks": 6,
+   "cited_chunk_precision": 0.16666666666666666,
+   "cited_gold_recall": 0.25,
+   "cited_group_any": 0.5,
+   "cited_any_gold": 1.0
+  }
+ },
+ {
+  "case_id": "qmsum:education_22:specific:6",
+  "domain": "Committee",
+  "answer_status": "failed",
+  "agent_error_code": "answer_unavailable",
+  "agent_citation_count": 0,
+  "citation_failures": [],
+  "limits": [],
+  "section_aborted": [],
+  "stream_failures": [
+   {
+    "code": "answer_unavailable",
+    "exception": "UnexpectedModelBehavior",
+    "message": "Exceeded maximum output retries (0)",
+    "cause": "ToolRetryError: 计划引用的 segment 数量超过上限。"
+   }
+  ],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "get_neighbors:started": 2,
+   "get_neighbors:succeeded": 2,
+   "get_neighbors:skipped": 1
+  },
+  "elapsed_seconds": 23.2,
+  "chunk_retrieval": {
+   "chunk_hit@1": 0.0,
+   "chunk_recall@1": 0.0,
+   "chunk_group_any@1": 0.0,
+   "chunk_hit@3": 0.0,
+   "chunk_recall@3": 0.0,
+   "chunk_group_any@3": 0.0,
+   "chunk_hit@5": 0.0,
+   "chunk_recall@5": 0.0,
+   "chunk_group_any@5": 0.0,
+   "chunk_hit@10": 0.0,
+   "chunk_recall@10": 0.0,
+   "chunk_group_any@10": 0.0,
+   "pool_chunks": 14,
+   "pool_words": 330,
+   "pool_hit": 0.0,
+   "pool_recall": 0.0
+  },
+  "chunk_citation": null
+ },
+ {
+  "case_id": "qmsum:education_22:specific:8",
+  "domain": "Committee",
+  "answer_status": "failed",
+  "agent_error_code": "answer_unavailable",
+  "agent_citation_count": 0,
+  "citation_failures": [
+   "duplicate_citation",
+   "duplicate_citation",
+   "duplicate_citation"
+  ],
+  "limits": [
+   {
+    "kind": "output_tokens",
+    "phase": "retrieval"
+   }
+  ],
+  "section_aborted": [],
+  "stream_failures": [],
+  "guard_rejections": [],
+  "tool_events": {
+   "search_segments:started": 1,
+   "search_segments:succeeded": 1,
+   "search_segments:skipped": 1,
+   "get_neighbors:started": 3,
+   "get_neighbors:succeeded": 3,
+   "get_neighbors:skipped": 1
+  },
+  "elapsed_seconds": 34.5,
+  "chunk_retrieval": {
+   "chunk_hit@1": 1.0,
+   "chunk_recall@1": 0.2,
+   "chunk_group_any@1": 0.25,
+   "chunk_hit@3": 1.0,
+   "chunk_recall@3": 0.4,
+   "chunk_group_any@3": 0.5,
+   "chunk_hit@5": 1.0,
+   "chunk_recall@5": 0.4,
+   "chunk_group_any@5": 0.5,
+   "chunk_hit@10": 1.0,
+   "chunk_recall@10": 0.4,
+   "chunk_group_any@10": 0.5,
+   "pool_chunks": 26,
+   "pool_words": 625,
+   "pool_hit": 1.0,
+   "pool_recall": 0.6
+  },
+  "chunk_citation": null
+ }
+]

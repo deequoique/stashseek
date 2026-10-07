@@ -1,0 +1,309 @@
+{
+ "Bed002": {
+  "meeting_id": "Bed002",
+  "user_id": 24,
+  "item_id": 24,
+  "title": "Meeting recording Bed002",
+  "cues": 1444,
+  "boundary_kinds": {
+   "punct": 456
+  },
+  "median_words": 13,
+  "p10_words": 2,
+  "p90_words": 79,
+  "embed_calls": 1,
+  "ingest_seconds": 30.4
+ },
+ "Bed010": {
+  "meeting_id": "Bed010",
+  "user_id": 25,
+  "item_id": 25,
+  "title": "Meeting recording Bed010",
+  "cues": 1281,
+  "boundary_kinds": {
+   "punct": 515,
+   "semantic": 243
+  },
+  "median_words": 12,
+  "p10_words": 2,
+  "p90_words": 36,
+  "embed_calls": 2,
+  "ingest_seconds": 46.9
+ },
+ "Bed015": {
+  "meeting_id": "Bed015",
+  "user_id": 26,
+  "item_id": 26,
+  "title": "Meeting recording Bed015",
+  "cues": 2506,
+  "boundary_kinds": {
+   "punct": 1020,
+   "semantic": 469
+  },
+  "median_words": 10,
+  "p10_words": 2,
+  "p90_words": 36,
+  "embed_calls": 2,
+  "ingest_seconds": 98.9
+ },
+ "Bmr026": {
+  "meeting_id": "Bmr026",
+  "user_id": 27,
+  "item_id": 27,
+  "title": "Meeting recording Bmr026",
+  "cues": 1361,
+  "boundary_kinds": {
+   "punct": 667
+  },
+  "median_words": 9,
+  "p10_words": 2,
+  "p90_words": 39,
+  "embed_calls": 1,
+  "ingest_seconds": 33.4
+ },
+ "Bro005": {
+  "meeting_id": "Bro005",
+  "user_id": 28,
+  "item_id": 28,
+  "title": "Meeting recording Bro005",
+  "cues": 1394,
+  "boundary_kinds": {
+   "punct": 529,
+   "semantic": 273
+  },
+  "median_words": 11,
+  "p10_words": 2,
+  "p90_words": 36,
+  "embed_calls": 2,
+  "ingest_seconds": 48.4
+ },
+ "Bro011": {
+  "meeting_id": "Bro011",
+  "user_id": 29,
+  "item_id": 29,
+  "title": "Meeting recording Bro011",
+  "cues": 780,
+  "boundary_kinds": {
+   "punct": 273
+  },
+  "median_words": 11,
+  "p10_words": 2,
+  "p90_words": 69,
+  "embed_calls": 1,
+  "ingest_seconds": 13.8
+ },
+ "Bro022": {
+  "meeting_id": "Bro022",
+  "user_id": 30,
+  "item_id": 30,
+  "title": "Meeting recording Bro022",
+  "cues": 1159,
+  "boundary_kinds": {
+   "punct": 453
+  },
+  "median_words": 12,
+  "p10_words": 2,
+  "p90_words": 49,
+  "embed_calls": 1,
+  "ingest_seconds": 16.0
+ },
+ "ES2006b": {
+  "meeting_id": "ES2006b",
+  "user_id": 31,
+  "item_id": 31,
+  "title": "Meeting recording ES2006b",
+  "cues": 901,
+  "boundary_kinds": {
+   "punct": 380
+  },
+  "median_words": 10,
+  "p10_words": 2,
+  "p90_words": 45,
+  "embed_calls": 1,
+  "ingest_seconds": 13.9
+ },
+ "ES2006c": {
+  "meeting_id": "ES2006c",
+  "user_id": 32,
+  "item_id": 32,
+  "title": "Meeting recording ES2006c",
+  "cues": 998,
+  "boundary_kinds": {
+   "punct": 454
+  },
+  "median_words": 9,
+  "p10_words": 2,
+  "p90_words": 41,
+  "embed_calls": 1,
+  "ingest_seconds": 19.5
+ },
+ "ES2006d": {
+  "meeting_id": "ES2006d",
+  "user_id": 33,
+  "item_id": 33,
+  "title": "Meeting recording ES2006d",
+  "cues": 1083,
+  "boundary_kinds": {
+   "punct": 659
+  },
+  "median_words": 8,
+  "p10_words": 2,
+  "p90_words": 25,
+  "embed_calls": 1,
+  "ingest_seconds": 32.4
+ },
+ "ES2009b": {
+  "meeting_id": "ES2009b",
+  "user_id": 34,
+  "item_id": 34,
+  "title": "Meeting recording ES2009b",
+  "cues": 556,
+  "boundary_kinds": {
+   "punct": 227
+  },
+  "median_words": 10,
+  "p10_words": 2,
+  "p90_words": 50,
+  "embed_calls": 1,
+  "ingest_seconds": 9.5
+ },
+ "ES2009c": {
+  "meeting_id": "ES2009c",
+  "user_id": 35,
+  "item_id": 35,
+  "title": "Meeting recording ES2009c",
+  "cues": 836,
+  "boundary_kinds": {
+   "punct": 353
+  },
+  "median_words": 9,
+  "p10_words": 2,
+  "p90_words": 49,
+  "embed_calls": 1,
+  "ingest_seconds": 13.7
+ },
+ "IS1006a": {
+  "meeting_id": "IS1006a",
+  "user_id": 36,
+  "item_id": 36,
+  "title": "Meeting recording IS1006a",
+  "cues": 384,
+  "boundary_kinds": {
+   "punct": 258
+  },
+  "median_words": 5,
+  "p10_words": 2,
+  "p90_words": 19,
+  "embed_calls": 1,
+  "ingest_seconds": 9.3
+ },
+ "IS1006c": {
+  "meeting_id": "IS1006c",
+  "user_id": 37,
+  "item_id": 37,
+  "title": "Meeting recording IS1006c",
+  "cues": 820,
+  "boundary_kinds": {
+   "punct": 396
+  },
+  "median_words": 7,
+  "p10_words": 2,
+  "p90_words": 30,
+  "embed_calls": 1,
+  "ingest_seconds": 16.1
+ },
+ "TS3009c": {
+  "meeting_id": "TS3009c",
+  "user_id": 38,
+  "item_id": 38,
+  "title": "Meeting recording TS3009c",
+  "cues": 1276,
+  "boundary_kinds": {
+   "punct": 763
+  },
+  "median_words": 7,
+  "p10_words": 2,
+  "p90_words": 24,
+  "embed_calls": 1,
+  "ingest_seconds": 30.4
+ },
+ "TS3010a": {
+  "meeting_id": "TS3010a",
+  "user_id": 39,
+  "item_id": 39,
+  "title": "Meeting recording TS3010a",
+  "cues": 193,
+  "boundary_kinds": {
+   "punct": 118
+  },
+  "median_words": 5,
+  "p10_words": 2,
+  "p90_words": 30,
+  "embed_calls": 1,
+  "ingest_seconds": 5.3
+ },
+ "education_0": {
+  "meeting_id": "education_0",
+  "user_id": 40,
+  "item_id": 40,
+  "title": "Meeting recording education_0",
+  "cues": 908,
+  "boundary_kinds": {
+   "semantic": 204,
+   "punct": 147
+  },
+  "median_words": 24,
+  "p10_words": 8,
+  "p90_words": 48,
+  "embed_calls": 2,
+  "ingest_seconds": 30.9
+ },
+ "education_10": {
+  "meeting_id": "education_10",
+  "user_id": 41,
+  "item_id": 41,
+  "title": "Meeting recording education_10",
+  "cues": 885,
+  "boundary_kinds": {
+   "punct": 150,
+   "semantic": 205
+  },
+  "median_words": 24,
+  "p10_words": 8,
+  "p90_words": 48,
+  "embed_calls": 2,
+  "ingest_seconds": 32.5
+ },
+ "education_18": {
+  "meeting_id": "education_18",
+  "user_id": 42,
+  "item_id": 42,
+  "title": "Meeting recording education_18",
+  "cues": 1206,
+  "boundary_kinds": {
+   "punct": 230,
+   "semantic": 286
+  },
+  "median_words": 24,
+  "p10_words": 6,
+  "p90_words": 48,
+  "embed_calls": 2,
+  "ingest_seconds": 38.3
+ },
+ "education_22": {
+  "meeting_id": "education_22",
+  "user_id": 43,
+  "item_id": 43,
+  "title": "Meeting recording education_22",
+  "cues": 1066,
+  "boundary_kinds": {
+   "punct": 170,
+   "semantic": 263
+  },
+  "median_words": 24,
+  "p10_words": 8,
+  "p90_words": 48,
+  "embed_calls": 2,
+  "ingest_seconds": 39.3
+ }
+}
