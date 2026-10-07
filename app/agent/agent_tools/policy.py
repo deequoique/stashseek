@@ -6,8 +6,6 @@ bounded read recovery. It has no dependency on product orchestration.
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic_ai import RunContext
 
 from app.agent.autonomy import ErrorEnvelope, RecoveryGrant
@@ -301,7 +299,12 @@ class ToolPolicy:
         self,
         ctx: RunContext[AgentDeps], name: str, kind: RetrievalKind
     ) -> RetrievalToolPayload | None:
-        """Reserve a retrieval or provide a truthful no-side-effect result."""
+        """Reserve a retrieval or provide a truthful no-side-effect result.
+
+        Every call within the server-owned stage budgets executes; only a
+        call beyond those budgets is skipped, so ``budget_exhausted`` is the
+        only reachable reason.
+        """
 
         reservation = ctx.deps.reserve_retrieval(
             run_step=ctx.run_step,
@@ -312,14 +315,8 @@ class ToolPolicy:
         with ctx.deps._tool_lock:
             ctx.deps.tool_calls += 1
             call_index = ctx.deps.tool_calls
-        reason: Literal["same_model_step", "budget_exhausted"]
-        reason = (
-            "same_model_step"
-            if reservation is ReservationResult.SAME_STEP_SKIPPED
-            else "budget_exhausted"
-        )
         ctx.deps.tool_event(name, "skipped", call_index, 0)
-        return {"status": "skipped", "evidence": [], "reason": reason}
+        return {"status": "skipped", "evidence": [], "reason": "budget_exhausted"}
 
     def run_management_read(
         self,

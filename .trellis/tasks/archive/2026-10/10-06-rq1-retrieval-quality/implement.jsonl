@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Neon branch discipline: writes only to the isolated test branch; never print DSNs."}
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Production retrieval contract being measured (search_segments, diversification, limits)."}
+{"file": ".trellis/tasks/09-12-qmsum-explainmeetsum-golden-set/design.md", "reason": "Golden-set artifact contract, scorer semantics, selection hashing."}
+{"file": ".trellis/tasks/10-06-meeting-qa-quality/research/findings-20261006.md", "reason": "Background, measured facts, and why the old baseline cannot be reused."}
+{"file": ".trellis/tasks/10-06-meeting-qa-quality/research/meeting_agent_prodpath.reference.py", "reason": "Working production-path harness to port (caption track, golden connector, segment↔cue mapping, stream instrumentation)."}
+{"file": ".trellis/tasks/10-06-meeting-qa-quality/research/summarize_prodpath.reference.py", "reason": "Reference aggregation for the R8 agent smoke."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse existing helpers (_units, _hard_cut, _diversify_hits, scorer) instead of re-implementing."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Changes cross ingest → retrieval → answer layers; check contracts on both sides."}

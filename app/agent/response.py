@@ -233,6 +233,11 @@ class ResponseEnvelope:
                 for section in self.sections
             ):
                 raise ValueError("grounded response requires at least one cited section")
+            # A citation may be referenced by more than one grounded section
+            # (the same segment supporting several sections), so the flattened
+            # per-section union may contain duplicates. ``citations`` is the
+            # caller-deduplicated public list: every distinct referenced
+            # segment appears there exactly once, in first-reference order.
             grounded_ids = tuple(
                 segment_id
                 for section in self.sections
@@ -240,11 +245,11 @@ class ResponseEnvelope:
                 for segment_id in section.citation_ids
             )
             citation_ids = tuple(citation.segment_id for citation in self.citations)
-            if grounded_ids != citation_ids:
-                raise ValueError("grounded citations must equal section citation union")
-            if len(set(grounded_ids)) != len(grounded_ids):
+            if len(set(citation_ids)) != len(citation_ids):
                 raise ValueError("grounded citations must be unique")
-            if len(grounded_ids) > 8:
+            if set(grounded_ids) != set(citation_ids):
+                raise ValueError("grounded citations must equal section citation union")
+            if len(citation_ids) > 8:
                 raise ValueError("grounded response has too many segments")
             if len({citation.item_id for citation in self.citations}) > 5:
                 raise ValueError("grounded response has too many items")

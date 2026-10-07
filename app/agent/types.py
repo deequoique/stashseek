@@ -49,15 +49,15 @@ class AgentAnswer(BaseModel):
 class RetrievalToolPayload(TypedDict):
     """The only retrieval-tool result shape exposed to the planning Agent.
 
-    ``skipped`` is deliberately distinct from an empty successful search: a
-    provider may emit a batch despite ``parallel_tool_calls=False``, but only
-    the first retrieval in that model step is allowed to reach backend
-    services.
+    ``skipped`` is deliberately distinct from an empty successful search:
+    every retrieval call within the server-owned stage budgets (5 total, 2
+    searches, 3 expansions) executes sequentially, and only a call beyond
+    those budgets returns this truthful no-side-effect result.
     """
 
     status: Literal["ok", "skipped"]
     evidence: list[dict]
-    reason: Literal["same_model_step", "budget_exhausted"] | None
+    reason: Literal["budget_exhausted"] | None
 
 
 class GroundedSection(BaseModel):
@@ -104,6 +104,10 @@ class AnswerDraft(BaseModel):
 
     kind: Literal["grounded"]
     sections: list[GroundedSection] = Field(min_length=1, max_length=8)
+    # DeepSeek occasionally appends this legacy metadata key as ``null`` to
+    # otherwise valid JSON.  Accept only the null form and never use or emit
+    # it; arbitrary provider fields remain rejected by ``extra=forbid``.
+    sections_note: None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def validate_disposition(self) -> "AnswerDraft":
@@ -145,8 +149,10 @@ class PlannedSection(BaseModel):
             for value in self.citation_ids
         ):
             raise ValueError("planned citation ids must be positive integers")
-        if len(set(self.citation_ids)) != len(self.citation_ids):
-            raise ValueError("planned citation ids must be unique")
+        # A repeated or cross-section duplicate citation is no longer rejected
+        # at this schema boundary. ``normalize_section_citations`` drops an
+        # in-section repeat and allows the same segment to support several
+        # sections; see agent-retrieval-convergence.md.
         if self.status == "grounded" and not self.citation_ids:
             raise ValueError("grounded planned section requires citations")
         if self.status == "unsupported" and self.citation_ids:
@@ -173,8 +179,10 @@ class AnswerStreamPlan(BaseModel):
             if section.status == "grounded"
             for citation_id in section.citation_ids
         ]
-        if len(set(citation_ids)) != len(citation_ids):
-            raise ValueError("planned citation ids must be unique globally")
+        # A citation may legitimately support more than one section; the
+        # server-owned distinct-segment cap and round-robin clamp are applied
+        # by ``normalize_section_citations`` in the output validator, not by
+        # this schema.
         if not citation_ids:
             raise ValueError("stream plan requires at least one grounded citation")
         return self

@@ -1,0 +1,59 @@
+metric                                 |               baseline |           thinking-off |    thinking-on (final)
+----------------------------------------------------------------------------------------------------------------
+answered                               |                  30/30 |                  27/30 |                  30/30
+    [baseline (10-06 post-fix)] categories = {'completed': 30}
+    [thinking-off (round 1)] categories = {'completed': 27, 'stream guard: answer must not contain a source block': 1, 'search_required (no search call)': 2}
+    [thinking-on (final)] categories = {'completed': 30}
+pool gold hit@eligible                 |                  0.929 |                  0.889 |                  0.964
+pool gold recall@eligible              |                  0.715 |                  0.663 |                  0.780
+  (n eligible)                         |                     28 |                     27 |                     28
+cited_any_gold                         |                  0.893 |                  0.808 |                  0.893
+cited gold_recall                      |                  0.571 |                  0.554 |                  0.585
+cited chunk_precision                  |                  0.476 |                  0.481 |                  0.454
+cited group_any                        |                  0.664 |                  0.673 |                  0.679
+  (n answered+eligible)                |                     28 |                     26 |                     28
+limit-hit cases                        |                      6 |                      0 |                      0
+    [baseline (10-06 post-fix)] limit kinds = {'output_tokens': 6}
+    [thinking-off (round 1)] limit kinds = {}
+    [thinking-on (final)] limit kinds = {}
+tool calls executed                    |                     68 |                     50 |                     94
+tool calls skipped                     |                     37 |                      0 |                      3
+provider calls / case (median)         |                      6 |                      4 |                      5
+latency median (s)                     |                   13.7 |                    5.8 |                    9.2
+retrieval-stage output_tokens median   |                      - |                     86 |                    432
+retrieval-stage output_tokens p90      |                      - |                    103 |                   1160
+retrieval-stage output_tokens max      |                      - |                    208 |                   1975
+retrieval-stage input_tokens median    |                      - |                   8304 |                  16340
+retrieval-stage request_count median   |                      - |                      2 |                      3
+
+== per case (baseline -> thinking-off -> thinking-on)
+  Bed002:specific:2          completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  Bed002:specific:4          completed            -> completed                        -> completed    hit@5 1.0 -> 0.0 -> 1.0
+  Bed002:specific:5          completed            -> completed                        -> completed    hit@5 0.0 -> 0.0 -> 0.0
+  Bed010:specific:1          completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  Bed015:specific:2          completed            -> search_required (no search call) -> completed    hit@5 None -> None -> None
+  Bmr026:specific:0          completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  Bro005:specific:3          completed            -> completed                        -> completed    hit@5 0.0 -> 0.0 -> 0.0
+  Bro011:specific:3          completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  Bro022:specific:0          completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  Bro022:specific:3          completed            -> stream guard: answer must not contain a source block -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  ES2006b:specific:3         completed            -> completed                        -> completed    hit@5 0.0 -> 0.0 -> 0.0
+  ES2006b:specific:5         completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  ES2006c:specific:2         completed            -> completed                        -> completed    hit@5 0.0 -> 0.0 -> 0.0
+  ES2006d:specific:2         completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  ES2009b:specific:3         completed            -> completed                        -> completed    hit@5 0.0 -> 0.0 -> 0.0
+  ES2009c:specific:0         completed            -> search_required (no search call) -> completed    hit@5 0.0 -> None -> 0.0
+  IS1006a:specific:4         completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  IS1006c:specific:8         completed            -> completed                        -> completed    hit@5 None -> None -> None
+  TS3009c:specific:0         completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  TS3010a:specific:1         completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  education_0:specific:4     completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  education_0:specific:8     completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  education_10:specific:1    completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  education_10:specific:11   completed            -> completed                        -> completed    hit@5 1.0 -> 0.0 -> 1.0
+  education_18:specific:2    completed            -> completed                        -> completed    hit@5 0.0 -> 0.0 -> 0.0
+  education_18:specific:3    completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  education_18:specific:5    completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  education_22:specific:4    completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  education_22:specific:6    completed            -> completed                        -> completed    hit@5 1.0 -> 1.0 -> 1.0
+  education_22:specific:8    completed            -> completed                        -> completed    hit@5 0.0 -> 0.0 -> 0.0

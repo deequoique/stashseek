@@ -406,13 +406,21 @@ def process_item(item_id: int, *, connector: Any | None = None, embedder: Embedd
             remaining_embedding_chars -= requested
             return embedder.embed(texts)
 
+        # Semantic-first chunking embeds every cue (R1/C4). Overlapped chunk
+        # text then needs roughly another 1.2x of that budget for the final
+        # per-segment vectors below. If the combined estimate cannot fit the
+        # remaining per-item embedding budget, degrade gracefully to
+        # gap/punct boundaries instead of failing the whole ingest (R5).
+        cue_chars = sum(len(cue.text) for cue in result.cues)
+        semantic_budget_ok = cue_chars + 1.2 * cue_chars <= remaining_embedding_chars
         chunks = chunk(
             result.cues,
             lang=result.lang,
             chapters=item.chapters,
             semantic_embedder=(
                 semantic
-                if not pre_stored or len(result.cues) <= MAX_SEMANTIC_BOUNDARY_CUES
+                if semantic_budget_ok
+                and (not pre_stored or len(result.cues) <= MAX_SEMANTIC_BOUNDARY_CUES)
                 else None
             ),
         )

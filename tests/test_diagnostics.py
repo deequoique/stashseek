@@ -64,6 +64,30 @@ def test_diagnostics_allow_phase_and_skipped_tool_without_content(caplog):
     assert answer_limit["limit_kind"] == "output_tokens"
 
 
+def test_diagnostics_stage_usage_projects_only_sanitized_integers(caplog):
+    diagnostics = RequestDiagnostics.start("a" * 32, 7)
+
+    with caplog.at_level(logging.INFO, logger="notebook_agent.runtime"):
+        diagnostics.event(
+            "stage_usage",
+            agent_phase="retrieval",
+            request_count=3,
+            input_tokens=1200,
+            output_tokens=-5,
+            tool_call_count=True,  # bool must never be accepted as an int
+        )
+
+    payload = caplog.records[-1].diagnostic_payload
+    assert payload["stage"] == "stage_usage"
+    assert payload["agent_phase"] == "retrieval"
+    assert payload["request_count"] == 3
+    assert payload["input_tokens"] == 1200
+    # Negative usage is clamped, never dropped or made negative.
+    assert payload["output_tokens"] == 0
+    # A bool is rejected outright rather than silently coerced to 0/1.
+    assert "tool_call_count" not in payload
+
+
 def test_diagnostics_allowlists_answer_failure_reason_without_private_content(caplog):
     diagnostics = RequestDiagnostics.start("a" * 32, 7)
 

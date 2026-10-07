@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/provider-tls-diagnostics.md", "reason": "Provider error redaction: chain but do not copy exception messages."}
+{"file": ".trellis/spec/backend/ingest-completion-queue.md", "reason": "Worker failure/retry semantics that must stay unchanged (process_dispatch)."}
+{"file": ".trellis/tasks/10-06-meeting-qa-quality/research/findings-20261006.md", "reason": "Observed IncompleteRead and no-retry behavior."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse existing helpers (_units, _hard_cut, _diversify_hits, scorer) instead of re-implementing."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Changes cross ingest → retrieval → answer layers; check contracts on both sides."}

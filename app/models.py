@@ -909,13 +909,6 @@ class Segment(Base):
             name="loc_ck",
         ),
         UniqueConstraint("item_id", "seq", name="uq_segment_item_id_seq"),
-        Index(
-            "ix_segment_embedding_hnsw",
-            "embedding",
-            postgresql_using="hnsw",
-            postgresql_with={"m": 16, "ef_construction": 64},
-            postgresql_ops={"embedding": "vector_cosine_ops"},
-        ),
         Index("ix_segment_fts_gin", "fts", postgresql_using="gin"),
         Index(
             "ix_segment_text_trgm_gin",

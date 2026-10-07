@@ -21,7 +21,7 @@ NORMAL_RETRIEVAL_CALLS_LIMIT = 5
 NORMAL_SEARCH_CALLS_LIMIT = 2
 NORMAL_EXPANSION_CALLS_LIMIT = 3
 MAX_SOURCE_ITEMS = 5
-COMPOSER_EVIDENCE_EXCERPT_CHARS = 360
+COMPOSER_EVIDENCE_EXCERPT_CHARS = 1200
 COMPRESSED_EVIDENCE_LIMIT = 8
 
 
@@ -32,6 +32,8 @@ class RetrievalKind(str, Enum):
 
 class ReservationResult(str, Enum):
     EXECUTE = "execute"
+    # Retained for type/compatibility only. Every retrieval call within the
+    # stage budgets now executes sequentially; this value is never returned.
     SAME_STEP_SKIPPED = "same_step_skipped"
     STAGE_BUDGET_EXHAUSTED = "stage_budget_exhausted"
 
@@ -85,7 +87,6 @@ class AgentDeps:
     expansion_calls: int = 0
     tool_calls: int = 0
     citations: dict[int, Citation] = field(default_factory=dict)
-    last_retrieval_run_step: int | None = None
     diagnostics: RequestDiagnostics | None = None
     # Legacy exact-reference compatibility for trusted callers.  The normal
     # URL-plus-question route leaves this empty so retrieval remains tenant-wide.
@@ -116,11 +117,15 @@ class AgentDeps:
     def reserve_retrieval(
         self, *, run_step: int, kind: RetrievalKind
     ) -> ReservationResult:
-        """Atomically reserve the only backend retrieval allowed in a step."""
+        """Atomically reserve one backend retrieval within the stage budgets.
+
+        Every retrieval call in the local sequential execution order may
+        execute, bounded only by the server-owned stage budgets below.
+        ``run_step`` is retained for caller compatibility; it no longer gates
+        execution (there is no "one retrieval per model step" rule).
+        """
 
         with self._tool_lock:
-            if self.last_retrieval_run_step == run_step:
-                return ReservationResult.SAME_STEP_SKIPPED
             if self.retrieval_calls >= NORMAL_RETRIEVAL_CALLS_LIMIT:
                 return ReservationResult.STAGE_BUDGET_EXHAUSTED
             if kind is RetrievalKind.SEARCH:
@@ -132,7 +137,6 @@ class AgentDeps:
                     return ReservationResult.STAGE_BUDGET_EXHAUSTED
                 self.expansion_calls += 1
             self.retrieval_calls += 1
-            self.last_retrieval_run_step = run_step
             return ReservationResult.EXECUTE
 
     def record(self, values: list[Citation] | Citation) -> None:

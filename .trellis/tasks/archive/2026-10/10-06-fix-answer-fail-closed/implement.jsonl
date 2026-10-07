@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Current composer/plan validation contract (fail-closed on too_many_segments) that this task intentionally changes."}
+{"file": ".trellis/spec/backend/agent-execution-streaming.md", "reason": "Section stream lifecycle, section_aborted semantics, safe public events."}
+{"file": ".trellis/spec/backend/provider-tls-diagnostics.md", "reason": "Diagnostics stage allow-list and redaction rules for the new citation_normalized event."}
+{"file": ".trellis/tasks/10-06-meeting-qa-quality/research/findings-20261006.md", "reason": "Failure categories, whitespace-delta repro, counts."}
+{"file": ".trellis/tasks/10-06-meeting-qa-quality/research/prodpath-rerun-20261006.cases.json", "reason": "Per-case stream failure categories (no model prose)."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse existing helpers (_units, _hard_cut, _diversify_hits, scorer) instead of re-implementing."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Changes cross ingest → retrieval → answer layers; check contracts on both sides."}

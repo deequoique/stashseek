@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
+from dataclasses import dataclass
 
 from pydantic_ai import (
     Agent,
@@ -33,6 +34,7 @@ from app.agent.answer_validation import (
 )
 from app.agent.provider import composer_model_settings, model_supports_streaming
 from app.agent.runtime_state import (
+    COMPOSER_EVIDENCE_EXCERPT_CHARS,
     COMPRESSED_EVIDENCE_LIMIT,
     ComposerDeps,
     MAX_SOURCE_ITEMS,
@@ -133,6 +135,105 @@ STREAM_SECTION_INSTRUCTIONS = (
 )
 
 
+@dataclass(frozen=True)
+class NormalizationReport:
+    """Whether a plan/draft's segment citation selection was server-adjusted.
+
+    ``deduplicated`` is true whenever a repeated segment id was observed,
+    whether within one section or shared across sections; duplicates are
+    allowed and are not removed across sections, only counted once toward
+    ``cap``. ``clamped`` is true only when distinct segments exceeded ``cap``
+    and the section round-robin removed some of them.
+    """
+
+    deduplicated: bool
+    clamped: bool
+    kept_distinct: int
+    dropped_distinct: int
+
+
+def normalize_section_citations(
+    sections: Sequence[Sequence[int]],
+    cap: int,
+) -> tuple[list[list[int]], NormalizationReport]:
+    """Allow duplicate segment citations across sections and clamp the total.
+
+    Step 1 drops a repeated id within one section, keeping its first
+    occurrence. Step 2 allows the same segment to remain in several different
+    sections; the distinct-segment count across the whole answer is what the
+    ``cap`` bounds. When distinct segments exceed ``cap``, a section
+    round-robin keeps each grounded section's first surviving citation, then
+    each section's second, and so on, until exactly ``cap`` distinct segments
+    remain. Section order and each section's relative citation order are
+    preserved; an already-kept id costs nothing on a later pass.
+    """
+
+    deduped_sections: list[list[int]] = []
+    in_section_duplicate = False
+    for row in sections:
+        seen: set[int] = set()
+        kept_row: list[int] = []
+        for segment_id in row:
+            if segment_id in seen:
+                in_section_duplicate = True
+                continue
+            seen.add(segment_id)
+            kept_row.append(segment_id)
+        deduped_sections.append(kept_row)
+
+    all_ids = [segment_id for row in deduped_sections for segment_id in row]
+    distinct_ids = list(dict.fromkeys(all_ids))
+    cross_section_duplicate = len(all_ids) != len(distinct_ids)
+
+    if len(distinct_ids) <= cap:
+        return deduped_sections, NormalizationReport(
+            deduplicated=in_section_duplicate or cross_section_duplicate,
+            clamped=False,
+            kept_distinct=len(distinct_ids),
+            dropped_distinct=0,
+        )
+
+    kept: set[int] = set()
+    max_len = max((len(row) for row in deduped_sections), default=0)
+    for position in range(max_len):
+        if len(kept) >= cap:
+            break
+        for row in deduped_sections:
+            if len(kept) >= cap:
+                break
+            if position < len(row):
+                kept.add(row[position])
+
+    clamped_sections = [
+        [segment_id for segment_id in row if segment_id in kept]
+        for row in deduped_sections
+    ]
+    return clamped_sections, NormalizationReport(
+        deduplicated=True,
+        clamped=True,
+        kept_distinct=len(kept),
+        dropped_distinct=len(distinct_ids) - len(kept),
+    )
+
+
+def _dedupe_citations_by_segment(citations: Iterable[Citation]) -> list[Citation]:
+    """Collapse repeated segment references for the public citations list.
+
+    Sections keep their own (possibly shared) citation ids for marker
+    rendering; only the flattened public citations/source list is
+    deduplicated, preserving first-reference order.
+    """
+
+    seen: set[int] = set()
+    result: list[Citation] = []
+    for citation in citations:
+        if citation.segment_id in seen:
+            continue
+        seen.add(citation.segment_id)
+        result.append(citation)
+    return result
+
+
 def build_stream_plan(
     model: Model | str,
     *,
@@ -161,18 +262,53 @@ def build_stream_plan(
         value: AnswerStreamPlan,
     ) -> AnswerStreamPlan:
         allowed = set(ctx.deps.citations)
+        raw_selected = [
+            citation_id
+            for section in value.sections
+            if section.status == "grounded"
+            for citation_id in section.citation_ids
+        ]
+        if any(citation_id not in allowed for citation_id in raw_selected):
+            ctx.deps.last_failure_reason = "unknown_citation"
+            raise ModelRetry("计划只能引用当前证据列表中的 citation_id。")
+
+        normalized_rows, report = normalize_section_citations(
+            [
+                section.citation_ids if section.status == "grounded" else []
+                for section in value.sections
+            ],
+            ctx.deps.max_segments,
+        )
+        if report.deduplicated or report.clamped:
+            value = value.model_copy(
+                update={
+                    "sections": [
+                        section.model_copy(
+                            update={"citation_ids": normalized_rows[index]}
+                        )
+                        if section.status == "grounded"
+                        else section
+                        for index, section in enumerate(value.sections)
+                    ]
+                }
+            )
+            if ctx.deps.diagnostics is not None:
+                ctx.deps.diagnostics.event(
+                    "citation_normalized",
+                    agent_phase="answer",
+                    result_count=report.kept_distinct,
+                    retry_count=report.dropped_distinct,
+                    failure_reason=(
+                        "too_many_segments" if report.clamped else "duplicate_citation"
+                    ),
+                )
+
         selected = [
             citation_id
             for section in value.sections
             if section.status == "grounded"
             for citation_id in section.citation_ids
         ]
-        if any(citation_id not in allowed for citation_id in selected):
-            ctx.deps.last_failure_reason = "unknown_citation"
-            raise ModelRetry("计划只能引用当前证据列表中的 citation_id。")
-        if len(selected) > ctx.deps.max_segments:
-            ctx.deps.last_failure_reason = "too_many_segments"
-            raise ModelRetry("计划引用的 segment 数量超过上限。")
         item_ids = {ctx.deps.citations[citation_id].item_id for citation_id in selected}
         if len(item_ids) > MAX_SOURCE_ITEMS:
             ctx.deps.last_failure_reason = "too_many_items"
@@ -257,7 +393,13 @@ def _draft_failure_reason(
     ctx: RunContext[ComposerDeps],
     draft: AnswerDraft,
 ) -> str | None:
-    """Classify a rejected draft without retaining any model-authored content."""
+    """Classify a rejected draft without retaining any model-authored content.
+
+    A duplicate or over-cap citation selection is no longer rejected here:
+    the caller normalizes it with ``normalize_section_citations`` and
+    re-checks item/scope coverage on the normalized selection via
+    ``_draft_scope_failure_reason``.
+    """
 
     cited_ids = [
         segment_id
@@ -280,10 +422,21 @@ def _draft_failure_reason(
     allowed = set(ctx.deps.citations)
     if any(segment_id not in allowed for segment_id in cited_ids):
         return "unknown_citation"
-    if len(cited_ids) != len(selected_ids):
-        return "duplicate_citation"
-    if len(selected_ids) > ctx.deps.max_segments:
-        return "too_many_segments"
+    return None
+
+
+def _draft_scope_failure_reason(
+    ctx: RunContext[ComposerDeps],
+    draft: AnswerDraft,
+) -> str | None:
+    """Check item/scope coverage after any segment citation normalization."""
+
+    cited_ids = [
+        segment_id
+        for section in draft.sections
+        if section.status == "grounded"
+        for segment_id in section.citation_ids
+    ]
     item_ids = {ctx.deps.citations[segment_id].item_id for segment_id in cited_ids}
     if len(item_ids) > MAX_SOURCE_ITEMS:
         return "too_many_items"
@@ -324,21 +477,68 @@ def build_composer(
         draft: AnswerDraft,
     ) -> AnswerDraft:
         failure_reason = _draft_failure_reason(ctx, draft)
-        if failure_reason is None:
-            return draft
-        ctx.deps.last_failure_reason = failure_reason
-        ctx.deps.invalid_draft_count += 1
-        if ctx.deps.diagnostics is not None:
-            ctx.deps.diagnostics.event(
-                "citation_validated",
-                error_code="answer_unavailable",
-                retry_count=ctx.deps.invalid_draft_count,
-                failure_reason=failure_reason,
-                agent_phase="answer",
+        if failure_reason is not None:
+            ctx.deps.last_failure_reason = failure_reason
+            ctx.deps.invalid_draft_count += 1
+            if ctx.deps.diagnostics is not None:
+                ctx.deps.diagnostics.event(
+                    "citation_validated",
+                    error_code="answer_unavailable",
+                    retry_count=ctx.deps.invalid_draft_count,
+                    failure_reason=failure_reason,
+                    agent_phase="answer",
+                )
+            raise ModelRetry(
+                "回答必须只引用可用证据，并满足视频、片段和当前问题范围限制。"
             )
-        raise ModelRetry(
-            "回答必须只引用可用证据，并满足视频、片段和当前问题范围限制。"
+
+        normalized_rows, report = normalize_section_citations(
+            [
+                section.citation_ids if section.status == "grounded" else []
+                for section in draft.sections
+            ],
+            ctx.deps.max_segments,
         )
+        if report.deduplicated or report.clamped:
+            draft = draft.model_copy(
+                update={
+                    "sections": [
+                        section.model_copy(
+                            update={"citation_ids": normalized_rows[index]}
+                        )
+                        if section.status == "grounded"
+                        else section
+                        for index, section in enumerate(draft.sections)
+                    ]
+                }
+            )
+            if ctx.deps.diagnostics is not None:
+                ctx.deps.diagnostics.event(
+                    "citation_normalized",
+                    agent_phase="answer",
+                    result_count=report.kept_distinct,
+                    retry_count=report.dropped_distinct,
+                    failure_reason=(
+                        "too_many_segments" if report.clamped else "duplicate_citation"
+                    ),
+                )
+
+        scope_failure_reason = _draft_scope_failure_reason(ctx, draft)
+        if scope_failure_reason is not None:
+            ctx.deps.last_failure_reason = scope_failure_reason
+            ctx.deps.invalid_draft_count += 1
+            if ctx.deps.diagnostics is not None:
+                ctx.deps.diagnostics.event(
+                    "citation_validated",
+                    error_code="answer_unavailable",
+                    retry_count=ctx.deps.invalid_draft_count,
+                    failure_reason=scope_failure_reason,
+                    agent_phase="answer",
+                )
+            raise ModelRetry(
+                "回答必须只引用可用证据，并满足视频、片段和当前问题范围限制。"
+            )
+        return draft
 
     return composer
 
@@ -488,6 +688,12 @@ class _StreamingTextGuard:
 
     @staticmethod
     def _has_forbidden_text(value: str) -> bool:
+        # A whitespace-only candidate (for example a paragraph-break delta)
+        # is never a forbidden pattern; it simply has nothing to check yet.
+        # ``validate_natural_answer`` would otherwise reject it as an empty
+        # answer, which is a final-text rule, not a streaming-safety rule.
+        if not value.strip():
+            return False
         try:
             validate_natural_answer(value)
         except NaturalAnswerValidationError:
@@ -627,7 +833,9 @@ class AnswerPipeline:
             return
         if self.section_streamer is None:
             raise ProviderStreamingUnavailable
-        evidence = _render_composer_evidence(citations, excerpt_chars=360)
+        evidence = _render_composer_evidence(
+            citations, excerpt_chars=COMPOSER_EVIDENCE_EXCERPT_CHARS
+        )
         prompt = (
             f"用户问题：{request.question.strip()}\n"
             f"当前 section 任务：{section.task}\n"
@@ -637,7 +845,7 @@ class AnswerPipeline:
             prompt,
             usage_limits=UsageLimits(
                 request_limit=1,
-                output_tokens_limit=self.settings.agent_output_token_limit,
+                output_tokens_limit=self.settings.agent_composer_max_tokens,
             ),
             usage=RunUsage(),
             model_settings=dict(self.composer_model_settings),
@@ -687,7 +895,7 @@ class AnswerPipeline:
                     deps=composer_deps,
                     usage_limits=UsageLimits(
                         request_limit=1,
-                        output_tokens_limit=self.settings.agent_output_token_limit,
+                        output_tokens_limit=self.settings.agent_composer_max_tokens,
                     ),
                     usage=RunUsage(),
                     model_settings=dict(self.composer_model_settings),
@@ -803,7 +1011,7 @@ class AnswerPipeline:
                 open_section = None
             envelope = ResponseEnvelope.grounded(
                 sections=rendered_sections,
-                citations=selected,
+                citations=_dedupe_citations_by_segment(selected),
                 action_results=deps.actions.read_action_results,
             )
             execution = AgentExecution(
@@ -902,7 +1110,7 @@ class AnswerPipeline:
                         deps=composer_deps,
                         usage_limits=UsageLimits(
                             request_limit=1,
-                            output_tokens_limit=self.settings.agent_output_token_limit,
+                            output_tokens_limit=self.settings.agent_composer_max_tokens,
                         ),
                         usage=RunUsage(),
                         model_settings=dict(self.composer_model_settings),
@@ -974,14 +1182,17 @@ class AnswerPipeline:
                 for section in result.output.sections
                 for segment_id in section.citation_ids
             )
-            selected = [
+            # A citation may now legitimately support more than one section
+            # (decision F1); the public citations/source list is still
+            # deduplicated by segment id, in first-reference order.
+            selected = _dedupe_citations_by_segment(
                 next(
                     citation
                     for citation in candidates
                     if citation.segment_id == segment_id
                 )
                 for segment_id in selected_ids
-            ]
+            )
             grounded_sections = tuple(
                 (
                     GroundedResponseSection(

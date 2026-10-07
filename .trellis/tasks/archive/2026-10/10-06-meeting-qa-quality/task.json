@@ -1,0 +1,31 @@
+{
+  "id": "meeting-qa-quality",
+  "name": "meeting-qa-quality",
+  "title": "会议问答质量：RQ1 前置修复与检索研究",
+  "description": "Parent: fix chunking/answer-stage/embedding bugs found in the 2026-10-06 production-path golden rerun, then run RQ1 retrieval study",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-10-06",
+  "completedAt": "2026-10-06",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-06-fix-chunk-merge",
+    "10-06-fix-answer-fail-closed",
+    "10-06-fix-embed-transient-errors",
+    "10-06-rq1-retrieval-quality"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
