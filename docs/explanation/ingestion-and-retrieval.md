@@ -78,15 +78,34 @@ browser companion 在页面内消费授权媒体：
 
 ## 分块和 embedding
 
-`chunk()` 先利用 chapter/gap/punctuation 信号；可用且不会超过时长约束时，
-再使用 cue embedding 的 semantic local minima；否则使用按语言密度的
-deterministic hard cut。每个最终 chunk 的时间跨度不超过 120 秒，短段之间可
-保留有限 overlap。chapter 超过约 180 秒也会继续切分。
+`chunk()` 采用 semantic-first、带上下限的窗口切分：chapter 信号仍然最先生效
+（chapter 不超过约 180 秒时整段作为一个 chunk，超过则继续递归切分）。在
+chapter 之外，每个 chunk 从当前起点贪婪累积 cue，直到达到语言相关的下限
+（英文 80 词 / 中文 130 字，约 30 秒），随后只在 `[下限, min(上限, 120 秒)]`
+这个窗口内选择切点：
 
-对于 browser capture 的超长字幕（超过 512 cues），系统跳过逐 cue semantic
-boundary embedding，改用 deterministic hard cuts，再只对最终 chunks 做
-embedding。这是 provider cost 和时间边界之间的取舍，不会把字幕当作无限长
-的单段文本。
+- 有 cue embedding 时，优先选窗口内 TextTiling 式相似度最深的下跌点；但如果
+  某个句末或静默间隔的深度已经达到最深下跌深度的 50% 以上，优先选它，避免
+  在句子中间切断证据。
+- 没有 embedding 时，优先选窗口内最大的静默间隔（≥2 秒），其次选最靠近窗口
+  中点的句末标点，否则取窗口能达到的最大位置。
+- 如果窗口内连下限都无法达到就会撞到上限或 120 秒上限（例如异常长的单条
+  cue），退回纯时长驱动的 hard cut，取能保持在 120 秒内的最后一条 cue。
+
+相邻 chunk 之间会重叠若干条完整 cue：下一个 chunk 的起点回退
+`max(1, round(0.15 × 本次 chunk 的 cue 数))` 条 cue，且每次都保证至少前进
+一条 cue。切分完成后，如果末尾剩余片段的词/字数仍低于下限，会尝试并入前一
+个 chunk（前提是合并结果不超过上限且不超过 120 秒），否则保留为独立的短
+尾部 chunk。只要不超过 180 秒，极短的整段文本也会直接作为单个 chunk，不受
+下限限制。
+
+对于 browser capture 的超长字幕（超过 512 cues），系统仍然跳过逐 cue
+semantic boundary embedding，改用 gap/punctuation 信号驱动切分，再只对最终
+chunks 做 embedding。普通 ingestion 的语义优先策略意味着每条 cue 都会被
+embedding；当预估的逐 cue embedding 加上重叠后的 chunk embedding 字符数会
+超出该 item 的 embedding 预算时，系统会优雅降级为 gap/punctuation 切分，
+而不是让整个 ingest 失败。这是 provider cost 和时间边界之间的取舍，不会把
+字幕当作无限长的单段文本。
 
 每个 ready item 的 Segment 同时保留 `start_sec`、`end_sec`、文本、vector 和
 英文全文检索字段（中文走相似度/substring 路径）。原始字幕对象放在 tenant-
