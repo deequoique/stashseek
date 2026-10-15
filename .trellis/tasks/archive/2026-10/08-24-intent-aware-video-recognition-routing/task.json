@@ -3,7 +3,7 @@
   "name": "intent-aware-video-recognition-routing",
   "title": "按意图按需分配视频识别能力",
   "description": "设计两层视频理解：入库时建立时间段级发现索引，提问时由主 Agent 按证据需要异步触发 ASR、视觉或 OCR，并自动续答。",
-  "status": "planning",
+  "status": "completed",
   "dev_type": null,
   "scope": "backend-agent-ingest",
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "lane",
   "assignee": "lane",
   "createdAt": "2026-08-24",
-  "completedAt": null,
+  "completedAt": "2026-10-15",
   "branch": null,
   "base_branch": "main",
   "worktree_path": null,
@@ -31,6 +31,7 @@
   "relatedFiles": [],
   "notes": "",
   "meta": {
-    "task_role": "parent"
+    "task_role": "parent",
+    "closed_reason": "superseded-2026-10-15 by 10-15-asr-transcription-pipeline (embedding + ASR plan)"
   }
 }

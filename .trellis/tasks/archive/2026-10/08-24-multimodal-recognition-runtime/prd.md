@@ -1,5 +1,24 @@
 # 异步多模态识别运行时
 
+## 2026-10-15 关闭
+
+本任务已关闭归档，由 `10-15-asr-transcription-pipeline` 取代。
+
+关闭原因：
+
+- 用户移除了 Vision/OCR，视频方案改为“多模态 embedding + ASR”；
+- ASR 不再测试，直接选定 Fun-ASR 默认、`whisper-1` 备选。
+
+ASR 只需在入库时对无字幕视频做一次整段转写（Fun-ASR 约 ¥0.79–0.94/音频小时），原先为按需视觉/OCR 设计的发现索引、意图路由、异步识别续答和稀疏采样架构不再需要。
+
+本任务中仍有价值的已确认决策，已在新任务 PRD 中继承：
+
+- 只处理公开 YouTube/Bilibili，由后端获取；
+- 首期不做预算或额度控制，但记录用量；
+- 无字幕视频自动处理，不需逐条确认。
+
+画面检索见 `09-09-wemm-multimodal-embedding-migration`。
+
 ## 2026-10-15 方案变更
 
 用户移除了独立的 Vision/OCR 识别，ASR 直接选定。依据见父任务 `08-24-intent-aware-video-recognition-routing/prd.md` 的“2026-10-15 方案变更”。对本任务的影响：

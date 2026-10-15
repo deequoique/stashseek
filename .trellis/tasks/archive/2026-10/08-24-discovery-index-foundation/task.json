@@ -3,7 +3,7 @@
   "name": "discovery-index-foundation",
   "title": "时间段发现索引与字幕质量基础",
   "description": "扩展 Segment 与发现覆盖生命周期，实现字幕质量门、缺口区间、语义切分、索引 revision 和旧数据兼容回填。",
-  "status": "planning",
+  "status": "completed",
   "dev_type": null,
   "scope": "backend-ingest-retrieval",
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "lane",
   "assignee": "lane",
   "createdAt": "2026-08-24",
-  "completedAt": null,
+  "completedAt": "2026-10-15",
   "branch": null,
   "base_branch": "main",
   "worktree_path": null,
@@ -23,6 +23,7 @@
   "relatedFiles": [],
   "notes": "",
   "meta": {
-    "phase": "2"
+    "phase": "2",
+    "closed_reason": "superseded-2026-10-15 by 10-15-asr-transcription-pipeline (embedding + ASR plan)"
   }
 }

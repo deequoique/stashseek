@@ -3,7 +3,7 @@
   "name": "public-video-media-sampling",
   "title": "YouTube 与 Bilibili 公开视频采样",
   "description": "实现后端公开媒体获取、ffmpeg 安全边界、语音活动/场景变化/去重采样和条件式本地 OCR 输入。",
-  "status": "planning",
+  "status": "completed",
   "dev_type": null,
   "scope": "backend-connectors-recognition",
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "lane",
   "assignee": "lane",
   "createdAt": "2026-08-24",
-  "completedAt": null,
+  "completedAt": "2026-10-15",
   "branch": null,
   "base_branch": "main",
   "worktree_path": null,
@@ -23,6 +23,7 @@
   "relatedFiles": [],
   "notes": "",
   "meta": {
-    "phase": "3"
+    "phase": "3",
+    "closed_reason": "superseded-2026-10-15 by 10-15-asr-transcription-pipeline (embedding + ASR plan)"
   }
 }

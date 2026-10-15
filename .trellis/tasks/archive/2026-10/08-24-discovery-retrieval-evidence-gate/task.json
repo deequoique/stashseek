@@ -3,7 +3,7 @@
   "name": "discovery-retrieval-evidence-gate",
   "title": "视频发现检索与多模态证据门",
   "description": "实现候选视频检索、partial/complete 覆盖投影、answer eligibility、模态证据校验和可信引用边界。",
-  "status": "planning",
+  "status": "completed",
   "dev_type": null,
   "scope": "backend-agent-retrieval",
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "lane",
   "assignee": "lane",
   "createdAt": "2026-08-24",
-  "completedAt": null,
+  "completedAt": "2026-10-15",
   "branch": null,
   "base_branch": "main",
   "worktree_path": null,
@@ -23,6 +23,7 @@
   "relatedFiles": [],
   "notes": "",
   "meta": {
-    "phase": "5"
+    "phase": "5",
+    "closed_reason": "superseded-2026-10-15 by 10-15-asr-transcription-pipeline (embedding + ASR plan)"
   }
 }

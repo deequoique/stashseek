@@ -3,7 +3,7 @@
   "name": "video-recognition-benchmark",
   "title": "视频识别模型基准与协议冻结",
   "description": "用公开 YouTube/Bilibili 样本冻结查询真值和质量门，比较托管 ASR、托管视觉与本地 OCR，并输出供应商无关协议和首期默认模型。",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": "research-evals",
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "lane",
   "assignee": "lane",
   "createdAt": "2026-08-24",
-  "completedAt": null,
+  "completedAt": "2026-10-15",
   "branch": null,
   "base_branch": "main",
   "worktree_path": null,
@@ -25,6 +25,7 @@
   "relatedFiles": [],
   "notes": "",
   "meta": {
-    "phase": "1"
+    "phase": "1",
+    "closed_reason": "superseded-2026-10-15 by 10-15-asr-transcription-pipeline (embedding + ASR plan)"
   }
 }
