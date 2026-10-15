@@ -1,5 +1,13 @@
 # YouTube 与 Bilibili 公开视频采样
 
+## 2026-10-15 方案变更
+
+用户移除了独立的 Vision/OCR 识别，视频方案改为“多模态 embedding + ASR”。依据见父任务 `08-24-intent-aware-video-recognition-routing/prd.md` 的“2026-10-15 方案变更”。对本任务的影响：
+
+- 作废：文字密度信号、条件式 OCR 候选帧，以及 OCR fixtures 依赖。
+- 保留：公开音频获取、ffmpeg 安全边界和语音活动采样（ASR 输入）。
+- 待定：代表帧和场景变化采样是否保留，作为多模态 embedding 的输入，需要与 `09-09-media-embedding-ingestion` 对齐后决定。
+
 ## Goal
 
 实现后端公开媒体获取、ffmpeg 安全边界、语音活动/场景变化/去重采样，以及条件式 OCR 所需的文字密度信号与候选帧输入。

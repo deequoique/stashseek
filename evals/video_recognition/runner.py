@@ -11,7 +11,8 @@ from .adapters import adapter_for_profile, credential_status
 from .cleanup import TemporaryRun, verify_cleanup
 from .media import descriptor_for_sample, synthetic_inputs
 from .probe import run_formal_probe
-from .protocol import MediaSampleBundle, RecognitionJobResult
+from .protocol import MediaSampleBundle, RecognitionJobResult, stable_error
+from .quality_report import AutomaticQualityReport, InputBounds, WeakReference, build_quality_report
 from .pilot_schema import (
     PilotManifest,
     PilotValidationError,
@@ -22,7 +23,7 @@ from .pilot_schema import (
     planned_pilot_pairs,
 )
 from .redaction import assert_redacted, redact_report
-from .schema import BenchmarkCatalog, BenchmarkGateError, catalog_summary, load_catalog
+from .schema import BenchmarkCatalog, BenchmarkGateError, TimeRange, catalog_summary, load_catalog
 
 
 class HarnessError(RuntimeError):
@@ -35,6 +36,118 @@ class DryRunReport:
 
     def as_dict(self) -> dict[str, Any]:
         return dict(self.payload)
+
+
+def automatic_quality_report(
+    catalog: BenchmarkCatalog,
+    *,
+    fixture_dir: str | Path | None = None,
+    report_id: str = "fixture-quality-report",
+) -> AutomaticQualityReport:
+    """Evaluate fixture outputs without opening the provider execution gate.
+
+    This is an offline rehearsal of the automatic evaluator.  It deliberately
+    uses the existing fixture adapters and does not require frozen query truth,
+    subtitle bodies, credentials, or network access.
+    """
+
+    fixture_root = Path(fixture_dir) if fixture_dir else Path(__file__).with_name("fixtures")
+    results: list[RecognitionJobResult] = []
+    bounds: dict[tuple[str, str], InputBounds] = {}
+    references: dict[str, WeakReference] = {}
+    for sample in catalog.samples:
+        synthetic = synthetic_inputs(sample)
+        references[sample.sample_id] = WeakReference(
+            sample_id=sample.sample_id,
+            title=sample.title,
+            metadata_terms=sample.content_tags,
+            has_subtitles=bool(sample.subtitle_tracks),
+            subtitle_coverage_ratio=(
+                max(
+                    (track.coverage_ratio or 0.0 for track in sample.subtitle_tracks),
+                    default=0.0,
+                )
+                if sample.subtitle_tracks
+                else None
+            ),
+        )
+        bounds[(sample.sample_id, "asr")] = InputBounds(
+            sample_id=sample.sample_id,
+            modality="asr",
+            time_range=synthetic.audio.time_range,
+            video_duration_sec=float(sample.duration_sec),
+        )
+        bounds[(sample.sample_id, "vision")] = InputBounds(
+            sample_id=sample.sample_id,
+            modality="vision",
+            frame_times=[frame.timestamp_sec for frame in synthetic.frame_bundle.frames],
+            video_duration_sec=float(sample.duration_sec),
+        )
+        ocr_frame = synthetic.ocr_frames[0] if synthetic.ocr_frames else synthetic.frame_bundle.frames[0]
+        bounds[(sample.sample_id, "ocr")] = InputBounds(
+            sample_id=sample.sample_id,
+            modality="ocr",
+            time_range=TimeRange(start_sec=ocr_frame.timestamp_sec, end_sec=ocr_frame.timestamp_sec + 0.01),
+            video_duration_sec=float(sample.duration_sec),
+        )
+        for profile in catalog.profiles:
+            adapter = adapter_for_profile(profile, fixture_dir=fixture_root, mode="fixture")
+            if profile.modality == "asr":
+                input_unit = synthetic.audio
+            elif profile.modality == "vision":
+                input_unit = synthetic.frame_bundle
+            else:
+                input_unit = ocr_frame
+            # A unique run ID per sample/profile prevents event and trace IDs
+            # from colliding when one offline report contains many tuples.
+            run_id = f"{report_id[:40]}.{sample.sample_id.lower()}.{profile.profile_id[:60]}"
+            try:
+                response = adapter.run(
+                    run_id=run_id,
+                    sample_id=sample.sample_id,
+                    input_unit=input_unit,
+                )
+                result = RecognitionJobResult(
+                    run_id=run_id,
+                    candidate_id=profile.profile_id,
+                    sample_id=sample.sample_id,
+                    run_index=1,
+                    modality=profile.modality,
+                    terminal_state="completed",
+                    latency_ms=response.latency_ms,
+                    usage=response.usage,
+                    asr=response if profile.modality == "asr" else None,
+                    vision=response if profile.modality == "vision" else None,
+                    ocr=response if profile.modality == "ocr" else None,
+                )
+            except Exception as exc:
+                result = RecognitionJobResult(
+                    run_id=run_id,
+                    candidate_id=profile.profile_id,
+                    sample_id=sample.sample_id,
+                    run_index=1,
+                    modality=profile.modality,
+                    terminal_state="harness_invalid",
+                    error=stable_error(
+                        "fixture_adapter_failed",
+                        error_class=type(exc).__name__,
+                        phase="harness",
+                    ),
+                )
+            results.append(result)
+    return build_quality_report(
+        results,
+        input_bounds=bounds,
+        weak_references=references,
+        expected_sample_ids=[sample.sample_id for sample in catalog.samples],
+        report_id=report_id,
+        revision=catalog.revision,
+        manual_truth_status=catalog.truth_annotation_status,
+    )
+
+
+# Keep the shorter name convenient for CLI and future callers.
+fixture_quality_report = automatic_quality_report
 
 
 def planned_run_terminal_states(catalog: BenchmarkCatalog) -> list[dict[str, object]]:

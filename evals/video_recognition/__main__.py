@@ -10,7 +10,13 @@ from pathlib import Path
 from .probe import run_formal_probe, write_probe_snapshot
 from .redaction import redact_report
 from .pilot_schema import load_pilot_manifest, pilot_summary
-from .runner import dry_run, pilot_dry_run, planned_pilot_units, run_provider_benchmark
+from .runner import (
+    automatic_quality_report,
+    dry_run,
+    pilot_dry_run,
+    planned_pilot_units,
+    run_provider_benchmark,
+)
 from .schema import CatalogValidationError, load_catalog, load_probe_snapshot, catalog_summary
 
 
@@ -37,6 +43,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--pilot-dry-run", action="store_true", help="run the offline pilot planner and fixture checks")
     parser.add_argument("--temp-base-dir", type=Path, default=None)
     parser.add_argument("--provider-preflight", action="store_true", help="show credential presence only")
+    parser.add_argument(
+        "--quality-report",
+        action="store_true",
+        help="build an offline provider-neutral quality report from fixture outputs",
+    )
     parser.add_argument("--run", action="store_true", help="attempt provider benchmark (always gated in this revision)")
     parser.add_argument(
         "--openai-smoke",
@@ -47,6 +58,16 @@ def _parser() -> argparse.ArgumentParser:
         "--confirm-openai-smoke",
         action="store_true",
         help="confirm the four low-volume OpenAI smoke calls",
+    )
+    parser.add_argument(
+        "--openai-annotation-assist",
+        action="store_true",
+        help="pre-annotate the fixed bounded public-video pilot inputs for human review",
+    )
+    parser.add_argument(
+        "--confirm-openai-annotation-assist",
+        action="store_true",
+        help="confirm bounded public-media acquisition and OpenAI annotation calls",
     )
     return parser
 
@@ -59,6 +80,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     pilot_flags = (args.validate_pilot, args.pilot_dry_run)
     legacy_flags = (args.validate_catalog, args.probe, args.dry_run, args.provider_preflight, args.run, args.live)
+    quality_flags = (args.quality_report,)
+    if args.confirm_openai_annotation_assist and not args.openai_annotation_assist:
+        print(
+            "video-recognition annotation assist unavailable: annotation_confirmation_requires_assist_flag",
+            file=sys.stderr,
+        )
+        return 2
     if args.confirm_openai_smoke and not args.openai_smoke:
         print("video-recognition smoke unavailable: smoke_confirmation_requires_smoke_flag", file=sys.stderr)
         return 2
@@ -68,6 +96,61 @@ def main(argv: list[str] | None = None) -> int:
     if args.probe_output is not None and not args.probe:
         print("video-recognition benchmark unavailable: probe_output_requires_probe_flag", file=sys.stderr)
         return 2
+    if args.openai_annotation_assist:
+        # This path is intentionally independent from both formal provider
+        # execution and the planning-only pilot manifest.  It only writes a
+        # human-review candidate report.
+        conflicting_flags = (
+            *pilot_flags,
+            *legacy_flags,
+            args.openai_smoke,
+            args.confirm_openai_smoke,
+            args.catalog is not None,
+            args.pilot_catalog is not None,
+            args.probe_output is not None,
+            args.quality_report,
+        )
+        if any(conflicting_flags):
+            print(
+                "video-recognition annotation assist unavailable: annotation_assist_flags_conflict",
+                file=sys.stderr,
+            )
+            return 2
+        from dotenv import load_dotenv
+
+        from .annotation_assist import (
+            ANNOTATION_FAILURE_EXIT_CODE,
+            AnnotationAssistError,
+            confirmation_from_environment as annotation_confirmation_from_environment,
+            run_annotation_assist,
+            safe_blocked_report as annotation_safe_blocked_report,
+        )
+
+        # The key is loaded into process environment only.  It is never
+        # accepted as a CLI argument, printed, or inherited by media children.
+        load_dotenv(override=False)
+        try:
+            report = run_annotation_assist(
+                confirm=(
+                    args.confirm_openai_annotation_assist
+                    or annotation_confirmation_from_environment()
+                ),
+                temp_base_dir=args.temp_base_dir,
+            )
+        except AnnotationAssistError as exc:
+            print(json.dumps(annotation_safe_blocked_report(exc.error_code), ensure_ascii=False, sort_keys=True))
+            return 2
+        except Exception:
+            print(
+                json.dumps(
+                    {"status": "blocked", "error_code": "annotation_assist_unavailable"},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
+            return 2
+        print(json.dumps(report.safe_summary(), ensure_ascii=False, sort_keys=True))
+        return 0 if report.success else ANNOTATION_FAILURE_EXIT_CODE
     if args.openai_smoke:
         # Dispatch before loading the catalog.  The smoke path is intentionally
         # independent from the formal benchmark and its execution gate.
@@ -83,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
             args.catalog is not None,
             args.pilot_catalog is not None,
             args.probe_output is not None,
+            args.quality_report,
         )
         if any(benchmark_flags):
             print("video-recognition smoke unavailable: openai_smoke_flags_conflict", file=sys.stderr)
@@ -119,13 +203,20 @@ def main(argv: list[str] | None = None) -> int:
     if any(pilot_flags) and any(legacy_flags):
         print("video-recognition pilot unavailable: pilot_flags_conflict", file=sys.stderr)
         return 2
+    if args.quality_report and (any(pilot_flags) or any(legacy_flags)):
+        print("video-recognition quality report unavailable: quality_report_flags_conflict", file=sys.stderr)
+        return 2
     if args.live and not args.probe:
         print("video-recognition benchmark unavailable: live_probe_requires_probe_flag", file=sys.stderr)
         return 2
-    if not any((*legacy_flags, *pilot_flags)):
+    if not any((*legacy_flags, *pilot_flags, *quality_flags)):
         args.dry_run = True
     try:
         catalog = load_catalog(args.catalog)
+        if args.quality_report:
+            report = automatic_quality_report(catalog)
+            print(json.dumps(report.as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+            return 0
         if args.validate_pilot or args.pilot_dry_run:
             pilot = load_pilot_manifest(args.pilot_catalog, catalog=catalog)
             if args.validate_pilot:

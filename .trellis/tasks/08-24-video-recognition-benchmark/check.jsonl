@@ -15,3 +15,6 @@
 {"file": ".trellis/tasks/08-24-video-recognition-benchmark/research/media-plan-partial-proposal-2026-08-26.md", "reason": "Verify proposals are not promoted to frozen truth without audio/frame review and no metadata-only sample is invented."}
 {"file": ".trellis/tasks/08-24-video-recognition-benchmark/research/modality-default-fallback-freeze-proposal-2026-08-28.md", "reason": "Verify selection claims and fallback boundaries"}
 {"file": ".trellis/tasks/08-24-video-recognition-benchmark/research/pilot-query-media-freeze-candidates-2026-08-28.md", "reason": "Verify no unsupported truth or media is frozen"}
+{"file": ".trellis/tasks/08-24-video-recognition-benchmark/research/openai-annotation-assist-summary-2026-09-05.md", "reason": "Verify the concise pre-annotation summary, while the full report remains available for human review; confirm cleanup and unchanged formal pilot gate."}
+{"file": "evals/video_recognition/text_normalization.py", "reason": "Verify traditional-to-simplified conversion, Unicode/whitespace normalization, and non-timestamp mutation."}
+{"file": "tests/test_openai_annotation_assist.py", "reason": "Verify ASR normalization is applied consistently to full text, segments, and words."}

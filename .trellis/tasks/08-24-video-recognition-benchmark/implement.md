@@ -1,10 +1,14 @@
 # 视频识别公开基准选型与产品验收：实施计划
 
+## 2026-10-15 方案变更
+
+Vision/OCR 已移除，ASR 不再测试，直接选定 Fun-ASR 默认、`whisper-1` 备选。下面第 1、3、4 节中未完成的冻结、运行和报告项不再执行，第 5 节按 ASR-only 收口。剩余工作见 `prd.md` 的“2026-10-15 方案变更”。
+
 ## Gate
 
 - [x] 用户批准从全候选内部 benchmark 收缩为公开证据 + 4–6 视频产品验收。
 - [x] OpenAI provider compatibility smoke 通过；凭证只通过环境提供。
-- [ ] 新 pilot manifest、12–18 条查询真值和默认/fallback 选择冻结前，正式 provider execution 保持关闭。
+- [ ] 新 pilot manifest 已部分冻结查询真值和最小媒体输入；正式 provider execution 保持关闭，直到剩余人工确认、public-evidence profile selection 和样本 readiness gates 完成。
 
 ## 1. 迁移规模与公开证据
 
@@ -26,15 +30,17 @@
 
 ## 3. 冻结产品验收集
 
-2026-08-28 已完成候选整理，但尚未完成冻结：候选时间范围仅保留在
-`annotation_note`，query truth 仍为空且 `time_origin` 为 `pending`；媒体仍为
-`pending_manual_review`。BI-01/BI-06 的无音频证据槽位不补写语音关键词，待人工
-回放后再决定是否进入 frozen revision。
+2026-09-05 人工复核已完成首轮部分冻结：12 条 query 中 10 条已有 scoped
+expected video、video-absolute ranges、required key terms 和 evidence notes；
+YT-01 OCR 与 BI-06 speech 仍待最小人工确认。BI-01 的媒体输入已冻结，
+YT-01、YT-03、BI-06 的候选媒体仍为 `pending_manual_review`。manifest 保持
+`planning_only`，这些未完成项以及 public-evidence profile selection、样本内容
+分类和正式 probe readiness 继续关闭执行 gate。
 
-- [ ] 冻结核心 `YT-01`、`YT-03`、`BI-01`、`BI-06`；只有核心覆盖不足时加入 `YT-04`、`BI-04`。
-- [ ] 每个实际入选样本冻结 3 条查询，共 12–18 条；每片至少一条时间段定位查询，总体覆盖 speech、visual/OCR、combined。
-- [ ] 只为查询需要选择有界音频窗口和 3–6 帧 bundle；不再机械要求每片两段音频和两组帧。
-- [ ] 在不含供应商结果的 dry review 中冻结正确视频、可接受时间范围、required modalities/key terms、default/fallback 和 hard gates。
+- [x] 冻结核心 `YT-01`、`YT-03`、`BI-01`、`BI-06`；只有核心覆盖不足时加入 `YT-04`、`BI-04`。
+- [ ] 每个实际入选样本冻结 3 条查询，共 12 条；当前已冻结 10 条，YT-01 OCR 与 BI-06 speech 待确认。
+- [ ] 只为查询需要选择有界音频窗口和 3–6 帧 bundle；当前仅 BI-01 media selection 完成冻结。
+- [ ] 在不含供应商结果的 dry review 中冻结正确视频、可接受时间范围、required modalities/key terms 和 hard-gate 输入；default/fallback 仍待 public evidence 选择。
 
 - [x] 2026-08-28 完成 4 个核心样本的 12 条 partial-candidate query/media 整理；候选仍保持人工复核状态，不改变下方冻结或 provider execution gate。
 
@@ -42,6 +48,9 @@
 
 - [x] 实现并复核独立 OpenAI synthetic smoke，默认关闭且需显式确认，不读取 catalog 或解锁 provider gate。
 - [x] `whisper-1` 与 `gpt-5.6-luna/terra/sol` synthetic smoke 全部成功；只保留脱敏状态、延迟、usage 和清理结果。
+- [x] 新增独立 OpenAI annotation-assist CLI、严格有界的四样本媒体计划、绝对时间戳归一化、视觉 OCR assist 标识、脱敏审核报告和成功/失败清理测试；它不修改 pilot truth 或正式 gate。
+- [x] ASR 候选在 schema/时间戳校验后统一做 Unicode/空白与简繁归一化，覆盖全文、segment 和 word 文本；时间戳保持不变，OpenCC 缺失时 fail-closed。
+- [x] 2026-09-05 实际运行 annotation assist：11 条记录全部完成（6 个 ASR 窗口、5 组视觉/OCR-assist 帧），报告已写入 `research/openai-annotation-assist-2026-09-05.md`，临时媒体已清理；结果仍待用户人工审核，未经审核不得回写 `pilot_catalog.yaml`。
 - [ ] 对每种模态只运行 default；通过 hard gates 即停止。
 - [ ] 只有 default 未通过或不可用时才运行冻结 fallback；重跑必须符合预先失败/不稳定规则。
 - [ ] 生成产品质量、时间定位、协议、延迟、用量、费用和失败摘要；不生成通用模型排名。
@@ -56,14 +65,14 @@
 ## Validation
 
 - Trellis context validation。
-- [x] Pilot manifest validation and offline pilot dry-run report zero external calls while preserving the closed public-evidence/truth/media/classification gates.
+- [x] Pilot manifest validation and offline pilot dry-run report zero external calls while preserving the closed truth/media/public-evidence/classification/readiness gates during partial freeze.
 - Harness unit tests：catalog/schema/planning/scoring/cleanup/redaction/default→fallback gate。
 - Synthetic smoke 默认关闭测试和 fake transport 测试。
+- [x] Annotation assist 的 dedicated confirmation、CLI 隔离、固定 URL/窗口、fake transport、绝对时间戳、内容脱敏、媒体子进程 secret 隔离与清理测试。
+- [x] 真实运行后脱敏扫描通过；`--validate-pilot` 仍报告 `execution_gate=closed`、`external_calls=0`、`planned_default_units=0`。
 - [x] Pilot dry-run：只计划入选样本/default，不产生外部调用。
 - 正式结果完整性：每个实际计划单元有终态，未触发 fallback 没有调用记录。
 - 仓库 secret/content sentinel 扫描与 `git diff --check`。
-
-Independent review validation: 78 passed; pilot dry-run `external_calls=0`.
 
 ## Rollback
 

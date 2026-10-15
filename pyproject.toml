@@ -22,6 +22,7 @@ dependencies = [
     "fastapi==0.141.1",
     "uvicorn==0.52.1",
     "httpx==0.28.1",
+    "opencc-python-reimplemented==0.1.7",
 ]
 
 [project.optional-dependencies]

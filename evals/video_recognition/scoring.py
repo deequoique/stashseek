@@ -138,11 +138,30 @@ def score_query(
     text = " ".join(hit.text for hit in correct_top_hits)
     terms = keyword_recall(text, query.required_key_terms)
     required = set(query.required_modalities)
-    modality_hit = any(
-        required <= set(hit.modalities)
-        and temporal_hit(hit.time_range, query.acceptable_time_ranges.get(hit.sample_id, []))
-        for hit in correct_top_hits
-    )
+    if query.kind == "combined" and query.annotation_status == "frozen":
+        # A combined pilot answer is eligible only when temporally valid
+        # evidence covers both required modalities.  ASR and Vision may be
+        # represented by separate ranked hits, but one modality cannot satisfy
+        # the combined hard gate by itself.
+        valid_hits = [
+            hit
+            for hit in correct_top_hits
+            if temporal_hit(hit.time_range, query.acceptable_time_ranges.get(hit.sample_id, []))
+        ]
+        asr_hits = [hit for hit in valid_hits if "asr" in hit.modalities]
+        vision_hits = [hit for hit in valid_hits if "vision" in hit.modalities]
+        modality_hit = any(
+            max(asr.time_range.start_sec, vision.time_range.start_sec)
+            < min(asr.time_range.end_sec, vision.time_range.end_sec)
+            for asr in asr_hits
+            for vision in vision_hits
+        )
+    else:
+        modality_hit = any(
+            required <= set(hit.modalities)
+            and temporal_hit(hit.time_range, query.acceptable_time_ranges.get(hit.sample_id, []))
+            for hit in correct_top_hits
+        )
     return QueryScore(
         query_id=query.query_id,
         candidate_id=candidate_id,
@@ -254,11 +273,14 @@ def aggregate_quality(
             "count": float(len(rows)),
             "top3_video_hit_rate": _rate(row.complete and row.top3_video_hit for row in rows),
             "temporal_hit_rate": _rate(row.complete and row.temporal_hit for row in rows),
+            "modality_hit_rate": _rate(row.complete and row.modality_hit for row in rows),
         }
         if subgroup_metrics[subgroup]["top3_video_hit_rate"] < gates.subgroup_hit_rate:
             failed.append(f"{subgroup}.top3_video_hit_rate")
         if subgroup_metrics[subgroup]["temporal_hit_rate"] < gates.subgroup_hit_rate:
             failed.append(f"{subgroup}.temporal_hit_rate")
+        if subgroup == "combined" and subgroup_metrics[subgroup]["modality_hit_rate"] < 1.0:
+            failed.append("combined.modality_hit_rate")
     return QualityGateDecision(candidate_id, not failed, metrics, tuple(dict.fromkeys(failed)), subgroup_metrics)
 
 

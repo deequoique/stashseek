@@ -31,6 +31,8 @@ def test_pilot_manifest_is_separate_planning_scope_and_keeps_regression_pool():
     assert pilot.status == "planning_only"
     assert pilot.selected_sample_ids == ["YT-01", "YT-03", "BI-01", "BI-06"]
     assert len(pilot.queries) == 12
+    assert pilot.truth_annotation_status == "pending_manual"
+    assert pilot.media_input_status == "pending_manual"
     assert {query.sample_scope_ids[0] for query in pilot.queries} == set(pilot.selected_sample_ids)
     assert {query.sample_scope_ids[0] for query in pilot.queries}.issubset(
         {sample.sample_id for sample in catalog.samples}
@@ -72,30 +74,34 @@ def test_pilot_media_is_modality_driven_and_excludes_unselected_regression_sampl
     assert "BI-02" not in media_by_sample
     expected = {
         "YT-01": {
+            "selection_status": "pending_manual_review",
             "audio_windows": [(83, 95)],
             "frame_bundles": [[18, 20, 50]],
-            "ocr_frame_times": [190],
+            "ocr_frame_times": [18, 20],
         },
         "YT-03": {
+            "selection_status": "pending_manual_review",
             "audio_windows": [(347, 354)],
-            "frame_bundles": [],
+            "frame_bundles": [[54, 55, 56], [328, 340, 352]],
             "ocr_frame_times": [],
         },
         "BI-01": {
-            "audio_windows": [],
-            "frame_bundles": [],
-            "ocr_frame_times": [105],
+            "selection_status": "frozen",
+            "audio_windows": [(100, 110)],
+            "frame_bundles": [[100, 102, 103]],
+            "ocr_frame_times": [100, 102, 103],
         },
         "BI-06": {
-            "audio_windows": [],
-            "frame_bundles": [[5, 21, 46, 76], [106, 136, 151]],
+            "selection_status": "pending_manual_review",
+            "audio_windows": [(5, 20)],
+            "frame_bundles": [[5, 6.5, 8]],
             "ocr_frame_times": [],
         },
     }
     for sample_id, modalities in pilot.required_modalities_by_sample().items():
         selection = media_by_sample[sample_id]
         assert set(selection.required_modalities) == modalities
-        assert selection.selection_status == "pending_manual_review"
+        assert selection.selection_status == expected[sample_id]["selection_status"]
         assert [(window.start_sec, window.end_sec) for window in selection.audio_windows] == expected[sample_id][
             "audio_windows"
         ]
@@ -103,12 +109,21 @@ def test_pilot_media_is_modality_driven_and_excludes_unselected_regression_sampl
         assert selection.ocr_frame_times == expected[sample_id]["ocr_frame_times"]
 
 
-def test_pilot_candidate_queries_keep_truth_pending_and_ranges_out_of_truth_fields():
+def test_pilot_queries_keep_supported_truth_frozen_and_unsupported_slots_pending():
     pilot = load_pilot_manifest()
-    assert all(query.annotation_status == "pending_manual" for query in pilot.queries)
-    assert all(query.time_origin == "pending" for query in pilot.queries)
-    assert all(query.expected_video_ids == [] for query in pilot.queries)
-    assert all(query.acceptable_time_ranges == {} for query in pilot.queries)
+    pending_query_ids = {"pilot-ocr-01", "pilot-speech-04"}
+    assert {query.query_id for query in pilot.queries if query.annotation_status == "pending_manual"} == pending_query_ids
+    for query in pilot.queries:
+        if query.query_id in pending_query_ids:
+            assert query.time_origin == "pending"
+            assert query.expected_video_ids == []
+            assert query.acceptable_time_ranges == {}
+        else:
+            assert query.annotation_status == "frozen"
+            assert query.time_origin == "video_absolute"
+            assert query.expected_video_ids == query.sample_scope_ids
+            assert query.acceptable_time_ranges
+    assert all(query.required_key_terms for query in pilot.queries)
     assert all(query.annotation_note.strip() for query in pilot.queries)
     assert {query.distractor_video_ids[0] for query in pilot.queries if query.sample_scope_ids == ["YT-01"]} == {"BI-01"}
     assert {
@@ -128,7 +143,7 @@ def test_pilot_candidate_queries_keep_truth_pending_and_ranges_out_of_truth_fiel
     } == {("YT-05", "BI-05")}
 
 
-def test_partial_candidates_cannot_open_execution_or_become_frozen_by_themselves():
+def test_partial_truth_and_media_freeze_cannot_open_execution():
     pilot = load_pilot_manifest()
     blockers = pilot_execution_blockers(pilot)
     plan = planned_pilot_units(pilot)
@@ -137,10 +152,11 @@ def test_partial_candidates_cannot_open_execution_or_become_frozen_by_themselves
     assert pilot.truth_annotation_status == "pending_manual"
     assert pilot.media_input_status == "pending_manual"
     assert pilot.public_evidence_status == "pending"
-    assert all(query.annotation_status == "pending_manual" for query in pilot.queries)
-    assert all(query.time_origin == "pending" for query in pilot.queries)
-    assert all(query.expected_video_ids == [] for query in pilot.queries)
-    assert all(query.acceptable_time_ranges == {} for query in pilot.queries)
+    assert {query.query_id for query in pilot.queries if query.annotation_status == "pending_manual"} == {
+        "pilot-ocr-01",
+        "pilot-speech-04",
+    }
+    assert {selection.sample_id for selection in pilot.media_selections if selection.selection_status == "frozen"} == {"BI-01"}
     assert all(selection.selection_status == "pending" for selection in pilot.profile_selections)
     assert all(selection.default_profile_id is None for selection in pilot.profile_selections)
     assert all(selection.fallback_profile_id is None for selection in pilot.profile_selections)
@@ -272,15 +288,33 @@ def test_frozen_truth_and_media_must_fit_the_regression_source_duration():
     query_payload["queries"][0]["acceptable_time_ranges"]["YT-01"] = [
         {"start_sec": duration, "end_sec": duration + 1}
     ]
+    query_payload["media_selections"][0]["audio_windows"] = [
+        {"start_sec": duration, "end_sec": duration + 1}
+    ]
     query_manifest = PilotManifest.model_validate(query_payload)
     assert "pilot_query_time_range_out_of_bounds" in pilot_execution_blockers(query_manifest, catalog)
 
     media_payload = manifest.model_dump(mode="json")
-    media_payload["media_selections"][0]["frame_bundles"] = [
-        [duration - 1, duration, duration + 1]
-    ]
+    media_payload["media_selections"][0]["frame_bundles"].append([duration - 1, duration, duration + 1])
     media_manifest = PilotManifest.model_validate(media_payload)
     assert "pilot_media_selection_out_of_bounds" in pilot_execution_blockers(media_manifest, catalog)
+
+
+def test_frozen_media_requires_frame_and_ocr_evidence_inside_frozen_truth_ranges():
+    payload = _frozen_manifest().model_dump(mode="json")
+    payload["media_selections"][0]["frame_bundles"] = [[10, 11, 12]]
+    with pytest.raises(ValidationError, match="complete frame bundle"):
+        PilotManifest.model_validate(payload)
+
+    payload = _frozen_manifest().model_dump(mode="json")
+    payload["media_selections"][0]["ocr_frame_times"] = [10]
+    with pytest.raises(ValidationError, match="OCR frame"):
+        PilotManifest.model_validate(payload)
+
+    payload = _frozen_manifest().model_dump(mode="json")
+    payload["media_selections"][0]["audio_windows"] = [{"start_sec": 3, "end_sec": 4}]
+    with pytest.raises(ValidationError, match="audio window"):
+        PilotManifest.model_validate(payload)
 
 
 def test_distractors_and_profiles_must_resolve_to_compatible_registry_entries():
@@ -325,10 +359,13 @@ def test_pilot_rejects_noncanonical_regression_catalog_and_probe_references():
         planned_pilot_units(load_pilot_manifest(), catalog=mismatched_catalog)
 
 
-def test_pending_truth_is_allowed_only_in_planning_manifest():
+def test_pending_truth_is_allowed_while_pilot_manifest_remains_planning_only():
     pilot = load_pilot_manifest()
     assert pilot.truth_annotation_status == "pending_manual"
-    assert all(query.annotation_status == "pending_manual" for query in pilot.queries)
+    assert {query.query_id for query in pilot.queries if query.annotation_status == "pending_manual"} == {
+        "pilot-ocr-01",
+        "pilot-speech-04",
+    }
     assert "pilot_query_truth_pending" in pilot_execution_blockers(pilot)
 
 

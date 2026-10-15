@@ -1,5 +1,7 @@
 # ASR / Vision / OCR 默认与 fallback 冻结提案（2026-08-28）
 
+> **2026-10-15 已作废。** 用户移除了 Vision/OCR，并决定不再测试 ASR 模型。ASR 改为直接选定 Fun-ASR（`fun-asr`）默认、`whisper-1` 备选，本提案的 Qwen filetrans 默认不再采用。见父任务 `08-24-intent-aware-video-recognition-routing/prd.md` 的“2026-10-15 方案变更”。
+
 ## 状态与边界
 
 这是研究阶段的 pilot 选择提案，不是生产配置，也不授权任何 provider 调用。正式执行仍须完成 pilot 的人工查询真值、媒体窗口/代表帧冻结和执行 gate。首阶段不以预算作为准入门槛，但仍记录延迟、调用量和估算费用。

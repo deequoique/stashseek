@@ -197,6 +197,80 @@ def test_scoring_cannot_borrow_time_keywords_or_modalities_from_other_hits():
     assert score.keyword_recall == 0
 
 
+def test_frozen_combined_scoring_requires_temporally_valid_asr_and_vision_evidence():
+    query = Query(
+        query_id="combined-02",
+        kind="combined",
+        query="frozen combined query",
+        sample_scope_ids=["YT-01"],
+        expected_video_ids=["YT-01"],
+        acceptable_time_ranges={"YT-01": [TimeRange(start_sec=10, end_sec=20)]},
+        required_modalities=["asr", "vision"],
+        required_key_terms=["needle"],
+        annotation_status="frozen",
+    )
+    asr = RankedHit("YT-01", "asr", TimeRange(start_sec=10, end_sec=20), frozenset({"asr"}), "needle")
+    vision = RankedHit("YT-01", "vision", TimeRange(start_sec=10, end_sec=20), frozenset({"vision"}), "needle")
+    wrong_time_asr = RankedHit("YT-01", "wrong-asr", TimeRange(start_sec=30, end_sec=40), frozenset({"asr"}), "needle")
+    disjoint_asr = RankedHit("YT-01", "early-asr", TimeRange(start_sec=10, end_sec=14), frozenset({"asr"}), "needle")
+    disjoint_vision = RankedHit("YT-01", "late-vision", TimeRange(start_sec=16, end_sec=20), frozenset({"vision"}), "needle")
+
+    asr_only = score_query(query, candidate_id="vision-gpt-5-6-luna", run_id="run-001", hits=[asr])
+    both_modalities = score_query(
+        query,
+        candidate_id="vision-gpt-5-6-luna",
+        run_id="run-002",
+        hits=[asr, vision],
+    )
+    one_modality_in_range = score_query(
+        query,
+        candidate_id="vision-gpt-5-6-luna",
+        run_id="run-003",
+        hits=[wrong_time_asr, vision],
+    )
+    disjoint_modalities = score_query(
+        query,
+        candidate_id="vision-gpt-5-6-luna",
+        run_id="run-004",
+        hits=[disjoint_asr, disjoint_vision],
+    )
+
+    assert not asr_only.modality_hit
+    assert both_modalities.modality_hit
+    assert not one_modality_in_range.modality_hit
+    assert not disjoint_modalities.modality_hit
+
+
+def test_combined_modality_coverage_is_a_hard_gate():
+    catalog = load_catalog()
+    candidate = next(profile.profile_id for profile in catalog.profiles if profile.modality == "vision")
+    row = QueryScore(
+        query_id="combined-01",
+        candidate_id=candidate,
+        run_id="run-001",
+        complete=True,
+        schema_valid=True,
+        top1_video_hit=True,
+        top3_video_hit=True,
+        temporal_hit=True,
+        keyword_recall=1.0,
+        modality_hit=False,
+        subgroup="combined",
+    )
+    kwargs = {
+        "vision_required_recall_value": 1.0,
+        "vision_hallucination_rate": 0.0,
+        "vision_consistency_jaccard_value": 1.0,
+    }
+
+    failed = aggregate_quality(catalog, candidate, [row], **kwargs)
+    passed = aggregate_quality(catalog, candidate, [row.__class__(**{**row.__dict__, "modality_hit": True})], **kwargs)
+
+    assert not failed.eligible
+    assert "combined.modality_hit_rate" in failed.failed_gates
+    assert passed.eligible
+
+
 def test_quality_gate_fails_when_modality_specific_metrics_are_missing():
     catalog = load_catalog()
     candidate = next(profile.profile_id for profile in catalog.profiles if profile.modality == "asr")

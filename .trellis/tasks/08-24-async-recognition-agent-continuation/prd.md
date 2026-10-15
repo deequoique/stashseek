@@ -1,5 +1,13 @@
 # Agent 异步识别与自动续答
 
+## 2026-10-15 方案变更
+
+用户移除了独立的 Vision/OCR 识别。依据见父任务 `08-24-intent-aware-video-recognition-routing/prd.md` 的“2026-10-15 方案变更”。对本任务的影响：
+
+- 需要新识别的异步路由只剩 ASR。
+- vision/ocr 识别路由作废。
+- 画面类问题如何接入多模态 embedding 检索和 `09-09-inspect-media-agent-tool`，在本任务规划时确定。
+
 ## Goal
 
 在现有主 Agent 中实现结构化模态路由、recognition_pending、事件观测、中断和 PendingAnswer 自动续答。

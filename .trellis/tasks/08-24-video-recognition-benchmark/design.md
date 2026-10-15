@@ -1,5 +1,9 @@
 # 视频识别公开基准选型与产品验收：设计
 
+## 2026-10-15 方案变更
+
+Vision/OCR 已移除，ASR 不再测试，直接选定 Fun-ASR 默认、`whisper-1` 备选。下文中关于 Vision/OCR、pilot 产品验收和 fallback 触发的设计只作历史记录。ASR 协议、文本归一化和预标注边界仍然有效。详见 `prd.md` 的“2026-10-15 方案变更”。
+
 ## 状态
 
 本任务已进入 `in_progress`。2026-08-26 经用户确认，从“全候选内部 benchmark”收缩为“公开证据选型 + 小规模产品验收”。原正式 catalog gate 继续关闭，直到新的 pilot manifest 冻结。
@@ -68,6 +72,32 @@
 - OpenAI smoke 已验证 `whisper-1` 与 `gpt-5.6-luna/terra/sol`；结果只证明接口连通性。
 - 默认关闭外部调用，必须同时通过专用 CLI 命令和显式确认开关开启；该开关不能复用或打开 pilot provider gate。
 - Responses 设置 `store=false`；不持久化原始响应、请求媒体或完整识别文本。
+
+## ASR 文本归一化
+
+ASR provider 返回后、写入搜索索引前，统一执行以下顺序：
+
+```text
+provider response
+  -> timestamp/schema validation
+  -> Unicode/whitespace normalization
+  -> traditional-Chinese -> simplified-Chinese conversion
+  -> search indexing / review projection
+```
+
+全文 `text`、segment `text` 和 word `word` 必须使用同一个归一化器；归一化
+不得修改绝对时间戳，也不做翻译或语言推断。视觉/OCR 候选保留其可见文字，
+搜索层再对查询和索引字段采用相同的简繁等价策略。首期使用纯 Python 的
+`opencc-python-reimplemented`，转换器缺失时 fail-closed，避免重新产生简繁
+混杂的索引文本。
+
+## 模型预标注辅助边界
+
+- `--openai-annotation-assist` 是与 synthetic smoke、正式 `--run` 和 pilot planner 相互冲突的独立入口，必须使用专用显式确认。
+- 它只处理四个核心公开视频的硬编码有界窗口：每段不超过 60 秒，音频不超过 25 MB，视觉输入每组 3–6 张代表帧；媒体子进程不继承 OpenAI key。
+- ASR 使用 `whisper-1` 的 segment/word 时间戳并换算为视频绝对时间；视觉使用 `gpt-5.6-luna` 多图、`detail=original`、`store=false`。视觉读取到的文字只标记为 OCR assist，不等同于正式 OCR provider 结果。
+- 供应商响应只在内存中归一化；报告只保留人工审核所需的候选转写、时间、画面描述、屏幕文字、用量和稳定错误类别。临时视频、WAV、帧、base64、URL、stderr、凭证和原始响应不得进入报告或仓库。
+- 模型候选永远不自动改写 `pilot_catalog.yaml`。只有用户人工确认后，才能另行更新 truth/media selection；因此运行预标注不会改变当前正式 execution blockers。
 
 ## 媒体、安全与失败
 

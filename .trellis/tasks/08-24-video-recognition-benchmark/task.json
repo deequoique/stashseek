@@ -18,7 +18,9 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "09-05-low-human-video-evaluation"
+  ],
   "parent": "08-24-intent-aware-video-recognition-routing",
   "relatedFiles": [],
   "notes": "",

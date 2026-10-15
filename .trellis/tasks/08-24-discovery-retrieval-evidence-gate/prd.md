@@ -1,5 +1,13 @@
 # 视频发现检索与多模态证据门
 
+## 2026-10-15 方案变更
+
+用户移除了独立的 Vision/OCR 识别。依据见父任务 `08-24-intent-aware-video-recognition-routing/prd.md` 的“2026-10-15 方案变更”。对本任务的影响：
+
+- 显式画面或屏幕文字问题的证据，不再来自独立视觉/OCR 识别结果。
+- 改为如何使用多模态 embedding（`09-09` 工作流）的证据，在本任务规划时确定。
+- 字幕和 ASR 证据门不变。
+
 ## Goal
 
 实现候选视频检索、partial/complete 覆盖投影、answer eligibility、模态证据校验和可信引用边界。

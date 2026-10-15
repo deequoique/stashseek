@@ -14,3 +14,6 @@
 {"file": ".trellis/tasks/08-24-video-recognition-benchmark/research/media-plan-partial-proposal-2026-08-26.md", "reason": "Use only the observed frame candidates, explicit ASR gaps, and bounded-acquisition blocker when completing the real media plan."}
 {"file": ".trellis/tasks/08-24-video-recognition-benchmark/research/modality-default-fallback-freeze-proposal-2026-08-28.md", "reason": "Pilot default/fallback proposal and trigger contract"}
 {"file": ".trellis/tasks/08-24-video-recognition-benchmark/research/pilot-query-media-freeze-candidates-2026-08-28.md", "reason": "Evidence-bounded query and media candidates with pending blockers"}
+{"file": ".trellis/tasks/08-24-video-recognition-benchmark/research/openai-annotation-assist-summary-2026-09-05.md", "reason": "Use the concise OpenAI pre-annotation summary for follow-up review; the full report remains a human-review artifact and candidates never become frozen truth or formal provider results."}
+{"file": "evals/video_recognition/text_normalization.py", "reason": "ASR full/segment/word text normalization and fail-closed OpenCC dependency contract."}
+{"file": "pyproject.toml", "reason": "Pin the pure-Python OpenCC runtime dependency for Linux/CI reproducibility."}

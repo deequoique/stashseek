@@ -1,5 +1,12 @@
 # 视频识别灰度上线与历史回填
 
+## 2026-10-15 方案变更
+
+用户移除了独立的 Vision/OCR 识别。依据见父任务 `08-24-intent-aware-video-recognition-routing/prd.md` 的“2026-10-15 方案变更”。对本任务的影响：
+
+- 运行依赖和 admission 中的 OCR 部分作废。
+- 需要灰度和 canary 的托管 provider 只剩 Fun-ASR（默认）和 `whisper-1`（备选）。
+
 ## Goal
 
 按租户和平台灰度启用识别，验证运行依赖与 canary，有界回填历史公开 needs_asr，并完成回滚演练。

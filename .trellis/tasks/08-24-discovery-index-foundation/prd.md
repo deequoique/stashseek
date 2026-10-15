@@ -1,5 +1,12 @@
 # 时间段发现索引与字幕质量基础
 
+## 2026-10-15 方案变更
+
+用户移除了独立的 Vision/OCR 识别。依据见父任务 `08-24-intent-aware-video-recognition-routing/prd.md` 的“2026-10-15 方案变更”。对本任务的影响：
+
+- Segment 的模态来源只需覆盖字幕和 ASR，视觉/OCR 来源作废。
+- 媒体向量由 `09-09-media-asset-vector-index` 单独建模。
+
 ## Goal
 
 扩展 Segment 与发现覆盖生命周期，实现字幕质量门、缺口区间、语义切分、索引 revision 和旧数据兼容回填。

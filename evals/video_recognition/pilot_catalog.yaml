@@ -1,8 +1,10 @@
 # Product-acceptance pilot planning manifest.
 #
-# This is deliberately not a frozen benchmark and must not authorize provider
-# calls.  The twelve-sample catalog remains the regression-pool provenance;
-# this file only scopes the first 4-sample planning pass.
+# This manifest contains a partial manual freeze only.  Unsupported query
+# truth and derived media remain pending until the remaining confirmations are
+# recorded.  It remains planning_only and must not authorize provider calls.
+# The twelve-sample catalog remains the regression-pool provenance; this file
+# scopes the first 4-sample pilot.
 revision: pilot-v1
 status: planning_only
 regression_catalog_revision: benchmark-v1
@@ -18,177 +20,187 @@ queries:
     kind: speech
     query: "哪一段讲到计算机视觉用于谷歌地图街景和广告？"
     sample_scope_ids: [YT-01]
-    expected_video_ids: []
-    acceptable_time_ranges: {}
+    expected_video_ids: [YT-01]
+    acceptable_time_ranges:
+      YT-01: [{start_sec: 84, end_sec: 94}]
     required_modalities: [asr]
     required_key_terms: [computer vision, Google Maps Street View, advertising]
     distractor_video_ids: [BI-01]
-    annotation_status: pending_manual
-    annotation_note: "候选证据：公开视频字幕约 88 秒出现相关 cue，建议复核 83–95 秒 ASR 窗口与完整语义；查询措辞、视频绝对范围和关键术语仍待人工确认。"
-    time_origin: pending
+    annotation_status: frozen
+    annotation_note: "人工复核冻结：公开视频字幕 cue 支持 84–94 秒的视频绝对范围；ASR 输入使用 83–95 秒有界窗口。"
+    time_origin: video_absolute
   - query_id: pilot-visual-01
     kind: visual
     query: "讲师坐在显示机器学习应用幻灯片的屏幕旁边是哪段？"
     sample_scope_ids: [YT-01]
-    expected_video_ids: []
-    acceptable_time_ranges: {}
+    expected_video_ids: [YT-01]
+    acceptable_time_ranges:
+      YT-01: [{start_sec: 14, end_sec: 24}]
     required_modalities: [vision]
     required_key_terms: [讲师, 显示器, Applications of Machine Learning]
     distractor_video_ids: [BI-01]
-    annotation_status: pending_manual
-    annotation_note: "候选证据：代表帧 bundle [18, 20, 50] 用于观察讲师和机器学习应用幻灯片；候选画面边界、描述措辞和正确视频仍待人工回放确认。"
-    time_origin: pending
+    annotation_status: frozen
+    annotation_note: "人工观察冻结 query truth：14–24 秒显示讲师与机器学习应用幻灯片；代表帧输入仍待确认，当前仅保留候选 18、20、50 秒。"
+    time_origin: video_absolute
   - query_id: pilot-ocr-01
     kind: ocr
-    query: "哪段字幕提到 AI 和机器学习将额外创造 13 万亿美元？"
+    query: "哪段幻灯片标题显示 Applications of Machine Learning？"
     sample_scope_ids: [YT-01]
     expected_video_ids: []
     acceptable_time_ranges: {}
     required_modalities: [ocr]
-    required_key_terms: [AI and machine learning, 13 trillion US]
+    required_key_terms: [Applications of Machine Learning]
     distractor_video_ids: [BI-01]
     annotation_status: pending_manual
-    annotation_note: "候选证据：190 秒代表帧可见相关字幕 cue，但相邻帧尚未补齐；精确屏幕文字、查询措辞和可接受范围仍待人工核对。"
+    annotation_note: "人工复核否决原 187–194 秒“13 万亿美元”OCR 候选，因为该区间没有屏幕文字；新候选为 14–24 秒幻灯片标题，仍需确认精确标题和 OCR 帧。"
     time_origin: pending
 
   - query_id: pilot-speech-02
     kind: speech
     query: "哪段讲到把 current object 交给 rest node？"
     sample_scope_ids: [YT-03]
-    expected_video_ids: []
-    acceptable_time_ranges: {}
+    expected_video_ids: [YT-03]
+    acceptable_time_ranges:
+      YT-03: [{start_sec: 347, end_sec: 354}]
     required_modalities: [asr]
     required_key_terms: [current object, rest node]
     distractor_video_ids: [BI-02, BI-03]
-    annotation_status: pending_manual
-    annotation_note: "候选证据：公开视频字幕约 350 秒出现 current object / rest node cue，建议复核 347–354 秒 ASR 窗口；完整语义和视频绝对范围仍待人工确认。"
-    time_origin: pending
+    annotation_status: frozen
+    annotation_note: "人工复核冻结：公开视频字幕 cue 支持 347–354 秒的视频绝对范围；ASR 输入使用同一有界窗口。"
+    time_origin: video_absolute
   - query_id: pilot-visual-02
     kind: visual
     query: "Godot 的 Input Map 设置界面出现在哪段？"
     sample_scope_ids: [YT-03]
-    expected_video_ids: []
-    acceptable_time_ranges: {}
+    expected_video_ids: [YT-03]
+    acceptable_time_ranges:
+      YT-03: [{start_sec: 52, end_sec: 60}]
     required_modalities: [vision]
     required_key_terms: [Godot, Input Map, UI]
     distractor_video_ids: [BI-02, BI-03]
-    annotation_status: pending_manual
-    annotation_note: "候选证据：约 55.9 秒观察到 Godot Input Map 界面，但当前只有一个同场景锚点；需补充相邻代表帧并人工确认场景边界。"
-    time_origin: pending
+    annotation_status: frozen
+    annotation_note: "人工复核冻结：52–60 秒持续显示 Godot Input Map，代表帧 54、55、56 秒均为同一场景，且无广告、弹窗或切镜。"
+    time_origin: video_absolute
   - query_id: pilot-combined-01
     kind: combined
     query: "画面是代码编辑器，同时讲到 current object 和 rest node 的片段"
     sample_scope_ids: [YT-03]
-    expected_video_ids: []
-    acceptable_time_ranges: {}
+    expected_video_ids: [YT-03]
+    acceptable_time_ranges:
+      YT-03: [{start_sec: 326, end_sec: 354}]
     required_modalities: [asr, vision]
     required_key_terms: [code editor, current object, rest node]
     distractor_video_ids: [BI-02, BI-03]
-    annotation_status: pending_manual
-    annotation_note: "候选证据：330/350 秒画面和 347–354 秒 ASR 窗口分别支持代码场景与术语 cue；缺少完整同场景帧且边界受重复广告影响，仍待人工复核。"
-    time_origin: pending
+    annotation_status: frozen
+    annotation_note: "人工复核冻结 query truth：326–354 秒代码编辑器画面与 current object / rest node 语音同时出现；媒体候选帧 328、340、352 秒是区间内推导值，尚未逐帧人工确认。"
+    time_origin: video_absolute
 
   - query_id: pilot-speech-03
     kind: speech
-    query: "讲到多层节点和编号输出节点的那一段在哪？"
+    query: "哪一段讲到搭建一个能够识别手写数字的神经网络？"
     sample_scope_ids: [BI-01]
-    expected_video_ids: []
-    acceptable_time_ranges: {}
+    expected_video_ids: [BI-01]
+    acceptable_time_ranges:
+      BI-01: [{start_sec: 100, end_sec: 110}]
     required_modalities: [asr]
-    required_key_terms: []
+    required_key_terms: [neural network, recognize handwritten digits]
     distractor_video_ids: [YT-01]
-    annotation_status: pending_manual
-    annotation_note: "候选证据：105 秒附近观察到多层节点与编号输出节点画面，但没有人工听取或平台字幕 cue；不得据视觉证据推断语音关键词，需补有界音频复核。"
-    time_origin: pending
+    annotation_status: frozen
+    annotation_note: "人工复核冻结：100–110 秒听到搭建能够识别手写数字的神经网络；原“多层节点 / 编号输出节点”措辞已弃用。"
+    time_origin: video_absolute
   - query_id: pilot-ocr-02
     kind: ocr
-    query: "多层节点图下方同时出现中英文字幕的是哪段？"
+    query: "哪一段的中英文字幕同时提到能够识别手写数字的神经网络？"
     sample_scope_ids: [BI-01]
-    expected_video_ids: []
-    acceptable_time_ranges: {}
+    expected_video_ids: [BI-01]
+    acceptable_time_ranges:
+      BI-01: [{start_sec: 100, end_sec: 110}]
     required_modalities: [ocr]
-    required_key_terms: []
+    required_key_terms: [识别手写数字, neural network, recognize handwritten digits]
     distractor_video_ids: [YT-01]
-    annotation_status: pending_manual
-    annotation_note: "候选证据：105 秒 OCR 观察确认节点图下方存在双语硬字幕，但精确字幕文字未核对且缺少相邻帧；查询范围和关键词仍待人工复核。"
-    time_origin: pending
+    annotation_status: frozen
+    annotation_note: "人工复核冻结：100–110 秒同一场景有中英文硬字幕；字幕文字分别包含“能够识别手写数字的神经网络”和对应英文表达，OCR 帧为 100、102、103 秒。"
+    time_origin: video_absolute
   - query_id: pilot-combined-02
     kind: combined
-    query: "先出现像素格数字 3、再出现多层节点图的讲解片段是哪段？"
+    query: "画面出现神经网络结构，同时旁白讲搭建能够识别手写数字的神经网络，是哪一段？"
     sample_scope_ids: [BI-01]
-    expected_video_ids: []
-    acceptable_time_ranges: {}
+    expected_video_ids: [BI-01]
+    acceptable_time_ranges:
+      BI-01: [{start_sec: 100, end_sec: 110}]
     required_modalities: [asr, vision]
-    required_key_terms: [像素网格, 数字 3, 节点, 边]
+    required_key_terms: [neural network, recognize handwritten digits]
     distractor_video_ids: [YT-01]
-    annotation_status: pending_manual
-    annotation_note: "候选证据：30/105/301 秒代表帧支持像素网格、数字和节点图的视觉顺序，但没有音频证据；combined 真值与严格范围仍待人工听取和回放确认。"
-    time_origin: pending
+    annotation_status: frozen
+    annotation_note: "人工复核冻结：100–110 秒神经网络结构画面与上述旁白、双语字幕同场出现；代表帧为 100、102、103 秒。"
+    time_origin: video_absolute
 
   - query_id: pilot-speech-04
     kind: speech
-    query: "讲到加入淡奶油并过筛搅拌的是哪段？"
+    query: "哪段形容蛋糕外皮焦焦的、吃起来像冰淇淋？"
     sample_scope_ids: [BI-06]
     expected_video_ids: []
     acceptable_time_ranges: {}
     required_modalities: [asr]
-    required_key_terms: []
+    required_key_terms: [外皮, 焦焦的, 冰淇淋]
     distractor_video_ids: [YT-05, BI-05]
     annotation_status: pending_manual
-    annotation_note: "候选证据：现有观察只支持加入配料、过筛和搅拌等画面动作，没有音频或字幕 cue；不能据视觉证据写入语音关键词，需补有界音频复核。"
+    annotation_note: "用户记录短句为“外皮有点焦焦的，吃起来像冰淇淋一样”，但只确认它位于 0:05–1:16 的持续旁白中；精确短时间范围仍待确认，不能先冻结 5–20 秒。"
     time_origin: pending
   - query_id: pilot-visual-03
     kind: visual
-    query: "前半段准备容器、铺油纸并加入配料的步骤"
+    query: "用勺子按压并挖取蛋糕的是哪一段？"
     sample_scope_ids: [BI-06]
-    expected_video_ids: []
-    acceptable_time_ranges: {}
+    expected_video_ids: [BI-06]
+    acceptable_time_ranges:
+      BI-06: [{start_sec: 5, end_sec: 8}]
     required_modalities: [vision]
-    required_key_terms: [容器, 油纸, 砂糖, 淡奶油]
+    required_key_terms: [勺子, 按压, 挖取, 蛋糕]
     distractor_video_ids: [YT-05, BI-05]
-    annotation_status: pending_manual
-    annotation_note: "候选证据：前半段代表帧 [5, 21, 46, 76] 支持容器、油纸和配料准备动作；单帧与动作边界仍需最终人工回放确认。"
-    time_origin: pending
+    annotation_status: frozen
+    annotation_note: "人工复核冻结：5–8 秒画面出现用勺子按压并挖取蛋糕的动作；代表帧为 5、6.5、8 秒。"
+    time_origin: video_absolute
   - query_id: pilot-combined-03
     kind: combined
-    query: "后半段从搅拌、烘烤成品到切块的步骤是哪段？"
+    query: "持续旁白时，画面用勺子按压并挖取蛋糕的是哪一段？"
     sample_scope_ids: [BI-06]
-    expected_video_ids: []
-    acceptable_time_ranges: {}
+    expected_video_ids: [BI-06]
+    acceptable_time_ranges:
+      BI-06: [{start_sec: 5, end_sec: 8}]
     required_modalities: [asr, vision]
-    required_key_terms: [搅拌, 烘烤成品, 切块]
+    required_key_terms: [勺子, 按压, 挖取, 蛋糕]
     distractor_video_ids: [YT-05, BI-05]
-    annotation_status: pending_manual
-    annotation_note: "候选证据：后半段代表帧 [106, 136, 151] 支持搅拌、烘烤成品和切块动作，但没有音频证据；combined 真值与范围仍待人工复核。"
-    time_origin: pending
+    annotation_status: frozen
+    annotation_note: "人工复核冻结 query truth：5–8 秒持续有旁白，画面同时出现用勺子按压并挖取蛋糕；只要求连续旁白与动作共现，不声称具体短句与动作逐字同步。"
+    time_origin: video_absolute
 
-# Media is scoped from the query modalities.  These are evidence-bounded
-# candidates only: selection and input status remain pending, and no candidate
-# range or frame is execution truth until the manual review is complete.
+# Media is scoped from the query modalities.  Pending selections may retain
+# candidate times for follow-up review, but candidate values are not execution
+# truth until the whole sample selection is frozen.
 media_selections:
   - sample_id: YT-01
     required_modalities: [asr, vision, ocr]
     selection_status: pending_manual_review
     audio_windows: [{start_sec: 83, end_sec: 95}]
     frame_bundles: [[18, 20, 50]]
-    ocr_frame_times: [190]
+    ocr_frame_times: [18, 20]
   - sample_id: YT-03
     required_modalities: [asr, vision]
     selection_status: pending_manual_review
     audio_windows: [{start_sec: 347, end_sec: 354}]
-    frame_bundles: []
+    frame_bundles: [[54, 55, 56], [328, 340, 352]]
     ocr_frame_times: []
   - sample_id: BI-01
     required_modalities: [asr, vision, ocr]
-    selection_status: pending_manual_review
-    audio_windows: []
-    frame_bundles: []
-    ocr_frame_times: [105]
+    selection_status: frozen
+    audio_windows: [{start_sec: 100, end_sec: 110}]
+    frame_bundles: [[100, 102, 103]]
+    ocr_frame_times: [100, 102, 103]
   - sample_id: BI-06
     required_modalities: [asr, vision]
     selection_status: pending_manual_review
-    audio_windows: []
-    frame_bundles: [[5, 21, 46, 76], [106, 136, 151]]
+    audio_windows: [{start_sec: 5, end_sec: 20}]
+    frame_bundles: [[5, 6.5, 8]]
     ocr_frame_times: []
 
 # The registry contains candidates, but public-evidence selection is explicitly

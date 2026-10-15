@@ -5,10 +5,11 @@ regression-pool contract.  This module deliberately models a separate pilot
 manifest so that shrinking the first product acceptance run cannot silently
 shrink, rewrite, or unlock the twelve-sample regression provenance.
 
-The checked-in pilot is planning-only.  It contains sample/query/media slots
-and profile-selection slots, but it does not claim public-evidence winners or
-gold query truth.  A future frozen pilot revision must fill those slots before
-provider execution can be admitted.
+The checked-in pilot is planning-only.  Its query truth and minimum media
+inputs may be frozen independently, but it does not claim public-evidence
+winners or authorize provider execution.  Public-evidence profile selection
+and the remaining sample-readiness gates must be complete before execution can
+be admitted.
 """
 
 from __future__ import annotations
@@ -297,6 +298,57 @@ class PilotManifest(StrictModel):
         for selection in self.media_selections:
             if set(selection.required_modalities) != expected_modalities[selection.sample_id]:
                 raise ValueError("pilot media modalities must match query modalities for the sample")
+
+        # A media selection is sample-scoped rather than query-scoped.  Once
+        # it is frozen, require every frozen visual/combined query to have a
+        # complete frame bundle inside each accepted truth range, and every
+        # frozen OCR query to have an OCR frame inside each accepted range.
+        # Requiring every range is deliberately conservative when a query has
+        # more than one acceptable range; pending selections are left alone.
+        frozen_queries_by_sample: dict[str, list[PilotQuery]] = {}
+        for query in self.queries:
+            if query.annotation_status == "frozen":
+                frozen_queries_by_sample.setdefault(query.sample_scope_ids[0], []).append(query)
+        for selection in self.media_selections:
+            if selection.selection_status != "frozen":
+                continue
+            sample_id = selection.sample_id
+            for query in frozen_queries_by_sample.get(sample_id, []):
+                truth_ranges = query.acceptable_time_ranges.get(sample_id, [])
+                if query.kind in {"visual", "combined"} and not all(
+                    any(
+                        all(
+                            truth.start_sec <= timestamp <= truth.end_sec
+                            for timestamp in bundle
+                        )
+                        for bundle in selection.frame_bundles
+                    )
+                    for truth in truth_ranges
+                ):
+                    raise ValueError(
+                        "frozen pilot media requires a complete frame bundle inside "
+                        f"every truth range for {query.query_id}"
+                    )
+                if query.kind == "ocr" and not all(
+                    any(truth.start_sec <= timestamp <= truth.end_sec for timestamp in selection.ocr_frame_times)
+                    for truth in truth_ranges
+                ):
+                    raise ValueError(
+                        "frozen pilot media requires an OCR frame inside "
+                        f"every truth range for {query.query_id}"
+                    )
+                if query.kind in {"speech", "combined"} and not all(
+                    any(
+                        window.start_sec <= truth.start_sec
+                        and truth.end_sec <= window.end_sec
+                        for window in selection.audio_windows
+                    )
+                    for truth in truth_ranges
+                ):
+                    raise ValueError(
+                        "frozen pilot media requires an audio window covering "
+                        f"every truth range for {query.query_id}"
+                    )
 
         profile_modalities = [selection.modality for selection in self.profile_selections]
         if set(profile_modalities) != {"asr", "vision", "ocr"}:
