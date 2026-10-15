@@ -1,0 +1,8 @@
+{"file": ".trellis/tasks/10-15-extension-page-qa/research/integration-points.md", "reason": "Integration evidence: _mount_spa, static_dir, auth routes, zip/download facts (section 6)"}
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "Cookie email auth contract and same-origin/CSRF rules for the web target"}
+{"file": ".trellis/spec/backend/deployment-lifecycle.md", "reason": "Deploy script/systemd changes for the web build"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Two runtimes in one codebase"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Extension and web build gates"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend serving tests"}
+{"file": ".trellis/spec/guides/branch-and-delegation-workflow.md", "reason": "dev-branch + Sonnet implement rules, own-files-only commits"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Runtime split across client, server serving, deploy"}

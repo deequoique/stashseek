@@ -1,0 +1,11 @@
+{"file": ".trellis/tasks/10-15-extension-page-qa/research/integration-points.md", "reason": "Integration evidence: capture reuse, chat/SSE contract, answer-pipeline seam, persistence hazards, limits, build targets"}
+{"file": ".trellis/spec/backend/browser-companion-capture.md", "reason": "capture.v1 contract, extension auth/origin rules, save-after-Q&A path"}
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "Conversation stream contract, cookie/CSRF vs Bearer transport isolation"}
+{"file": ".trellis/spec/backend/agent-execution-streaming.md", "reason": "Public stream event lifecycle reused by the page-Q&A route"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "No transcript/cue content in logs or diagnostics"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Safe error codes for new route"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality bar and test expectations"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Side panel React components"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Strict TS for worker commands and chrome typings"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Extension test/lint gates"}
+{"file": ".trellis/spec/guides/branch-and-delegation-workflow.md", "reason": "dev-branch + Sonnet implement rules, own-files-only commits"}
