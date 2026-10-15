@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -27,6 +27,8 @@ from app.api.library_routes import build_library_router
 from app.api.library_schemas import ErrorResponse
 from app.channels.types import UserScope
 from app.ingest.submission import MAX_SAVE_BATCH_SIZE
+from app.page_qa import PAGE_QA_STREAM_PATH_RE
+from app.page_qa.routes import build_page_qa_router
 from app.web.auth import (
     CSRF_COOKIE_NAME,
     SESSION_COOKIE_NAME,
@@ -92,6 +94,7 @@ _SAFE_HTTP_CODES = frozenset(
         "queue_unavailable",
         "streaming_disabled",
         "extension_session_invalid",
+        "rate_limited",
     }
 )
 
@@ -132,6 +135,9 @@ class CapabilitiesResponse(BaseModel):
     archive: bool = True
     summary_generation: bool = False
     chat: bool = True
+    # Instant side-panel Q&A over a caller-supplied transcript is mounted.
+    # (A default factory keeps the generated TypeScript property optional.)
+    page_qa: bool = Field(default_factory=lambda: False)
 
 
 @dataclass(frozen=True)
@@ -159,6 +165,10 @@ class WebApiServices:
     settings: Any | None = None
     include_conversation_routes: bool = True
     extension_sessions: Any | None = None
+    # Instant page Q&A (PAGE_QA_ENABLED).  The default documents the route in
+    # the OpenAPI export; runtime composition passes the configured flag.
+    include_page_qa_routes: bool = True
+    page_qa_service: Any | None = None
 
 
 _SAFE_MESSAGES = {
@@ -211,6 +221,7 @@ _SAFE_MESSAGES = {
     "queue_unavailable": "保存任务暂时无法排队，请稍后重试",
     "streaming_disabled": "流式回答当前未启用，请使用兼容模式重试",
     "extension_session_invalid": "扩展登录已失效，请重新登录",
+    "rate_limited": "提问过于频繁，请稍后重试",
 }
 
 
@@ -218,11 +229,17 @@ class RequestBodyLimitMiddleware:
     """Bound both fixed-length and chunked request bodies before parsing."""
 
     def __init__(
-        self, app: ASGIApp, *, max_bytes: int, capture_max_bytes: int
+        self,
+        app: ASGIApp,
+        *,
+        max_bytes: int,
+        capture_max_bytes: int,
+        page_qa_max_bytes: int | None = None,
     ) -> None:
         self.app = app
         self.max_bytes = max_bytes
         self.capture_max_bytes = capture_max_bytes
+        self.page_qa_max_bytes = page_qa_max_bytes
 
     async def __call__(
         self,
@@ -235,11 +252,16 @@ class RequestBodyLimitMiddleware:
             return
         headers = dict(scope.get("headers", ()))
         path = str(scope.get("path", ""))
-        max_bytes = (
-            self.capture_max_bytes
-            if path == "/api/v1/browser-companion/extension/captures"
-            else self.max_bytes
-        )
+        if path == "/api/v1/browser-companion/extension/captures":
+            max_bytes = self.capture_max_bytes
+        elif (
+            self.page_qa_max_bytes is not None
+            and PAGE_QA_STREAM_PATH_RE.fullmatch(path) is not None
+        ):
+            # The page Q&A body carries the cues, bounded like capture.v1.
+            max_bytes = self.page_qa_max_bytes
+        else:
+            max_bytes = self.max_bytes
         raw_length = headers.get(b"content-length", b"")
         try:
             declared_length = int(raw_length) if raw_length else None
@@ -315,6 +337,7 @@ def create_app(
         docs_url="/api/v1/docs",
         redoc_url=None,
     )
+    page_qa_enabled = bool(services is not None and services.include_page_qa_routes)
     app.add_middleware(
         RequestBodyLimitMiddleware,
         max_bytes=MAX_WEB_REQUEST_BODY_BYTES,
@@ -324,6 +347,17 @@ def create_app(
                 "browser_companion_max_request_bytes",
                 5_500_000,
             )
+        ),
+        page_qa_max_bytes=(
+            int(
+                getattr(
+                    getattr(services, "settings", None),
+                    "page_qa_max_request_bytes",
+                    2_000_000,
+                )
+            )
+            if page_qa_enabled
+            else None
         ),
     )
 
@@ -509,6 +543,7 @@ def create_app(
         return CapabilitiesResponse(
             web_login_channels=public_login_channels,
             save_enabled=save_enabled,
+            page_qa=page_qa_enabled,
         )
 
     if services is not None:
@@ -627,6 +662,17 @@ def create_app(
                     session_factory=services.session_factory,
                     settings=services.settings,
                     session_identity_resolver=services.session_identity_resolver,
+                )
+            )
+
+        if services.include_page_qa_routes:
+            app.include_router(
+                build_page_qa_router(
+                    session_dependency=authenticated_session,
+                    session_factory=services.session_factory,
+                    settings=services.settings,
+                    session_identity_resolver=services.session_identity_resolver,
+                    service=services.page_qa_service,
                 )
             )
 

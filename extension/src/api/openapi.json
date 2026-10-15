@@ -382,6 +382,10 @@
             "title": "Max Save Batch Size",
             "type": "integer"
           },
+          "page_qa": {
+            "title": "Page Qa",
+            "type": "boolean"
+          },
           "save_enabled": {
             "default": true,
             "title": "Save Enabled",
@@ -921,6 +925,10 @@
             "title": "Conversation Id",
             "type": "string"
           },
+          "page_qa": {
+            "title": "Page Qa",
+            "type": "boolean"
+          },
           "preview": {
             "title": "Preview",
             "type": "string"
@@ -1384,6 +1392,10 @@
           "conversation_id": {
             "title": "Conversation Id",
             "type": "string"
+          },
+          "page_qa": {
+            "title": "Page Qa",
+            "type": "boolean"
           },
           "thread_id": {
             "title": "Thread Id",
@@ -1876,6 +1888,98 @@
           "text"
         ],
         "title": "MessageInput",
+        "type": "object"
+      },
+      "PageQaMessageInput": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Message Id",
+            "type": "string"
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageQaPage"
+          },
+          "playback_sec": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playback Sec"
+          },
+          "question": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "question",
+          "page"
+        ],
+        "title": "PageQaMessageInput",
+        "type": "object"
+      },
+      "PageQaPage": {
+        "additionalProperties": false,
+        "description": "The page the user is looking at, exactly as the extension read it.",
+        "properties": {
+          "canonical_url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Canonical Url",
+            "type": "string"
+          },
+          "caption": {
+            "$ref": "#/components/schemas/CaptureCaption"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/CaptureMetadata"
+          },
+          "page_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Url"
+          },
+          "platform": {
+            "enum": [
+              "youtube",
+              "ntu_kaltura"
+            ],
+            "title": "Platform",
+            "type": "string"
+          },
+          "platform_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Platform Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform",
+          "platform_id",
+          "canonical_url",
+          "metadata",
+          "caption"
+        ],
+        "title": "PageQaPage",
         "type": "object"
       },
       "PairingApprovalResponse": {
@@ -3152,12 +3256,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -3261,12 +3371,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -3355,12 +3471,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -3444,12 +3566,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -4394,12 +4522,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -4493,12 +4627,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -4582,6 +4722,118 @@
         "summary": "Consume Token",
         "tags": [
           "conversation"
+        ]
+      }
+    },
+    "/api/v1/page-qa/conversations/{conversation_id}/messages/stream": {
+      "post": {
+        "description": "Answer one question about the page from the supplied transcript.\n\nNothing is ingested: the cues live only in this request and the model\ncontext.  The turn (question, answer, <=180-character cited excerpts)\nis saved to the user's conversation history after a validated answer.",
+        "operationId": "stream_page_question_api_v1_page_qa_conversations__conversation_id__messages_stream_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "pattern": "^page-[0-9a-f]{32}$",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PageQaMessageInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Server-sent public conversation events"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Stream Page Question",
+        "tags": [
+          "page-qa"
         ]
       }
     }

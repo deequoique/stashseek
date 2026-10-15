@@ -217,6 +217,26 @@ completion notification 和维护任务；不要让新的部署监听已经退�
 NTULearn/Kaltura；插件在浏览器本地读取已授权字幕，服务端只收到规范化 cue、
 公开 metadata 和无秘密 canonical reference。
 
+### 页面即时问答（侧边栏）
+
+扩展侧边栏在用户浏览器里读取字幕，随问题一起提交给
+`POST /api/v1/page-qa/conversations/{id}/messages/stream`；服务端把字幕放进
+LLM 上下文直接回答，**不入库、不切块、不做 embedding**，也不调用资料库检索或
+任何 tool。字幕/cue 文本只会出现在这一次 LLM 请求里，不写数据库、对象存储、
+broker 或日志；对话历史只保存问题、回答和不超过 180 字的被引用片段。该路由使用
+扩展 session Bearer（或带 CSRF 的 Web cookie），`capture:write` Bearer 不能调用。
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `PAGE_QA_ENABLED` | `true` | 关闭后不挂载该路由，`/api/v1/capabilities` 的 `page_qa` 为 `false`，侧边栏隐藏问答 |
+| `PAGE_QA_MAX_REQUEST_BYTES` | `2000000` | 该路由 body 上限（默认 64 KiB 的例外）；必须为正且不超过 `BROWSER_COMPANION_MAX_REQUEST_BYTES` |
+| `PAGE_QA_FULL_CONTEXT_TOKENS` | `24000` | 估算 token 不超过该值时整份字幕进上下文 |
+| `PAGE_QA_WINDOW_CONTEXT_TOKENS` | `12000` | 超过上面阈值时，播放位置 ±5 分钟 + BM25 命中段落的上限；必须不超过 `PAGE_QA_FULL_CONTEXT_TOKENS` |
+| `PAGE_QA_RATE_LIMIT` | `30` | 每用户每 10 分钟的提问次数（进程内滑动窗口，多 worker 各自计数）；超出返回 429 `rate_limited` |
+
+token 估算刻意偏保守（CJK 字符 ×1.0，其他空白分词 ×1.4，每段另加 6），因为生产模型的
+上下文窗口未经验证；请把两个阈值设在模型真实窗口之内。
+
 ## Channel Gateway 与 LangBot
 
 Gateway 是可选的 out-of-process bridge，必须绑定 loopback。根 `.env` 只放

@@ -139,25 +139,13 @@ class BrowserCaptureRequest(CaptureModel):
 
     @model_validator(mode="after")
     def validate_platform_reference(self) -> "BrowserCaptureRequest":
-        canonicalize_reference(self.platform, self.platform_id, self.canonical_url)
-        if self.page_url is not None:
-            canonicalize_page_url(self.platform, self.page_url)
-        if self.metadata.cover_url is not None:
-            parts = urlsplit(self.metadata.cover_url)
-            allowed = (
-                _YOUTUBE_COVER_HOSTS
-                if self.platform == "youtube"
-                else frozenset({"ntulearnvideo.ntu.edu.sg"})
-            )
-            if (
-                parts.scheme != "https"
-                or (parts.hostname or "").lower() not in allowed
-                or parts.username
-                or parts.password
-                or parts.query
-                or parts.fragment
-            ):
-                raise ValueError("cover URL must be a secret-free platform asset")
+        validate_media_reference(
+            self.platform,
+            self.platform_id,
+            self.canonical_url,
+            self.page_url,
+            self.metadata.cover_url,
+        )
         return self
 
 
@@ -198,6 +186,40 @@ def canonicalize_page_url(platform: Platform, url: str) -> str:
     if host not in allowed:
         raise CaptureContractError()
     return urlunsplit(("https", host, parts.path or "/", "", ""))
+
+
+def validate_media_reference(
+    platform: Platform,
+    platform_id: str,
+    canonical_url: str,
+    page_url: str | None,
+    cover_url: str | None,
+) -> None:
+    """Validate one media identity: IDs, hosts, page URL and a secret-free cover.
+
+    Shared by capture.v1 submissions and instant page Q&A so both accept
+    exactly the same platform references.
+    """
+
+    canonicalize_reference(platform, platform_id, canonical_url)
+    if page_url is not None:
+        canonicalize_page_url(platform, page_url)
+    if cover_url is not None:
+        parts = urlsplit(cover_url)
+        allowed = (
+            _YOUTUBE_COVER_HOSTS
+            if platform == "youtube"
+            else frozenset({"ntulearnvideo.ntu.edu.sg"})
+        )
+        if (
+            parts.scheme != "https"
+            or (parts.hostname or "").lower() not in allowed
+            or parts.username
+            or parts.password
+            or parts.query
+            or parts.fragment
+        ):
+            raise ValueError("cover URL must be a secret-free platform asset")
 
 
 def normalized_cues(caption: CaptureCaption) -> list[Cue]:

@@ -510,6 +510,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/page-qa/conversations/{conversation_id}/messages/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stream Page Question
+         * @description Answer one question about the page from the supplied transcript.
+         *
+         *     Nothing is ingested: the cues live only in this request and the model
+         *     context.  The turn (question, answer, <=180-character cited excerpts)
+         *     is saved to the user's conversation history after a validated answer.
+         */
+        post: operations["stream_page_question_api_v1_page_qa_conversations__conversation_id__messages_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -650,6 +674,8 @@ export interface components {
              * @default 10
              */
             max_save_batch_size: number;
+            /** Page Qa */
+            page_qa?: boolean;
             /**
              * Save Enabled
              * @default true
@@ -825,6 +851,8 @@ export interface components {
         ConversationHistoryItemResponse: {
             /** Conversation Id */
             conversation_id: string;
+            /** Page Qa */
+            page_qa?: boolean;
             /** Preview */
             preview: string;
             /** Thread Id */
@@ -970,6 +998,8 @@ export interface components {
         ConversationTurnsResponse: {
             /** Conversation Id */
             conversation_id: string;
+            /** Page Qa */
+            page_qa?: boolean;
             /** Thread Id */
             thread_id: string;
             /** Turns */
@@ -1125,6 +1155,35 @@ export interface components {
             message_id: string;
             /** Text */
             text: string;
+        };
+        /** PageQaMessageInput */
+        PageQaMessageInput: {
+            /** Message Id */
+            message_id: string;
+            page: components["schemas"]["PageQaPage"];
+            /** Playback Sec */
+            playback_sec?: number | null;
+            /** Question */
+            question: string;
+        };
+        /**
+         * PageQaPage
+         * @description The page the user is looking at, exactly as the extension read it.
+         */
+        PageQaPage: {
+            /** Canonical Url */
+            canonical_url: string;
+            caption: components["schemas"]["CaptureCaption"];
+            metadata: components["schemas"]["CaptureMetadata"];
+            /** Page Url */
+            page_url?: string | null;
+            /**
+             * Platform
+             * @enum {string}
+             */
+            platform: "youtube" | "ntu_kaltura";
+            /** Platform Id */
+            platform_id: string;
         };
         /** PairingApprovalResponse */
         PairingApprovalResponse: {
@@ -1788,8 +1847,8 @@ export interface operations {
     send_message_api_v1_conversations__conversation_id__messages_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 conversation_id: string;
@@ -1861,8 +1920,8 @@ export interface operations {
     send_message_stream_api_v1_conversations__conversation_id__messages_stream_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 conversation_id: string;
@@ -1925,8 +1984,8 @@ export interface operations {
     reset_conversation_api_v1_conversations__conversation_id__reset_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 conversation_id: string;
@@ -1985,8 +2044,8 @@ export interface operations {
     delete_conversation_api_v1_conversations__thread_id__delete: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 thread_id: string;
@@ -2454,8 +2513,8 @@ export interface operations {
     create_token_api_v1_link_tokens_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2525,8 +2584,8 @@ export interface operations {
     consume_token_api_v1_link_tokens_consume_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2575,6 +2634,79 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    stream_page_question_api_v1_page_qa_conversations__conversation_id__messages_stream_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PageQaMessageInput"];
+            };
+        };
+        responses: {
+            /** @description Server-sent public conversation events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

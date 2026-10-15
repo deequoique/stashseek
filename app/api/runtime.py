@@ -160,6 +160,8 @@ def build_api_app(
         browser_companion=browser_companion,
         browser_capture_submission=browser_capture_submission,
         extension_sessions=ExtensionSessionService(email_auth) if email_auth is not None else None,
+        # Settings test doubles without the flag keep the route unmounted.
+        include_page_qa_routes=bool(getattr(settings, "page_qa_enabled", False)),
     )
     return create_app(
         services=services,

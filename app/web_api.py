@@ -58,6 +58,7 @@ def create_web_api(
             session_factory=session_factory,
             settings=settings,
             trusted_proxy_hosts=getattr(settings, "web_trusted_proxy_hosts", ""),
+            include_page_qa_routes=bool(getattr(settings, "page_qa_enabled", False)),
         ),
         expected_origin=origin,
         cookie_secure=True,

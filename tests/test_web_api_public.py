@@ -38,6 +38,7 @@ def test_public_health_capabilities_and_openapi_are_safe():
         "archive": True,
         "summary_generation": False,
         "chat": True,
+        "page_qa": False,  # no services composed: instant page Q&A is not mounted
     }
 
     assert openapi.status_code == 200
