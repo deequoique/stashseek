@@ -127,6 +127,14 @@ cache.put(token_digest, session, generation=observed_generation)
 - Production composition must forward the configured channel service into the
   canonical browser app; retained conversation routes must not become a
   permanent 503 surface through omitted wiring.
+- CSRF is enforced in the app middleware, not in route signatures.
+  - Conversation and library mutations declare `X-CSRF-Token` as an
+    **optional** route header.
+  - Cookie sessions on unsafe methods still get `403 csrf_invalid` when the
+    header is missing or wrong.
+  - An extension session Bearer, which a `chrome-extension://` page holds and
+    which cannot read the CSRF cookie, needs no header.
+  - A required route-level header turns every Bearer mutation into a 422.
 
 ## Conversation streaming contract
 
@@ -147,6 +155,165 @@ cache.put(token_digest, session, generation=observed_generation)
   SSE record when null. Generated TypeScript therefore treats nullable
   event-specific fields such as `section_id`, `status`, and `reason` as
   optional; runtime lifecycle validation remains mandatory.
+
+- Page Q&A threads have an `external_conversation_id` that starts with `page-`.
+  - They are read-only on the ordinary conversation routes: `messages`,
+    `messages/stream` and `reset` return `409 page_thread_read_only`.
+  - Listing, reading turns and deleting still work, and list/turn responses
+    carry `page_qa: true`.
+
+## Scenario: Instant page Q&A over a caller-supplied transcript
+
+### 1. Scope / Trigger
+
+- Trigger: the extension side panel asks about the video in the active tab
+  without saving it.
+- This is a new route and a new cross-layer request/stream contract, covering
+  the extension, the API, persistence and the model provider. Code lives in
+  `app/page_qa/`.
+
+### 2. Signatures
+
+```text
+POST /api/v1/page-qa/conversations/{conversation_id}/messages/stream   (text/event-stream)
+conversation_id ~ ^page-[0-9a-f]{32}$          # client-generated, one per video per panel session
+PageQaService.stream(*, tenant, conversation_id, payload, request_id) -> AsyncIterator[PageQaTextDelta | PageQaCompleted | PageQaFailed]
+```
+
+### 3. Contracts
+
+**Request** (`PageQaMessageInput`, `extra="forbid"`):
+
+```text
+{ message_id: 1..128 chars,
+  question: non-blank,
+  playback_sec: float >= 0 | null,
+  page: { platform: "youtube" | "ntu_kaltura", platform_id, canonical_url, page_url,
+          metadata: CaptureMetadata, caption: CaptureCaption } }
+```
+
+- The page uses the same reference validation as capture.v1, with no
+  `content_hash`.
+
+**Stream**
+
+- Only the existing public `ConversationStreamEvent` types are used:
+  `started`, `text_delta*`, then either `completed` or `error`.
+- `completed.response` carries:
+  - `text`: the answer plus the standard `来源：` block, with `[S<n>]` markers;
+  - `citations[]`: `{title, excerpt ≤180, url, start_sec}`;
+  - `status`: `ok`, or `not_found` when no valid citation exists;
+  - `thread_id`.
+
+**Model**
+
+- The model writes `[P<n>]` paragraph markers.
+- `PageAnswerGuard` buffers partial markers, drops unknown ones, and maps known
+  ones to `[S<n>]`. At most 8 citations are kept.
+- The final text passes `validate_natural_answer`.
+- One model call is made with no tools: `request_limit=1`,
+  `output_tokens_limit=AGENT_OUTPUT_TOKEN_LIMIT`, with a timeout of
+  `AGENT_TIMEOUT_SECONDS`.
+
+**Context**
+
+- Cues merge into paragraphs of about 30 s (a gap over 4 s also closes one).
+- If the estimate is ≤ `PAGE_QA_FULL_CONTEXT_TOKENS`, every paragraph goes in.
+- Otherwise the context contains:
+  - the paragraphs within ±300 s of `playback_sec`;
+  - the in-process BM25 top 12;
+  - the chapter outline;
+
+  all capped at `PAGE_QA_WINDOW_CONTEXT_TOKENS`.
+- A cross-script question gets one keyword-rewrite call first.
+- Caption-less input is allowed only for YouTube with a title, description or
+  chapters. The answer starts with the fixed no-captions label.
+
+**Persistence** (only after a validated answer)
+
+- One turn through `get_or_create_thread` / `save_completed_turn`:
+  - `user_text` = the question;
+  - `sources` = the citations, each excerpt ≤180 chars;
+  - `answer_status` ∈ `page_grounded | page_no_captions | page_unavailable`.
+- Failure, timeout, disconnect or cancel leaves no thread and no turn.
+- A repeated `message_id` replays the saved turn.
+- Never stored: cues, full paragraphs, prompts, or `playback_sec`.
+
+**Auth**
+
+- Allowed: an extension session Bearer, or a Web cookie (middleware CSRF).
+- The `capture:write` Bearer gets 401.
+
+**Environment keys**
+
+| Key | Default | Rule |
+| --- | --- | --- |
+| `PAGE_QA_ENABLED` | true | when false the route is unmounted and capabilities omit `page_qa` |
+| `PAGE_QA_MAX_REQUEST_BYTES` | 2,000,000 | must be > 0 and ≤ `BROWSER_COMPANION_MAX_REQUEST_BYTES`; the route's exact path is exempt from the 64 KiB default |
+| `PAGE_QA_FULL_CONTEXT_TOKENS` | 24,000 | must be > 0 |
+| `PAGE_QA_WINDOW_CONTEXT_TOKENS` | 12,000 | must be > 0 and ≤ `PAGE_QA_FULL_CONTEXT_TOKENS` |
+| `PAGE_QA_RATE_LIMIT` | 30 | must be > 0; questions per user per 10 min, an in-process sliding window per worker |
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+| --- | --- |
+| body over `PAGE_QA_MAX_REQUEST_BYTES` | 413 before parsing |
+| unknown field, bad id, bad platform/reference, caption-less Kaltura, caption-less YouTube without metadata | 422 |
+| capture Bearer or no session | 401 |
+| `chrome-extension://` Origin not allowed; cookie request with a missing or foreign Origin | 403 |
+| over the rate limit | 429 `rate_limited` with `Retry-After` |
+| flag off | 404 |
+| provider failure, usage limit, or invalid answer | SSE `error` with `answer_unavailable`; nothing persisted |
+| timeout | SSE `error` with `timeout`; nothing persisted |
+| any other exception | SSE `error` with `request_failed`; the log records the exception class only |
+
+### 5. Good / Base / Bad Cases
+
+- **Good:** a 19-minute captioned video, a Chinese question about English
+  content. The answer is in Chinese with `[S<n>]` citations, and the first
+  delta arrives in about 2 s.
+- **Base:** a 5-hour transcript (about 66K estimated tokens) runs in window
+  mode. Asking "刚才…" cites paragraphs within a few minutes of `playback_sec`.
+- **Bad:**
+  - routing page Q&A through `ChannelService` (it forces a library search and
+    persists `model_messages`);
+  - storing or logging cues;
+  - letting the library chat continue a `page-` thread.
+
+### 6. Tests Required
+
+- Transcript and BM25 units: paragraph boundaries, CJK and Latin tokens, the
+  window around playback, the cap, and determinism.
+- Guard: a marker split across chunks, unknown markers, more than 8 markers,
+  and an answer that fails validation.
+- API contract: 413, 422, 401 (capture Bearer), 403 (Origin), 429, 404 (flag
+  off), cookie with CSRF, extension Bearer, and the SSE sequence.
+- Sentinel tests:
+  - A sentinel in the cues appears in no log record (including the
+    provider-error and rewrite-failure paths).
+  - It appears in no persisted column except a ≤180-char cited excerpt.
+  - No `content_item`, `segment`, object-store or broker write happens.
+- Read-only `page-` threads on the conversation routes return 409. Listing,
+  reading and deleting them still work.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+# Packs the transcript into the ordinary chat path: library search is forced,
+# the 16K message cap truncates it, and model_messages persist it.
+await channel.handle_stream(envelope_with(text=question + "\n" + transcript))
+```
+
+#### Correct
+
+```python
+async for event in page_service.stream(tenant=identity.tenant, conversation_id=cid,
+                                       payload=validated, request_id=request_id):
+    ...  # deltas/terminal mapped to public ConversationStreamEvent; turn saved only after validation
+```
 
 ## OpenAPI and verification
 

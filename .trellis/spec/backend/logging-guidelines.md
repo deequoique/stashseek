@@ -92,6 +92,16 @@ process or test framework to install handlers or set `notebook_agent.runtime` to
   Development retrieval logging does not relax the ban for history, prompts, model/action output, vectors, external
   identities or secrets, except that an observed provider HTTP error's own message/model/response body is recorded in
   full for local diagnosis.
+- Page Q&A (`app/page_qa/`) logs only these fields: request ID, platform,
+  context mode (`full`, `window`, `no_captions`, `replay`), paragraph and
+  selected counts, estimated tokens, citation count, `first_delta_ms`,
+  `elapsed_ms`, and closed error codes.
+  - On a failure it adds only the exception class and a valid `http_status`,
+    **in every environment**.
+  - Unlike other development diagnostics, provider messages and bodies are never
+    logged here, because they can echo the transcript in the prompt.
+  - Cue, paragraph, question and answer text never reach a log record.
+  - `retrieval_detail()` is never called from this path.
 - Logging sink failure is non-fatal: preserve stdout when file setup fails, emit the stable
   `file_logging_unavailable` diagnostic with exception class only, and do not change Agent results or reply count.
 

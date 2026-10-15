@@ -44,10 +44,48 @@ BrowserCompanionPairing -> BrowserCompanionGrant -> BrowserCapture -> IngestDisp
 - A retry of a captured item reuses the latest tenant-matching `ready` `BrowserCapture` for that item even though the capture remains linked to the original dispatch attempt. It must not require that original dispatch to remain `running`, and it must never reuse another tenant's capture.
 - Captured transcripts above 512 cues skip per-cue semantic-boundary embedding and use deterministic hard cuts before embedding final searchable chunks. This bounds provider work for multi-hour recordings while preserving the 120-second hard segment boundary.
 - A packaged extension selects exactly one StashSeek Chat API origin through its exact manifest host permission. The production artifact allows only `https://notebookai.deequoique.tech/*`; a local qualification artifact allows only loopback `http://127.0.0.1:8000/*`, while the authenticated approval UI remains on `https://localhost:8443`. Never ship both API origins in one manifest, and audit each build target independently. Loopback HTTP avoids relying on browser exceptions for an untrusted local HTTPS issuer without widening access beyond the machine.
-- The renamed extension retains its manifest signing `key`, exact origin binding,
-  and extension ID. Its capture Bearer remains `capture:write` plus self-revoke;
-  product copy must not claim the popup can read the library or initiate chat.
-- Extension API fetches are bounded to 10 seconds and map timeout/network failures to stable safe popup errors. A missing, nearby, or ambiguous API host permission fails closed before pairing or capture; the popup must never remain indefinitely busy on an unreachable deployment.
+- The renamed extension keeps its manifest signing `key`, exact origin binding,
+  and extension ID.
+- Two credentials stay separate:
+  - The capture Bearer remains `capture:write` plus self-revoke.
+  - Library, chat, and page Q&A use the separate extension **session** Bearer
+    (`/api/v1/extension/auth/*`), never the capture Bearer.
+- Since 0.2.0 the toolbar action opens a `chrome.sidePanel`
+  (`side_panel.default_path = "sidepanel.html"`). There is no
+  `action.default_popup`.
+  - The manifest permissions are exactly `activeTab, scripting, storage,
+    sidePanel`, with `minimum_chrome_version: "114"`.
+  - `audit-package.mjs` asserts four things: the permission set, the side panel
+    path and file, the absence of a popup, and no inline or remote script in
+    `sidepanel.html`.
+  - The worker calls `chrome.sidePanel.setPanelBehavior({openPanelOnActionClick: true})`
+    on install and on startup.
+- Worker commands that pages of the extension may send (a closed union;
+  malformed input returns `invalid_command` or `unknown_command`):
+  - `READ_PAGE {tabId}` returns the `PageCapture` without submitting anything.
+  - `PLAYBACK {tabId}` returns `{playback_sec: number|null}`.
+  - `SEEK {tabId, start_sec}` accepts a finite value from 0 to 31,536,000. It
+    returns `{seeked:true}` or `seek_failed`.
+  - `SAVE_CAPTURE {page}` submits an already-read page through the same capture
+    path and pending idempotency-key reuse as `CAPTURE`.
+- Player control is a self-contained MAIN-world `controlPlayer(seekSec, kind)`:
+  - **YouTube:** `#movie_player.seekTo`, then the `<video>` fallback. A playing
+    ad counts as no video.
+  - **Kaltura:** first probes `allFrames`, then seeks only the frame that holds
+    the player.
+  - The side panel seeks only while the active tab still shows the video a
+    citation belongs to. Otherwise it opens the citation URL in a new tab.
+- The YouTube adapter fills `metadata.description` from
+  `videoDetails.shortDescription` (≤50,000 chars).
+  - It fills `metadata.chapters` from player-bar markers only when
+    `ytInitialData.currentVideoEndpoint` names the same video, because SPA
+    navigation leaves `ytInitialData` stale.
+  - Chapters use `{title, start_sec, end_sec|null}`. Ingest's `chunk()` accepts
+    both this shape and yt-dlp `start_time`/`end_time`.
+- Extension API fetches are bounded to 10 seconds and map timeout or network
+  failures to stable, safe panel errors. A missing, nearby, or ambiguous API
+  host permission fails closed before pairing or capture. The panel must never
+  stay busy indefinitely on an unreachable deployment.
 - Persisted extension pairing/grant state is bound to the selected API origin. Switching between production and local artifacts clears cross-target credentials before any request; legacy state without an origin may be adopted only by the original production target.
 
 ## 4. Validation & Error Matrix
@@ -82,7 +120,19 @@ BrowserCompanionPairing -> BrowserCompanionGrant -> BrowserCapture -> IngestDisp
 - API tests: exact extension CORS, the narrow missing-Origin MV3 status exception, missing-Origin rejection on every extension mutation, preflight methods/headers, capture Bearer vs Web cookie, Web CSRF, protocol-version error, public-only responses, and request ceiling.
 - Submission/worker tests: quota/idempotency, object and broker compensation, available-to-ready, unavailable-to-`needs_asr`, no connector call, no duplicate object put, completion event, and deletion race.
 - Migration checks: model/DDL parity, forward-compatible `ntu_kaltura`, `raw_format` default, downgrade retaining the enum value, and exactly one Alembic head.
-- Extension gates: strict TypeScript, lint, fixture adapter tests, production and local builds, per-target exact permission audits, API-origin/timeout tests, no source maps/secrets, unpacked YouTube and NTULearn/Kaltura smoke.
+- Extension gates:
+  - strict TypeScript, lint, and fixture adapter tests;
+  - production and local builds, each with its own exact permission audit
+    (including `sidePanel`, with no popup);
+  - API-origin and timeout tests;
+  - no source maps or secrets;
+  - an unpacked YouTube and NTULearn/Kaltura smoke test.
+- Player-control tests:
+  - `controlPlayer` survives serialization into a fresh JS context;
+  - Kaltura multi-frame probe and seek target only the player frame;
+  - `SAVE_CAPTURE` reuses the pending idempotency key without re-reading.
+- Chapter test: a capture with `start_sec`/`end_sec` chapters, including a
+  null last end, ingests without `KeyError`.
 
 ## 7. Wrong vs Correct
 
