@@ -28,9 +28,6 @@ data/
 # Web build and package manager
 /node_modules/
 /.pnpm-store/
-web/node_modules/
-web/dist/
-web/coverage/
 extension/node_modules/
 extension/dist/
 output/playwright/

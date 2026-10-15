@@ -208,7 +208,7 @@ const audiences: Array<{ icon: AudienceIconName; title: string; copy: string }> 
   {
     icon: "channels",
     title: "跨平台收集",
-    copy: "如果部署启用了多个聊天入口，绑定后的账号可以共用一份私人资料库，并通过已启用的可信入口完成 Web 登录。",
+    copy: "如果部署启用了多个聊天入口，绑定后的账号可以共用一份私人资料库，并通过插件工作区完成登录。",
   },
 ];
 
@@ -216,7 +216,7 @@ const processSteps = [
   {
     index: "01",
     title: "提交并归档视频来源",
-    copy: "通过已启用的聊天入口或 Web 资料库保存 YouTube 链接，并补充保存理由或预期用途，便于后续识别与筛选。",
+    copy: "通过已启用的聊天入口或插件工作区保存 YouTube 链接，并补充保存理由或预期用途，便于后续识别与筛选。",
     output: "视频来源 + 保存说明",
   },
   {
@@ -261,7 +261,7 @@ export function ShowcasePage() {
   const [heroCoverId, setHeroCoverId] = useState<DemoId | null>(null);
   const [hasRun, setHasRun] = useState(false);
   const [summaryLanguage, setSummaryLanguage] = useState<SummaryLanguage>("zh");
-  const activeDemo = demoScenes.find((scene) => scene.id === activeDemoId) ?? demoScenes[0];
+  const activeDemo = demoScenes.find((scene) => scene.id === activeDemoId) ?? demoScenes[0]!;
   const activeSummary = activeDemo.previewSummary[summaryLanguage];
   const summaryDuration = activeDemo.summaryDurationSeconds[summaryLanguage];
   function selectDemo(id: DemoId) {
@@ -572,7 +572,7 @@ export function ShowcasePage() {
           <p className="showcase-overline">YOUR KNOWLEDGE / YOUR EVIDENCE</p>
           <h2 id="showcase-cta-title">答案与原文，<br />一步之遥</h2>
           <RouteLink className="showcase-button showcase-button--dark" to="/login">进入私人资料库 <ArrowIcon /></RouteLink>
-          <p className="showcase-cta__note">Web 当前负责登录、资料库管理和字幕阅读；带来源问答发生在已启用的聊天或 MCP 入口 · 可用入口以部署配置为准</p>
+          <p className="showcase-cta__note">插件工作区负责登录、资料库管理和字幕阅读；带来源问答发生在已启用的聊天或 MCP 入口 · 可用入口以部署配置为准</p>
         </section>
       </main>
 

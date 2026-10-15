@@ -88,7 +88,7 @@ button { font: inherit; }
 
 .popup-copy { padding: 28px 0 20px; }
 .section-label { margin-bottom: 10px; color: var(--accent-dark); font-size: 10px; font-weight: 850; letter-spacing: 0.13em; }
-h1 { max-width: 11ch; margin: 0; font: 650 34px/0.98 Georgia, "Songti SC", serif; letter-spacing: -0.035em; }
+h1 { max-width: 18ch; margin: 0; font: 650 25px/1.12 Georgia, "Songti SC", serif; letter-spacing: -0.025em; }
 h1 em { display: block; margin-top: 5px; color: var(--green); font-style: normal; }
 
 .status-panel {
@@ -112,6 +112,10 @@ h1 em { display: block; margin-top: 5px; color: var(--green); font-style: normal
 #status { color: #5f574e; font-size: 12.5px; line-height: 1.55; }
 
 .popup-actions { display: grid; gap: 8px; }
+form#login-form { display: grid; gap: 7px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.5); }
+form#login-form label { color: var(--muted); font-size: 11px; font-weight: 750; }
+form#login-form input { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; color: var(--ink); background: var(--paper); font: inherit; }
+form#login-form input:focus { outline: 2px solid rgba(49,94,83,.35); border-color: var(--green); }
 button {
   width: 100%;
   min-height: 46px;
@@ -143,6 +147,9 @@ button.quiet:hover:not(:disabled) { border-color: rgba(187, 75, 47, 0.4); color:
   line-height: 1.55;
 }
 .privacy strong { color: var(--green); font-size: 9.5px; letter-spacing: 0.04em; }
+.library-panel { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.library-panel p { margin: 0 0 6px; }
+.library-panel p:last-child { margin-bottom: 0; }
 
 @keyframes status-pulse { to { transform: scale(0.72); opacity: 0.55; } }
 

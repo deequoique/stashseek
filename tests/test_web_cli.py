@@ -20,7 +20,7 @@ def test_web_server_disables_query_bearing_uvicorn_access_logs(monkeypatch):
     calls = []
     monkeypatch.setattr("sys.argv", ["kb", "web-server"])
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
-    monkeypatch.setattr(runtime, "build_web_app", lambda value: application)
+    monkeypatch.setattr(runtime, "build_api_app", lambda value: application)
     monkeypatch.setattr(
         cli,
         "configure_runtime_logging",

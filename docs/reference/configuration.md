@@ -188,8 +188,8 @@ completion notification 和维护任务；不要让新的部署监听已经退�
 | `SMTP_TIMEOUT_SECONDS` | `10` | `EMAIL_PROVIDER=smtp` 的网络 timeout |
 | `WEB_TRUSTED_PROXY_HOSTS` | 空 | 允许提供 `X-Forwarded-For` 的明确 proxy peer |
 | `WEB_HOST` / `WEB_PORT` | `127.0.0.1` / `8000` | 独立 `web-server` listener |
-| `WEB_SERVE_STATIC` | `true` | 是否从 `WEB_STATIC_DIR` 提供 SPA |
-| `WEB_STATIC_DIR` | `web/dist` | SPA 构建目录 |
+| `WEB_SERVE_STATIC` | `false` | 已弃用；API-only runtime 不提供静态客户端 |
+| `WEB_STATIC_DIR` | 未使用 | 保留旧配置读取兼容性，不由 API runtime 挂载 |
 | `WEB_FORWARDED_ALLOW_IPS` | `127.0.0.1` | uvicorn 可信 forwarded-header 来源；不能是 `*` |
 | `WEB_PUBLISH_BUDGET_SECONDS` | `5` | Web 保存/重试 publish budget |
 | `CHANNEL_LINK_TTL_SECONDS` | `600` | Web compatibility link token 的有效期 |
@@ -202,6 +202,8 @@ completion notification 和维护任务；不要让新的部署监听已经退�
 ## 浏览器伴侣
 
 浏览器伴侣凭据只授予 `capture:write`，不能读取 Web、MCP 或资料库管理接口。
+插件工作区的 bearer session 索引当前按 API 进程保存并有界清理；多 worker 生产部署
+需要粘性路由或共享 session store，否则同一登录可能无法在不同 worker 间复用。
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |

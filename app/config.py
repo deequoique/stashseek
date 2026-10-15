@@ -565,7 +565,8 @@ class Settings:
         default_factory=lambda: _env_bool("WEB_SERVE_STATIC", True)
     )
     web_static_dir: str = field(
-        default_factory=lambda: _env("WEB_STATIC_DIR", "web/dist") or "web/dist"
+        # Retained for config-file compatibility; API-only runtime never reads it.
+        default_factory=lambda: _env("WEB_STATIC_DIR", "extension/dist") or "extension/dist"
     )
     web_publish_budget_seconds: float = field(
         default_factory=lambda: _env_float("WEB_PUBLISH_BUDGET_SECONDS", 5.0)

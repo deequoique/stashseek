@@ -56,7 +56,7 @@ function formatLanguage(code: string | null): string | null {
     ja: "日文",
     ko: "韩文",
   };
-  return names[normalized] ?? names[normalized.split("-")[0]] ?? null;
+  return names[normalized] ?? names[normalized.split("-")[0] ?? ""] ?? null;
 }
 
 function titleDensity(title: string): "standard" | "compact" {

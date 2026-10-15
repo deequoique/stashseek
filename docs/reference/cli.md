@@ -79,7 +79,7 @@ launcher 的 `stop` 只向当前 reservation 记录中的 supervisor 发信号�
 ```
 
 `gateway-server` 必须使用 loopback 和 `CHANNEL_GATEWAY_SECRET`。`web-server`
-读取 `WEB_*` 配置，并由 `WEB_SERVE_STATIC` 决定是否提供 `web/dist`。MCP
+读取 `WEB_*` 配置并只提供 API；`WEB_SERVE_STATIC` 仅为旧配置兼容保留，不会挂载客户端。MCP
 支持的 transport 只有 `stdio` 和 `streamable-http`；stdio 的 stdout 必须
 保持 MCP protocol bytes，诊断写 stderr/private log。
 

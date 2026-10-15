@@ -8,7 +8,7 @@
 
 ```text
 Caddy :443 -> 127.0.0.1:8800
-               |-- / and /api/v1/*: SPA + email-authenticated Web API
+               |-- / and /api/v1/*: 插件客户端 + email-authenticated Web API
                `-- /mcp: Bearer-authenticated Streamable HTTP MCP
 
 Celery worker: ingest,maintenance
@@ -126,7 +126,7 @@ reload Caddy。立即对每个已有 hostname 和 upstream 做 smoke test；如�
 
 以 service account 将授权 repository clone 到 `/opt/notebook-agent/repository`。
 在 `/opt/notebook-agent/releases/<sha>` 创建精确的 detached `main` release，在其
-独立的 `.venv` 中安装 Python 依赖，安装锁定的 Web 依赖，并构建 `web/dist`。
+独立的 `.venv` 中安装 Python 依赖，安装锁定的 Web 依赖，并构建 `extension/dist`。
 
 切换前，确认只有一个 Alembic head。切换 `current` 后，启动
 `notebook-agent-migrate.service`；它必须完成 `upgrade head`、`current` 和

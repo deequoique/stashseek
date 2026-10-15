@@ -58,7 +58,7 @@ describe("same-origin API client", () => {
     );
 
     await expect(
-      requestJson("/api/v1/auth/verify", { method: "POST", body: "{}" }),
+      requestJson("/api/v1/extension/auth/verify", { method: "POST", body: "{}" }),
     ).rejects.toEqual(expect.objectContaining({ status: 401, code: "verification_failed" }));
     expect(onUnauthorized).not.toHaveBeenCalled();
   });
@@ -74,7 +74,7 @@ describe("same-origin API client", () => {
 
     await expect(createTelegramLinkToken()).resolves.toEqual({ token: "ephemeral-link-token" });
 
-    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [path, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
     expect(path).toBe("/api/v1/link-tokens");
     expect(init.method).toBe("POST");
     expect(JSON.parse(String(init.body))).toEqual({ target_channel: "telegram" });
@@ -93,7 +93,7 @@ describe("same-origin API client", () => {
 
     await expect(consumeLinkToken("one-time-token")).resolves.toEqual({ linked: true });
 
-    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [path, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
     expect(path).toBe("/api/v1/link-tokens/consume");
     expect(init.method).toBe("POST");
     expect(JSON.parse(String(init.body))).toEqual({ token: "one-time-token" });
@@ -127,7 +127,7 @@ describe("same-origin API client", () => {
       (event) => events.push(event.type),
     )).resolves.toEqual(response);
     expect(events).toEqual(["started", "activity", "text_delta", "completed"]);
-    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [path, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
     expect(path).toBe("/api/v1/conversations/conversation-1/messages/stream");
     expect(new Headers(init.headers).get("Accept")).toBe("text/event-stream");
     expect(new Headers(init.headers).get("X-CSRF-Token")).toBe("csrf-stream");

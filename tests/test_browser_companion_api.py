@@ -178,6 +178,18 @@ def test_extension_can_revoke_only_its_own_capture_token():
     assert companion.resolved == ["revoked:capture-token"]
 
 
+def test_capture_grant_cannot_read_extension_library():
+    web, companion, _submission = client()
+    response = web.get(
+        "/api/v1/browser-companion/extension/library",
+        headers={"Origin": EXTENSION_ORIGIN, "Authorization": "Bearer capture-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "extension_scope_invalid"
+    assert companion.resolved == []
+
+
 def test_incompatible_capture_protocol_has_an_actionable_safe_error():
     web, _companion, _submission = client()
     incompatible = payload()

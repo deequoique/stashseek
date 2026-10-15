@@ -1278,8 +1278,25 @@ export async function captureKalturaPage(): Promise<CaptureAttempt> {
         if (textRemaining <= 0) return { failure: "fetch" };
         if (timer !== undefined) clearTimeout(timer);
         timer = undefined;
+        const bodyPromise = typeof response.text === "function"
+          ? response.text()
+          : (async () => {
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error("caption_body_missing");
+            const chunks: Uint8Array[] = [];
+            while (true) {
+              const part = await reader.read();
+              if (part.done) break;
+              if (part.value) chunks.push(part.value);
+            }
+            const total = chunks.reduce((n, chunk) => n + chunk.length, 0);
+            const merged = new Uint8Array(total);
+            let offset = 0;
+            for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.length; }
+            return new TextDecoder().decode(merged);
+          })();
         const body = await Promise.race<string>([
-          response.text(),
+          bodyPromise,
           new Promise<string>((_resolve, reject) => {
             timer = setTimeout(() => {
               controller?.abort();

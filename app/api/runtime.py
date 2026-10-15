@@ -1,4 +1,4 @@
-"""Production composition for the same-origin Web API and static SPA."""
+"""Production composition for the extension API and channel runtime."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from datetime import timedelta
 from app.api.app import WebApiServices, create_app
 from app.api.conversation_routes import resolve_browser_session_identity
 from app.api.email_auth_routes import EmailWebAuthAdapter
+from app.api.extension_routes import ExtensionSessionService
 from app.config import Settings, get_settings
 from app.browser_capture_submission import BrowserCaptureSubmissionService
 from app.browser_companion import BrowserCompanionService
@@ -45,7 +46,7 @@ class _LazyChannelService:
             yield event
 
 
-def build_web_app(
+def build_api_app(
     settings: Settings | None = None,
     *,
     session_factory=None,
@@ -55,7 +56,11 @@ def build_web_app(
     channel_service=None,
     mount_static: bool | None = None,
 ):
-    """Wire concrete services while keeping test doubles explicit and local."""
+    """Wire concrete services while keeping test doubles explicit and local.
+
+    The returned ASGI app is API-only. The browser extension is the user-facing
+    client; no React bundle is built or mounted here.
+    """
 
     settings = settings or get_settings()
     if not settings.web_cookie_secure:
@@ -100,7 +105,10 @@ def build_web_app(
         # production still builds the configured provider-backed service here.
         email_auth = email_auth or build_email_auth_service(settings, factory)
         web_auth = EmailWebAuthAdapter(email_auth)
-        expected_origin = getattr(settings, "web_public_origin", None) or ""
+        expected_origin = getattr(settings, "web_public_origin", None) or (
+            tuple(getattr(settings, "browser_companion_allowed_origins", ())) or
+            ("chrome-extension://omogodipchfidpikpeebgmlplpkjnpfm",)
+        )[0]
         public_login_channels = ("email",)
     else:
         # The old channel-approved service remains injectable for existing
@@ -151,11 +159,7 @@ def build_web_app(
         transcript=TranscriptService(factory, store),
         browser_companion=browser_companion,
         browser_capture_submission=browser_capture_submission,
-    )
-    serve_static = (
-        settings.web_serve_static
-        if mount_static is None
-        else mount_static
+        extension_sessions=ExtensionSessionService(email_auth) if email_auth is not None else None,
     )
     return create_app(
         services=services,
@@ -164,5 +168,9 @@ def build_web_app(
         publish_budget_seconds=settings.web_publish_budget_seconds,
         save_enabled=True,
         web_login_channels=public_login_channels,
-        static_dir=settings.web_static_dir if serve_static else None,
+        static_dir=None,
     )
+
+
+# Compatibility for embedders that still import the historical factory name.
+build_web_app = build_api_app

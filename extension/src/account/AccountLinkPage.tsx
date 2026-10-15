@@ -117,7 +117,7 @@ export function AccountLinkPage({
         <p className="eyebrow">账户设置</p>
         <h1 id="account-link-title">绑定 Telegram</h1>
         <p>
-          绑定后，Web 邮箱账户和 Telegram Bot 会共用同一份私人资料库；两个渠道的聊天历史仍然独立保存。
+          绑定后，插件工作区邮箱账户和 Telegram Bot 会共用同一份私人资料库；两个渠道的聊天历史仍然独立保存。
         </p>
       </header>
 
@@ -128,7 +128,7 @@ export function AccountLinkPage({
               <p className="step-number">01</p>
               <span>WEB → TELEGRAM</span>
             </div>
-            <h2 id="account-link-web-title">从 Web 发起绑定</h2>
+            <h2 id="account-link-web-title">从插件工作区发起绑定</h2>
             <p>在这里生成一次性指令，再发送给 Telegram Bot。</p>
           </header>
           <p className="account-link-bot">

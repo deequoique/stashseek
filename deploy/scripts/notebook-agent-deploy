@@ -42,10 +42,6 @@ if [[ ! -d $release_dir ]]; then
   runuser -u notebook-agent -- python3 -m venv "$release_dir/.venv"
   runuser -u notebook-agent -- "$release_dir/.venv/bin/python" -m pip install --quiet --upgrade pip
   runuser -u notebook-agent -- "$release_dir/.venv/bin/python" -m pip install --quiet -e "$release_dir"
-  runuser -u notebook-agent -- /usr/bin/env --chdir="$release_dir/web" \
-    corepack pnpm install --frozen-lockfile
-  runuser -u notebook-agent -- /usr/bin/env --chdir="$release_dir/web" \
-    corepack pnpm build
   chmod 0755 "$release_dir/deploy/scripts/run-production-migrations"
   runuser -u notebook-agent -- touch "$release_dir/.release-built"
 elif [[ ! -f $release_dir/.release-built ]]; then

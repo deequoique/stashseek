@@ -6,13 +6,13 @@
 
 [完成第一次本地运行](tutorials/first-run.md)会带你启动只读 MCP、创建用户与授权，并完成一次可验证的资料库问答。教程只使用成功运行所需的最小配置。
 
-需要保存视频、使用 Web 资料库或接入聊天平台时，完成教程后继续阅读[启用完整资料库](how-to/run-full-library.md)。
+需要保存视频、使用插件工作区或接入聊天平台时，完成教程后继续阅读[启用完整资料库](how-to/run-full-library.md)。
 
 ## 按目标查找
 
 | 你的目标 | 从这里开始 |
 | --- | --- |
-| 浏览、保存和管理视频资料 | [使用 Web 资料库](how-to/use-web-library.md) |
+| 浏览、保存和管理视频资料 | [使用插件工作区](how-to/use-extension-workspace.md) |
 | 连接 Claude、Codex 或其他 MCP 客户端 | [连接 MCP 客户端](how-to/connect-mcp-client.md) |
 | 保存当前浏览器页面中的字幕 | [使用浏览器伴侣](how-to/use-browser-companion.md) |
 | 通过 Telegram 或微信使用资料库 | [接入 LangBot](how-to/connect-langbot.md) |

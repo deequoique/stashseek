@@ -83,7 +83,7 @@ notebook_run .venv/bin/python -m app.cli mcp-grant revoke <grant-id>
 
 ### 从 Web 保存
 
-按[使用 Web 资料库](use-web-library.md)打开“添加视频”，一次最多提交 10 个
+按[使用插件工作区](use-extension-workspace.md)打开“添加视频”，一次最多提交 10 个
 YouTube 或 Bilibili 普通视频链接。提交后先看到 `等待整理`，worker 完成后才会变成
 `可阅读`。服务器不能读取的受限 YouTube 或 NTULearn/Kaltura 页面可以改用
 [浏览器伴侣](use-browser-companion.md)。浏览器伴侣目前不支持 Bilibili；登录后或
@@ -94,7 +94,7 @@ URL-only 的 Bilibili 字幕应保留 `needs_extension` 状态，等待受支持
 
 在拥有 `full` scope 且 mutation readiness 为 ready 的客户端中调用
 `submit_knowledge_urls`。让客户端显示服务端返回的 canonical lifecycle，再用
-`list_saved_items` 或 Web 资料库检查结果。删除操作需要服务端生成并持久化确认标记；
+`list_saved_items` 或 插件工作区检查结果。删除操作需要服务端生成并持久化确认标记；
 不要自行构造确认码或把模型文本当成已完成的删除。
 
 ## 5. 验证完整链路

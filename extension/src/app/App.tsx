@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import {
-  BrowserRouter,
+  HashRouter,
   Navigate,
   Outlet,
   Route,
@@ -191,9 +191,9 @@ export function App() {
   }, []);
   return (
     <QueryClientProvider client={client}>
-      <BrowserRouter>
+      <HashRouter>
         <UnauthorizedBoundary rotateClient={rotateClient} />
-      </BrowserRouter>
+      </HashRouter>
     </QueryClientProvider>
   );
 }

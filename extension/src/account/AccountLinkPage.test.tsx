@@ -29,7 +29,7 @@ describe("Telegram account linking page", () => {
     renderPage({ createToken });
 
     expect(screen.getByRole("heading", { name: "绑定 Telegram" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "从 Web 发起绑定" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "从插件工作区发起绑定" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "从 Telegram 发起绑定" })).toBeInTheDocument();
     expect(screen.queryByText(/微信/)).not.toBeInTheDocument();
     expect(screen.getByText(/共用同一份私人资料库/)).toBeInTheDocument();

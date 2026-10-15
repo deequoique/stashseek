@@ -5,8 +5,6 @@ import type {
   Capabilities,
   ChallengeStatus,
   ConsumeLinkTokenInput,
-  EmailChallengeInput,
-  EmailVerifyInput,
   LinkTokenInput,
   LinkTokenResponse,
   LinkedResponse,
@@ -84,7 +82,14 @@ export async function requestJson<T>(
     const csrf = cookie("__Host-kb_csrf");
     if (csrf) headers.set("X-CSRF-Token", csrf);
   }
-  const response = await fetch(path, {
+  let requestUrl = path;
+  if (!/^https?:\/\//.test(path) && typeof chrome !== "undefined" && chrome.storage?.local && globalThis.location?.protocol === "chrome-extension:") {
+    const state = await chrome.storage.local.get(["apiOrigin", "accessToken"]);
+    const origin = typeof state.apiOrigin === "string" ? state.apiOrigin : "https://notebookai.deequoique.tech";
+    requestUrl = `${origin}${path}`;
+    if (typeof state.accessToken === "string" && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${state.accessToken}`);
+  }
+  const response = await fetch(requestUrl, {
     ...init,
     headers,
     credentials: "same-origin",
@@ -145,30 +150,55 @@ export function exchangeChallenge(
 export function requestEmailChallenge(
   email: string,
 ): Promise<AcceptedResponse> {
-  const input: EmailChallengeInput = { email };
-  return requestJson("/api/v1/auth/challenges", {
-    method: "POST",
-    body: JSON.stringify(input),
+  return requestJson<{ challenge_id: string }>("/api/v1/extension/auth/challenge", { method: "POST", body: JSON.stringify({ email }) }).then(async (r) => {
+    lastExtensionChallenge = r.challenge_id;
+    if (typeof chrome !== "undefined" && chrome.storage?.local) await chrome.storage.local.set({ loginChallengeId: r.challenge_id });
+    return { status: "accepted", challenge_id: r.challenge_id } as AcceptedResponse;
   });
 }
 
-export function verifyEmailChallenge(
+let lastExtensionChallenge: string | null = null;
+
+export async function verifyEmailChallenge(
   email: string,
   code: string,
 ): Promise<SessionInfo> {
-  const input: EmailVerifyInput = { email, code };
-  return requestJson("/api/v1/auth/verify", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+  let challengeId = lastExtensionChallenge;
+  if (!challengeId && typeof chrome !== "undefined" && chrome.storage?.local) {
+    const state = await chrome.storage.local.get(["loginChallengeId"]);
+    challengeId = typeof state.loginChallengeId === "string" ? state.loginChallengeId : null;
+  }
+  if (!challengeId) throw new Error("challenge_missing");
+  const session = await requestJson<{ access_token: string; expires_at: string }>(
+    "/api/v1/extension/auth/verify",
+    { method: "POST", body: JSON.stringify({ challenge_id: challengeId, code }) },
+  );
+  lastExtensionChallenge = null;
+  if (typeof chrome !== "undefined" && chrome.storage?.local && globalThis.location?.protocol === "chrome-extension:") {
+    await chrome.storage.local.set({ accessToken: session.access_token, expiresAt: session.expires_at });
+    await chrome.storage.local.remove(["loginChallengeId"]);
+  }
+  return { authenticated: true as const, login_channel: "email" as const, expires_at: session.expires_at };
 }
 
 export function getSession(): Promise<SessionInfo> {
-  return requestJson("/api/v1/auth/session");
+  return requestJson<{ expires_at?: string }>("/api/v1/extension/auth/session").then((session) => ({
+    authenticated: true as const, login_channel: "email" as const, expires_at: session.expires_at ?? "",
+  }));
 }
 
-export function logout(): Promise<void> {
-  return requestJson("/api/v1/auth/session", { method: "DELETE" });
+export async function logout(): Promise<void> {
+  try {
+    if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage && globalThis.location?.protocol === "chrome-extension:") {
+      await chrome.runtime.sendMessage({ type: "DISCONNECT" });
+    } else {
+      await requestJson("/api/v1/extension/auth/logout", { method: "POST" });
+    }
+  } finally {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      await chrome.storage.local.remove(["accessToken", "captureToken", "expiresAt", "user", "tenant", "deviceId", "pairingId", "pairingVerifier", "loginChallengeId"]);
+    }
+  }
 }
 
 export function createTelegramLinkToken(): Promise<LinkTokenResponse> {
@@ -437,9 +467,15 @@ export async function streamConversationMessage(
   const csrf = cookie("__Host-kb_csrf");
   if (csrf) headers.set("X-CSRF-Token", csrf);
   let response: Response;
+  let streamUrl = `/api/v1/conversations/${encodeURIComponent(conversationId)}/messages/stream`;
+  if (typeof chrome !== "undefined" && chrome.storage?.local) {
+    const state = await chrome.storage.local.get(["apiOrigin", "accessToken"]);
+    streamUrl = `${typeof state.apiOrigin === "string" ? state.apiOrigin : "https://notebookai.deequoique.tech"}${streamUrl}`;
+    if (typeof state.accessToken === "string") headers.set("Authorization", `Bearer ${state.accessToken}`);
+  }
   try {
     response = await fetch(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/messages/stream`,
+      streamUrl,
       {
         method: "POST",
         headers,

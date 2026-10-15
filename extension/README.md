@@ -1,6 +1,6 @@
 # StashSeek Chat 搜藏助手（试点）
 
-这是一个可选安装的 Manifest V3 Chrome/Chromium 插件。安装、配对后，它可以从用户当前打开的 YouTube 或 NTULearn/Kaltura 页面读取字幕并提交到 StashSeek Chat；随后用户可通过当前已启用的对话入口查找对应视频。当前插件的 Bearer 仅有捕获和自助撤销权限，并不直接读取资料库或发起聊天；原有服务器端 YouTube 获取方式保持不变。
+这是项目唯一的用户界面：一个 Manifest V3 Chrome/Chromium 插件。安装后，插件完成邮箱验证码登录、设备配对、YouTube/NTULearn/Kaltura 字幕捕获、资料库读取和后续对话入口；服务端只提供 API 和渠道运行时，不再构建或托管 React Web 页面。
 
 ## 构建与加载
 
@@ -24,7 +24,7 @@ pnpm package:local
 ```
 
 本地构建的 API manifest 只允许 `http://127.0.0.1:8000/*`，生产构建只允许 `https://notebookai.deequoique.tech/*`；两者不会同时出现在同一个产物中。扩展 API 直接走回环 HTTP，避开本地自签名证书；配对批准页面仍由 `https://localhost:8443` 提供，以保留安全 Cookie。切换构建后必须在 `chrome://extensions` 重新加载 unpacked extension。
-配对凭据会绑定到构建选择的 API origin；从生产版切换到本地版时会自动清理生产环境的待配对状态和 token，避免跨环境发送旧凭据。
+配对凭据会绑定到构建选择的 API origin；从生产版切换到本地版时会自动清理生产环境的待配对状态和 token，避免跨环境发送旧凭据。首次连接会在插件内请求邮箱验证码并直接批准设备，不依赖网页批准页。
 
 试点 manifest 使用固定公开 key，扩展 ID 是 `omogodipchfidpikpeebgmlplpkjnpfm`。后端必须精确配置：
 
@@ -33,6 +33,10 @@ BROWSER_COMPANION_ALLOWED_ORIGINS=chrome-extension://omogodipchfidpikpeebgmlplpk
 ```
 
 插件从构建产物的精确 API host permission 解析唯一服务地址。默认生产构建连接 `https://notebookai.deequoique.tech`，本地构建连接 `http://127.0.0.1:8000`；请求有 10 秒超时，不会因服务不可达而无限等待。后端仍必须允许该构建对应的固定扩展 origin。
+
+扩展 bearer session 的短期索引当前驻留在单个 API 进程内，并按过期时间和数量上限
+清理；生产多 worker 部署必须使用粘性路由或后续接入共享 session store，不能让同一
+登录在没有共享状态的 worker 之间随机切换。
 
 NTULearn 的视频播放器可能位于 Kaltura 官方跨域 frame 中，因此 manifest 还包含精确的 `https://cdnapisec.kaltura.com/*` 播放器权限。这个权限只用于在用户点击插件时进入播放器并在浏览器本地读取已授权字幕；播放器的 Cookie、KS、Authorization 和签名资源 URL 都不会进入 StashSeek Chat 请求。
 

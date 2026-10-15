@@ -23,7 +23,7 @@ A bookmark list proves that something was saved, but it cannot answer “what di
 - **Deep learners and students:** find a concept and its context again while reviewing a long course or lecture.
 - **Researchers, product teams, and knowledge workers:** compare ideas across interviews, talks, and case studies while keeping verifiable sources.
 - **Content creators:** relocate arguments, examples, and phrasing in material they have already watched without replaying every video.
-- **Privacy-conscious and self-hosting users:** keep libraries isolated and access them through a familiar Web, MCP, or chat surface.
+- **Privacy-conscious and self-hosting users:** keep libraries isolated and access them through the browser extension, MCP, or chat surface.
 
 The shared need is a low-effort path: save once, ask in natural language through an enabled conversation surface, see the evidence, and return to the original video when context matters.
 
@@ -43,7 +43,7 @@ When a course page cannot be read directly by the server, the optional browser c
 
 ### Ask from a surface you already use
 
-The Web library and MCP are the core entry points. If you already work in Telegram or WeChat, you can add the optional LangBot bridge. All entry points can reach the same private library while keeping the same tenant boundary.
+The browser extension and MCP are the core entry points. If you already work in Telegram or WeChat, you can add the optional LangBot bridge. All entry points can reach the same private library while keeping the same tenant boundary.
 
 ## From saved video to verifiable answer in four steps
 
@@ -51,14 +51,14 @@ StashSeek Chat is not another link list or filing system. It closes a traceable 
 
 [![StashSeek Chat's flow: save a source, ask a question, and receive an evidence-backed answer](docs/assets/readme/product-flow.jpg)](https://notebookai.deequoique.tech/#process)
 
-1. **Save a video source:** save a video link from the Web library or an enabled chat entry point.
+1. **Save a video source:** save a video link from the browser extension or an enabled chat entry point.
 2. **Prepare it asynchronously:** the system extracts titles, chapters, and captions in the background while you continue browsing.
 3. **Chat inside your saved content:** ask in natural language; retrieval stays inside the current user's library and assembles the relevant source context.
 4. **Receive an evidence-backed answer:** the answer includes video titles, quoted excerpts, and jumpable timestamps so you can check the full context in the original video.
 
 The same flow also provides:
 
-- A Web library for saved-item access, transcript views, and retrying failed items when needed.
+- An extension library for saved-item access, transcript views, and retrying failed items when needed.
 - Hybrid PostgreSQL full-text and pgvector semantic retrieval within the current user's space.
 - Server-validated citations with source titles, real URLs, excerpts, and timestamps. When the library does not contain enough evidence, the answer stays bounded instead of filling the gap from model memory.
 - Standard MCP entry points over `stdio` and Streamable HTTP. Each client uses a scoped grant: `read` covers questions and library reads; `full` is required for saving and other mutations.
@@ -74,11 +74,11 @@ A complete answer contains more than a conclusion. It shows how many caption pas
 
 The image above comes from the product page's public preset demo. It does not call a model or upload data; it only demonstrates the path from question to answer to source timestamp. In normal use, the preset source is replaced by content from your own library. The current public product page is presented in Chinese.
 
-### Web library
+### Browser extension library
 
-After login, the Web library is the end-to-end place to save, find, and manage content. New submissions appear in a processing queue first and move into the readable library when ready. You can inspect titles, authors, notes, captions, and source details, then retry, archive, or restore items.
+After login, the browser extension is the end-to-end place to save, find, and manage content. New submissions appear in a processing queue first and move into the readable library when ready. You can inspect titles, authors, notes, captions, and source details, then retry, archive, or restore items.
 
-Web conversations keep answers and evidence together. The server renders source titles, URLs, excerpts, and video timestamps from the current retrieval result so you can move from an answer back to the video.
+Extension conversations keep answers and evidence together. The server renders source titles, URLs, excerpts, and video timestamps from the current retrieval result so you can move from an answer back to the video.
 
 ### MCP
 
@@ -86,7 +86,7 @@ MCP connects desktop agents, automation, and other MCP clients through `stdio` o
 
 ### Browser companion
 
-The browser companion is an optional Chrome/Chromium extension. After pairing and approving it in the Web account, it can read captions from supported YouTube and NTULearn/Kaltura pages and submit normalized captions to StashSeek Chat; you can then ask through a currently enabled conversation surface and return to the matching video. It is not a generic authenticated-site scraper or a media uploader, and it does not send page cookies, playback credentials, or signed caption URLs to the server. Paired devices can be listed and revoked from the Web account.
+The browser extension handles email login and pairing in the extension itself. It can read captions from supported YouTube and NTULearn/Kaltura pages and submit normalized captions to StashSeek Chat; you can then ask through the extension or another enabled conversation surface and return to the matching video. It is not a generic authenticated-site scraper or a media uploader, and it does not send page cookies, playback credentials, or signed caption URLs to the server.
 
 ### Telegram and WeChat
 
@@ -100,7 +100,7 @@ Telegram and WeChat are optional LangBot bridge channels, not prerequisites for 
 | Bilibili | Server-side ingestion for ordinary video URLs, using only captions accessible without persisting an account cookie. Login-only or server-invisible captions cannot be bypassed by the connector. |
 | Browser companion | Currently adapted to YouTube and specific NTULearn/Kaltura pages; it is not support for arbitrary websites or a general audio/video uploader. |
 | Evidence and answers | Citations come only from evidence retrieved from the current user's library during the current run; sources and timestamps are rendered by the server. Insufficient evidence produces a bounded result. |
-| Isolation and channels | Web, MCP, Telegram, and WeChat stay within the user-space boundary; LangBot and the browser companion are optional components. |
+| Isolation and channels | The extension, MCP, Telegram, and WeChat stay within the user-space boundary; LangBot and the browser companion are optional components. |
 | Not shipped as a general feature | ASR is not a generally available ingestion path, and WeChat article ingestion is not implemented. |
 
 StashSeek Chat promises a more useful and verifiable path through sources you already saved. It does not promise access to every platform, automatic viewing of every video, or an answer when there is no caption evidence.
@@ -131,7 +131,7 @@ For a read-only MCP connection to an existing library, choose `read`; it does no
 Continue by goal:
 
 - **First successful run:** [First-run tutorial](docs/tutorials/first-run.md)
-- **Use the Web library or browser companion:** [How-to guides](docs/how-to/README.md) · [Browser companion guide](docs/how-to/use-browser-companion.md)
+- **Use the extension workspace or browser companion:** [How-to guides](docs/how-to/README.md) · [Browser companion guide](docs/how-to/use-browser-companion.md)
 - **Connect MCP, Telegram, or WeChat:** [How-to guides](docs/how-to/README.md)
 - **Deploy, back up, upgrade, or troubleshoot:** [How-to guides](docs/how-to/README.md) · [Operations runbooks](docs/operations/production/README.md)
 - **Look up profiles, configuration, and interfaces:** [Reference](docs/reference/README.md)
@@ -140,6 +140,6 @@ Continue by goal:
 
 ## Project status and license
 
-StashSeek Chat was built for the **EAZO Global Hackathon**. The current repository implements the core Web experience, evidence-first answers, MCP, server-side YouTube/Bilibili connectors, and optional browser-companion and LangBot entry points; each deployment profile still has provider and platform reachability requirements documented in the runbooks.
+StashSeek Chat was built for the **EAZO Global Hackathon**. The current repository implements the core extension experience, evidence-first answers, MCP, server-side YouTube/Bilibili connectors, and optional browser-companion and LangBot entry points; each deployment profile still has provider and platform reachability requirements documented in the runbooks.
 
 The project metadata declares **Proprietary** licensing. This repository is not currently released under a standard open-source license.

@@ -27,9 +27,18 @@
       </section>
 
       <div class="popup-actions">
+        <form id="login-form" hidden>
+          <label for="email">邮箱</label><input id="email" type="email" autocomplete="email" required>
+          <label for="code" hidden id="code-label">验证码</label><input id="code" inputmode="numeric" autocomplete="one-time-code" hidden>
+          <button id="login" type="submit">发送验证码</button>
+        </form>
         <button id="primary" type="button" disabled>请稍候</button>
-        <button id="disconnect" class="quiet" type="button" hidden>断开连接</button>
+        <button id="workspace" class="quiet" type="button">与 Agent 对话</button>
+        <button id="library" class="quiet" type="button">查看我的收藏</button>
+        <button id="disconnect" class="quiet" type="button" hidden>退出登录</button>
       </div>
+
+      <section id="library-panel" class="library-panel" hidden aria-live="polite"></section>
 
       <footer class="privacy">
         <strong>只取必要内容</strong>

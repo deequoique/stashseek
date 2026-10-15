@@ -16,7 +16,7 @@ from app.api.auth_schemas import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "web" / "src" / "api" / "openapi.json"
+OUTPUT = ROOT / "extension" / "src" / "api" / "openapi.json"
 
 
 def rendered_schema() -> str:
@@ -33,6 +33,7 @@ def rendered_schema() -> str:
             email_auth=placeholder,
             browser_companion=placeholder,
             browser_capture_submission=placeholder,
+            extension_sessions=placeholder,
         ),
         expected_origin="https://contract.invalid",
         cookie_secure=True,
@@ -40,10 +41,8 @@ def rendered_schema() -> str:
         web_login_channels=("email",),
     )
     document = app.openapi()
-    # The legacy channel UI remains an explicitly non-production compatibility
-    # path for embedders that still advertise Telegram/WeChat.  Keep its
-    # generated request aliases available without mounting those routes in the
-    # canonical browser document.
+    # Keep compatibility request schemas available for channel integrations
+    # without treating them as the extension workspace's login contract.
     schemas = document["components"]["schemas"]
     for model in (
         ChallengeCreateRequest,
@@ -72,7 +71,7 @@ def main() -> None:
     if args.check:
         actual = OUTPUT.read_text(encoding="utf-8") if OUTPUT.exists() else ""
         if actual != expected:
-            raise SystemExit("web/src/api/openapi.json is stale; regenerate it")
+            raise SystemExit("extension/src/api/openapi.json is stale; regenerate it")
         return
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(expected, encoding="utf-8", newline="\n")

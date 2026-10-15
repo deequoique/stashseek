@@ -10,9 +10,11 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.api.library_schemas import LibraryItemResponse, LibraryPageResponse
 from app.browser_capture import BrowserCaptureRequest
 from app.browser_capture_submission import BrowserCaptureSubmissionError
 from app.browser_companion import BrowserCompanionError
+from app.channels.types import UserScope
 
 
 class BrowserCompanionApiModel(BaseModel):
@@ -50,6 +52,13 @@ class PairingApprovalResponse(BrowserCompanionApiModel):
     pairing_id: str
     status: Literal["approved"] = "approved"
     expires_at: datetime
+
+
+class ExtensionLoginRequest(BrowserCompanionApiModel):
+    """Email proof used by the extension when no Web cookie exists."""
+
+    email: str = Field(min_length=3, max_length=320)
+    code: str = Field(min_length=6, max_length=6)
 
 
 class BrowserDeviceResponse(BrowserCompanionApiModel):
@@ -91,6 +100,8 @@ def build_browser_companion_router(
     scope_dependency: Callable,
     web_origin: str,
     publish_budget_seconds: float,
+    email_auth=None,
+    library=None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/browser-companion", tags=["browser-companion"])
 
@@ -110,7 +121,9 @@ def build_browser_companion_router(
             raise _safe_error(exc.error_code) from None
         return PairingCreateResponse(
             pairing_id=pairing.public_id,
-            approval_url=f"{web_origin}/account/browser-companion?pairing={pairing.public_id}",
+            # Kept for protocol compatibility; approval is now performed by
+            # the extension's email verification flow rather than a Web page.
+            approval_url=f"{web_origin}/api/v1/browser-companion/extension/pairings/{pairing.public_id}:approve",
             expires_at=pairing.expires_at,
         )
 
@@ -154,6 +167,30 @@ def build_browser_companion_router(
             pairing = companion.approve(scope, pairing_id)
         except BrowserCompanionError as exc:
             raise _safe_error(exc.error_code) from None
+        return PairingApprovalResponse(
+            pairing_id=pairing.public_id,
+            expires_at=pairing.expires_at,
+        )
+
+    @router.post(
+        "/extension/pairings/{pairing_id}:approve",
+        response_model=PairingApprovalResponse,
+    )
+    def approve_pairing_from_extension(
+        pairing_id: str, payload: ExtensionLoginRequest
+    ) -> PairingApprovalResponse:
+        """Approve a pairing directly from the extension's email login flow."""
+        if email_auth is None:
+            raise _safe_error("extension_pairing_invalid")
+        try:
+            verified = email_auth.verify(payload.email, payload.code)
+            pairing = companion.approve(
+                UserScope(verified.session.tenant.app_user_id), pairing_id
+            )
+        except BrowserCompanionError as exc:
+            raise _safe_error(exc.error_code) from None
+        except Exception:
+            raise _safe_error("extension_pairing_invalid") from None
         return PairingApprovalResponse(
             pairing_id=pairing.public_id,
             expires_at=pairing.expires_at,
@@ -217,6 +254,33 @@ def build_browser_companion_router(
             companion.revoke_token(credentials.credentials)
         except BrowserCompanionError as exc:
             raise _safe_error(exc.error_code) from None
+
+    def extension_scope(credentials: HTTPAuthorizationCredentials | None) -> UserScope:
+        if credentials is None or credentials.scheme.lower() != "bearer":
+            raise _safe_error("extension_pairing_required")
+        try:
+            return companion.resolve_grant(credentials.credentials)
+        except BrowserCompanionError as exc:
+            raise _safe_error(exc.error_code) from None
+
+    @router.get("/extension/library", response_model=LibraryPageResponse)
+    def extension_library(
+        credentials: BearerDocument,
+        page: int = 1,
+        page_size: int = 20,
+        search: str | None = None,
+    ) -> LibraryPageResponse:
+        # Capture grants are intentionally write-only. Workspace reads use
+        # the extension session bearer through the canonical library routes.
+        del credentials, page, page_size, search
+        raise _safe_error("extension_scope_invalid")
+
+    @router.get("/extension/library/{item_public_id}", response_model=LibraryItemResponse)
+    def extension_library_item(
+        item_public_id: str, credentials: BearerDocument
+    ) -> LibraryItemResponse:
+        del item_public_id, credentials
+        raise _safe_error("extension_scope_invalid")
 
     return router
 

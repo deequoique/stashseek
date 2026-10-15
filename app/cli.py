@@ -125,10 +125,10 @@ def main() -> None:
     if args.command == "web-server":
         import uvicorn
 
-        from app.api.runtime import build_web_app
+        from app.api.runtime import build_api_app
 
         uvicorn.run(
-            build_web_app(settings),
+            build_api_app(settings),
             host=settings.web_host,
             port=settings.web_port,
             proxy_headers=True,
