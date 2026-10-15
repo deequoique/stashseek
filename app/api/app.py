@@ -12,9 +12,10 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
+from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -24,6 +25,7 @@ from app.api.conversation_routes import build_conversation_router
 from app.api.email_auth_routes import build_email_auth_router
 from app.api.library_routes import build_library_router
 from app.api.library_schemas import ErrorResponse
+from app.asr.signing import audio_object_key, verify_audio_signature
 from app.channels.types import UserScope
 from app.ingest.submission import MAX_SAVE_BATCH_SIZE
 from app.web.auth import (
@@ -156,6 +158,10 @@ class WebApiServices:
     session_factory: Callable | None = None
     settings: Any | None = None
     include_conversation_routes: bool = True
+    # Object store that holds temporary ASR audio. Only read by the public
+    # signed-download route, which exists solely when ASR is enabled; when
+    # omitted the route builds a default store on first use.
+    asr_audio_store: Any | None = None
 
 
 _SAFE_MESSAGES = {
@@ -564,10 +570,85 @@ def create_app(
                 )
             )
 
+    if services is not None:
+        # Must stay before the SPA catch-all so the signed path is not shadowed.
+        _register_asr_audio_route(app, services)
+
     if static_dir is not None:
         _mount_spa(app, Path(static_dir))
 
     return app
+
+
+_ASR_AUDIO_CHUNK_BYTES = 64 * 1024
+
+
+def _register_asr_audio_route(app: FastAPI, services: WebApiServices) -> None:
+    """Expose the public, signature-gated download of one temporary ASR audio.
+
+    The route intentionally needs no session or Origin: the ASR provider fetches
+    it directly. The HMAC signature covers only the object name and expiry, and
+    every failure is the same generic 404 so no key or reason is disclosed.
+    """
+
+    settings = services.settings
+    secret = getattr(settings, "asr_audio_url_secret", None)
+    if getattr(settings, "asr_enabled", False) is not True or not secret:
+        return
+    max_ttl_seconds = int(getattr(settings, "asr_audio_url_ttl_seconds", 7200))
+    max_bytes = int(getattr(settings, "asr_max_audio_bytes", 524_288_000))
+    stores: list[Any] = [services.asr_audio_store]
+
+    def audio_store() -> Any:
+        if stores[0] is None:
+            from app.object_store import RawObjectStore
+
+            stores[0] = RawObjectStore()
+        return stores[0]
+
+    @app.api_route(
+        "/api/v1/asr-audio/{name}",
+        methods=["GET", "HEAD"],
+        include_in_schema=False,
+    )
+    def asr_audio(
+        name: str, request: Request, expires: str = "", sig: str = ""
+    ) -> Response:
+        if not verify_audio_signature(
+            name=name,
+            expires=expires,
+            sig=sig,
+            secret=secret,
+            max_ttl_seconds=max_ttl_seconds,
+        ):
+            return _error_response("not_found", 404)
+        try:
+            stream = audio_store().open_stream(
+                audio_object_key(name), max_bytes=max_bytes
+            )
+        except Exception as exc:
+            logger.warning(
+                "asr_audio_unavailable request_id=%s exception_type=%s",
+                getattr(request.state, "request_id", "-"),
+                type(exc).__name__,
+            )
+            return _error_response("not_found", 404)
+        headers = {
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Length": str(stream.content_length),
+        }
+        if request.method == "HEAD":
+            stream.close()
+            return Response(
+                status_code=200, headers=headers, media_type=stream.content_type
+            )
+        return StreamingResponse(
+            stream.iter_chunks(_ASR_AUDIO_CHUNK_BYTES),
+            media_type=stream.content_type,
+            headers=headers,
+            background=BackgroundTask(stream.close),
+        )
 
 
 def _validate_protected_mutation(

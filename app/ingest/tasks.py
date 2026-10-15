@@ -19,6 +19,9 @@ from celery import Celery, Task
 from kombu import Producer, Queue
 from sqlalchemy import and_, delete, func, inspect, or_, select, text
 
+from app.asr.connector import AsrFallbackConnector
+from app.asr.transcriber import AsrTranscriber
+from app.asr.types import ASR_ERROR_CODES, AsrError
 from app.config import Settings, get_settings
 from app.browser_capture import parse_canonical_transcript
 from app.connectors.base import (
@@ -60,6 +63,7 @@ MAX_SEMANTIC_BOUNDARY_CUES = 512
 COMPLETION_QUEUE = "ingest-completion"
 COMPLETION_TASK_NAME = "app.ingest.completion.consume"
 NOTIFICATION_QUEUE = "maintenance"
+ASR_QUEUE = "asr"
 NOTIFICATION_TASK_NAME = "app.ingest.tasks.deliver_ingest_notification_task"
 _COMPLETION_QUEUES = (
     Queue("ingest", durable=True, auto_delete=False),
@@ -67,15 +71,19 @@ _COMPLETION_QUEUES = (
     Queue(COMPLETION_QUEUE, durable=True, auto_delete=False),
 )
 _NOTIFICATION_QUEUE_DECLARATION = _COMPLETION_QUEUES[1]
+# Kept out of ``_COMPLETION_QUEUES`` because that tuple is indexed from the
+# end by the legacy completion publisher.
+_ASR_QUEUE_DECLARATION = Queue(ASR_QUEUE, durable=True, auto_delete=False)
 
 celery_app = Celery(
     "kb",
     broker=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
     backend=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
 )
-celery_app.conf.task_queues = _COMPLETION_QUEUES
+celery_app.conf.task_queues = _COMPLETION_QUEUES + (_ASR_QUEUE_DECLARATION,)
 celery_app.conf.task_routes = {
     "app.ingest.tasks.fetch_text_task": {"queue": "ingest"},
+    "app.ingest.tasks.transcribe_dispatch_task": {"queue": ASR_QUEUE},
     "app.ingest.tasks.purge_expired_items_task": {"queue": "maintenance"},
     "app.ingest.tasks.publish_pending_ingest_completion_events_task": {
         "queue": "maintenance"
@@ -121,7 +129,7 @@ def _completion_diagnostic(
         "notification_enqueue_failed",
         "broker_unavailable",
     }
-    if error_code in safe_error_codes:
+    if error_code in safe_error_codes or error_code in ASR_ERROR_CODES:
         payload["error_code"] = error_code
     for key, value in {
         "claimed": claimed,
@@ -266,7 +274,14 @@ def create_item(url: str, *, user_id: int, why_saved: str | None = None, connect
         return item.id
 
 
-def process_item(item_id: int, *, connector: Any | None = None, embedder: EmbeddingProvider | None = None, object_store: Any | None = None, session_factory=None) -> str:
+# Returned by ``process_item`` (only when ``asr_handoff`` is requested) to tell
+# ``process_dispatch`` that a caption-less public item continues on the ``asr``
+# queue under the same dispatch.  It is never persisted or user visible.
+ASR_PENDING = "asr_pending"
+_ASR_PLATFORMS = frozenset({"youtube", "bilibili"})
+
+
+def process_item(item_id: int, *, connector: Any | None = None, embedder: EmbeddingProvider | None = None, object_store: Any | None = None, session_factory=None, asr_handoff: bool = False) -> str:
     factory = session_factory or get_session_factory()
     with factory() as db:
         item = db.get(ContentItem, item_id)
@@ -344,6 +359,17 @@ def process_item(item_id: int, *, connector: Any | None = None, embedder: Embedd
             db.commit()
             return item.state
         if isinstance(result, NeedsASR):
+            if (
+                asr_handoff
+                and not pre_stored
+                and settings.asr_enabled
+                and item.platform in _ASR_PLATFORMS
+            ):
+                # Keep the visible ``fetching`` state; the dispatch is handed
+                # to the asr worker and the item reaches a terminal state there.
+                item.state = "fetching"
+                db.commit()
+                return ASR_PENDING
             item.state = "needs_asr"
             db.commit()
             return item.state
@@ -365,7 +391,11 @@ def process_item(item_id: int, *, connector: Any | None = None, embedder: Embedd
         if len(preflight_chunks) > settings.ingest_max_segments_per_item:
             raise IngestLimitExceeded()
         if not pre_stored:
-            raw_suffixes = {"json3": "json3", "srt": "srt"}
+            raw_suffixes = {
+                "json3": "json3",
+                "srt": "srt",
+                "capture_v1": "capture.json",
+            }
             suffix = raw_suffixes.get(result.format)
             if suffix is None:
                 raise ValueError("unsupported connector transcript format")
@@ -387,6 +417,7 @@ def process_item(item_id: int, *, connector: Any | None = None, embedder: Embedd
             content_types = {
                 "json3": "application/json",
                 "srt": "application/x-subrip",
+                "capture_v1": "application/json",
             }
             store.put(key, result.raw_body, content_types[result.format])
         db.refresh(item)
@@ -490,12 +521,63 @@ def fetch_text_task(self, dispatch_id: int) -> str:
     )
 
 
-def publish_ingest_dispatch(
+def _asr_processor(item_id: int) -> str:
+    """Run one item whose caption lookup found no track through ASR.
+
+    The platform connector is wrapped so metadata and caption handling stay
+    unchanged and only a ``NeedsASR`` result is transcribed.  The inner
+    connector is built first: that also exports the verified CA before any
+    provider client of the transcriber is constructed.
+    """
+
+    settings = get_settings()
+    if not settings.asr_enabled:
+        # ASR was switched off after the handoff; fall back to today's
+        # behavior (a plain connector run ends in ``needs_asr``).
+        return process_item(item_id)
+    factory = get_session_factory()
+    with factory() as db:
+        item = db.get(ContentItem, item_id)
+        if item is None:
+            raise LookupError(f"content item {item_id} not found")
+        url, platform = item.url, item.platform
+    inner = _connector(url)
+    connector = AsrFallbackConnector(
+        inner,
+        AsrTranscriber(settings=settings, object_store=RawObjectStore()),
+        platform=platform,
+    )
+    return process_item(item_id, connector=connector)
+
+
+@celery_app.task(
+    bind=True,
+    base=IngestTask,
+    autoretry_for=(TransientFetchError,),
+    max_retries=5,
+    retry_backoff=8,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    time_limit=3600,
+    soft_time_limit=3480,
+)
+def transcribe_dispatch_task(self, dispatch_id: int) -> str:
+    """Transcribe a caption-less item on the dedicated ``asr`` queue."""
+
+    return process_dispatch(
+        dispatch_id,
+        task_id=self.request.id,
+        processor=_asr_processor,
+    )
+
+
+def _publish_dispatch_task(
+    task: Any,
     dispatch_id: int,
     *,
     remaining_budget_seconds: float | None = None,
 ) -> str:
-    """Publish only the durable internal dispatch identifier."""
+    """Publish only the durable internal dispatch identifier for ``task``."""
 
     settings = get_settings()
     options = _bounded_publish_options(
@@ -524,12 +606,40 @@ def publish_ingest_dispatch(
         transport_options=transport_options,
     ) as connection:
         producer = Producer(connection)
-        result = fetch_text_task.apply_async(
+        result = task.apply_async(
             args=[dispatch_id],
             producer=producer,
             **options,
         )
         return str(result.id)
+
+
+def publish_ingest_dispatch(
+    dispatch_id: int,
+    *,
+    remaining_budget_seconds: float | None = None,
+) -> str:
+    """Publish only the durable internal dispatch identifier."""
+
+    return _publish_dispatch_task(
+        fetch_text_task,
+        dispatch_id,
+        remaining_budget_seconds=remaining_budget_seconds,
+    )
+
+
+def publish_asr_dispatch(
+    dispatch_id: int,
+    *,
+    remaining_budget_seconds: float | None = None,
+) -> str:
+    """Publish the same dispatch to the ``asr`` queue for transcription."""
+
+    return _publish_dispatch_task(
+        transcribe_dispatch_task,
+        dispatch_id,
+        remaining_budget_seconds=remaining_budget_seconds,
+    )
 
 
 def enqueue_ingest_notification(
@@ -957,7 +1067,7 @@ def process_dispatch(
     if item_id is None:
         return "duplicate"
     try:
-        state = (processor or process_item)(item_id)
+        state = (processor or _dispatch_item_processor)(item_id)
     except TransientFetchError:
         _release_dispatch_for_retry(
             dispatch_id, task_id, session_factory=factory
@@ -970,15 +1080,89 @@ def process_dispatch(
             dispatch_id, exc, task_id=task_id, session_factory=factory
         )
         raise RuntimeError("ingest_too_large") from None
+    except AsrError as exc:
+        # Terminal ASR failures carry a stable code and are never retried:
+        # a retry would re-bill the provider for the same audio.
+        _mark_dispatch_failed(
+            dispatch_id, exc, task_id=task_id, session_factory=factory
+        )
+        raise RuntimeError(exc.error_code) from None
     except Exception as exc:
         _mark_dispatch_failed(
             dispatch_id, exc, task_id=task_id, session_factory=factory
         )
         raise RuntimeError("ingestion_failed") from None
+    if state == ASR_PENDING:
+        # The dispatch continues on the asr queue; its terminal event is
+        # created by the asr worker (or by the publish-failure convergence).
+        _handoff_dispatch_to_asr(dispatch_id, task_id, session_factory=factory)
+        return state
     _complete_dispatch(
         dispatch_id, task_id, process_state=state, session_factory=factory
     )
     return state
+
+
+def _dispatch_item_processor(item_id: int) -> str:
+    """Default dispatch processor: caption-less public items may use ASR."""
+
+    return process_item(item_id, asr_handoff=True)
+
+
+def _handoff_dispatch_to_asr(
+    dispatch_id: int,
+    task_id: str | None,
+    *,
+    session_factory=None,
+) -> bool:
+    """Move a running dispatch to the asr queue without a terminal event.
+
+    ``running -> enqueued`` (``task_id`` cleared so the asr task may claim it)
+    commits before the broker publish.  A publish failure converges the same
+    dispatch to ``completed/needs_asr`` (today's behavior without ASR) under
+    one row lock, so a dispatch never produces two events or stays stuck.
+    """
+
+    factory = session_factory or get_session_factory()
+    with factory() as db:
+        dispatch = db.scalar(
+            select(IngestDispatch)
+            .where(IngestDispatch.id == dispatch_id)
+            .with_for_update()
+        )
+        if (
+            dispatch is None
+            or dispatch.state != "running"
+            or (
+                task_id is not None
+                and dispatch.task_id not in {None, task_id}
+            )
+        ):
+            return False
+        dispatch.state = "enqueued"
+        dispatch.task_id = None
+        dispatch.updated_at = datetime.now(UTC)
+        db.commit()
+    try:
+        publish_asr_dispatch(dispatch_id)
+    except Exception:
+        # Never serialize broker exception text.  If an asr worker already
+        # claimed the dispatch (publish succeeded before the error surfaced)
+        # the state guard below makes this a no-op.
+        _completion_diagnostic(
+            "asr_handoff_publish_failed", error_code="broker_unavailable"
+        )
+        _complete_dispatch(
+            dispatch_id,
+            None,
+            process_state="needs_asr",
+            from_states=("enqueued",),
+            converge_item_state="needs_asr",
+            session_factory=factory,
+        )
+        return False
+    _completion_diagnostic("asr_handoff_published")
+    return True
 
 
 def _claim_dispatch(
@@ -1082,6 +1266,8 @@ def _complete_dispatch(
     task_id: str | None,
     *,
     process_state: str | None = None,
+    from_states: tuple[str, ...] = ("running",),
+    converge_item_state: str | None = None,
     session_factory=None,
 ) -> int | None:
     factory = session_factory or get_session_factory()
@@ -1097,7 +1283,7 @@ def _complete_dispatch(
         )
         if (
             dispatch is None
-            or dispatch.state != "running"
+            or dispatch.state not in from_states
             or (
                 task_id is not None
                 and dispatch.task_id not in {None, task_id}
@@ -1130,6 +1316,10 @@ def _complete_dispatch(
                 )
             db.commit()
         else:
+            if converge_item_state is not None and item.state == "fetching":
+                # ASR handoff could not be published: end exactly as the
+                # pre-ASR worker did, in the same transaction as the dispatch.
+                item.state = converge_item_state
             event_item_state = _terminal_item_state(item, process_state)
             event_outcome = "completed"
             dispatch.state = "completed"
@@ -1547,7 +1737,8 @@ def _mark_dispatch_failed(
 ) -> int | None:
     factory = session_factory or get_session_factory()
     error_code = (
-        "transient_fetch_failed" if isinstance(exc, TransientFetchError)
+        exc.error_code if isinstance(exc, AsrError)
+        else "transient_fetch_failed" if isinstance(exc, TransientFetchError)
         else "ingest_too_large" if isinstance(exc, IngestLimitExceeded)
         else "ingestion_failed"
     )

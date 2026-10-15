@@ -15,6 +15,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
+from app.asr.types import ASR_ERROR_CODES
+
 
 LOGGER = logging.getLogger("notebook_agent.runtime")
 _TRACE_RE = re.compile(r"[0-9a-f]{32}\Z")
@@ -80,6 +82,7 @@ _ERRORS = frozenset({
     "notification_enqueue_failed",
     "transient_read", "read_unavailable", "answer_validation", "provider_failure",
     "todo_incomplete", "item_scope_required",
+    *sorted(ASR_ERROR_CODES),
 })
 _DISPOSITIONS = frozenset({"grounded", "no_evidence", "canonical", "action", "failed"})
 

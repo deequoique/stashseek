@@ -29,7 +29,7 @@ loopback 依赖可以进入它拥有的 Compose project；`DATABASE_URL`、远�
 | MCP | `MCP_HOST=127.0.0.1`、`MCP_PORT=8000` | `python -m app.cli mcp-server --transport streamable-http` |
 | Channel Gateway | `CHANNEL_GATEWAY_HOST=127.0.0.1`、`CHANNEL_GATEWAY_PORT=8765` | `python -m app.cli gateway-server` |
 | Web（独立模式） | `WEB_HOST=127.0.0.1`、`WEB_PORT=8000` | `python -m app.cli web-server` |
-| Celery worker | 无 HTTP listener | `python -m celery -A app.ingest.tasks.celery_app worker --loglevel=INFO --queues=ingest,maintenance` |
+| Celery worker | 无 HTTP listener | `python -m celery -A app.ingest.tasks.celery_app worker --loglevel=INFO --queues=ingest,maintenance,asr --concurrency=1` |
 | Celery Beat | 无 HTTP listener | `python -m celery -A app.ingest.tasks.celery_app beat --loglevel=INFO` |
 
 同一 profile 中的 MCP 和 Gateway 必须使用不同端口。Web 与 MCP 也应使用

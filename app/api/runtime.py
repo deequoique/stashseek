@@ -151,6 +151,7 @@ def build_web_app(
         transcript=TranscriptService(factory, store),
         browser_companion=browser_companion,
         browser_capture_submission=browser_capture_submission,
+        asr_audio_store=store,
     )
     serve_static = (
         settings.web_serve_static
