@@ -274,6 +274,51 @@ def test_disallowed_extension_origin_is_forbidden_even_with_a_valid_session():
     assert service.calls == []
 
 
+def test_cookie_session_without_an_origin_is_rejected_even_with_a_matching_csrf_token():
+    service = StubService()
+    client = build_client(service=service)
+    client.cookies.set(SESSION_COOKIE_NAME, "session-secret", domain="kb.example.test", path="/")
+    client.cookies.set(CSRF_COOKIE_NAME, "csrf-secret", domain="kb.example.test", path="/")
+
+    response = client.post(STREAM_PATH, json=valid_body(), headers={"X-CSRF-Token": "csrf-secret"})
+
+    assert response.status_code == 403 and response.json()["code"] == "csrf_invalid"
+    assert service.calls == []
+
+
+def test_a_foreign_web_origin_cannot_use_a_cookie_session():
+    service = StubService()
+    client = build_client(service=service)
+    client.cookies.set(SESSION_COOKIE_NAME, "session-secret", domain="kb.example.test", path="/")
+    client.cookies.set(CSRF_COOKIE_NAME, "csrf-secret", domain="kb.example.test", path="/")
+
+    response = client.post(
+        STREAM_PATH,
+        json=valid_body(),
+        headers={"Origin": "https://evil.example", "X-CSRF-Token": "csrf-secret"},
+    )
+
+    assert response.status_code == 403
+    assert service.calls == []
+
+
+def test_bearer_without_an_origin_still_needs_a_valid_extension_session():
+    # A non-browser caller presents the token explicitly (no ambient credential);
+    # an unknown token, such as the capture Bearer, never gets through.
+    service = StubService()
+    client = build_client(service=service)
+
+    unknown = client.post(
+        STREAM_PATH, json=valid_body(), headers={"Authorization": "Bearer capture-token"}
+    )
+    assert unknown.status_code == 401 and service.calls == []
+
+    valid = client.post(
+        STREAM_PATH, json=valid_body(), headers={"Authorization": "Bearer extension-session"}
+    )
+    assert valid.status_code == 200 and len(service.calls) == 1
+
+
 # --- request validation -----------------------------------------------------------------
 
 
@@ -371,6 +416,29 @@ def test_conversation_id_must_be_a_page_thread_id(conversation_id):
 
 
 # --- rate limit and feature flag ----------------------------------------------------------
+
+
+def test_an_uncited_answer_is_projected_as_not_found_with_no_citations():
+    from app.page_qa import PAGE_QA_STATUS_UNAVAILABLE
+
+    client = build_client(
+        service=StubService(
+            [
+                PageQaTextDelta("字幕中没有提到。"),
+                PageQaCompleted("字幕中没有提到。", (), PAGE_QA_STATUS_UNAVAILABLE, "thread-public-id"),
+            ]
+        )
+    )
+
+    response = client.post(STREAM_PATH, json=valid_body(), headers=BEARER)
+
+    events = sse_events(response)
+    for event in events:
+        ConversationStreamEvent.model_validate(event)
+    assert [event["type"] for event in events] == ["started", "text_delta", "completed"]
+    final = events[-1]["response"]
+    assert final["status"] == "not_found" and final["citations"] == []
+    assert final["thread_id"] == "thread-public-id"
 
 
 def test_per_user_rate_limit_returns_429_before_any_work():

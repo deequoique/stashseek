@@ -596,3 +596,48 @@ async def test_cue_text_never_reaches_logs_or_any_persisted_column_except_short_
     assert max(len(line) for line in source_block.splitlines()) < 400
     # Nothing but the two conversation tables exists here, and only one row each.
     assert len(threads(factory)) == 1 and len(turns(factory)) == 1
+
+
+@pytest.mark.asyncio
+async def test_failure_and_rewrite_error_paths_log_only_closed_fields(caplog):
+    """Provider errors can echo the prompt: only class names and a status are logged."""
+
+    from pydantic_ai.exceptions import ModelHTTPError
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    caplog.set_level(logging.DEBUG)
+    logging.getLogger().setLevel(logging.DEBUG)
+
+    async def rejected_stream(messages, info):
+        if False:
+            yield ""
+        raise ModelHTTPError(
+            400, "test-model", body={"error": f"prompt echoed: {SENTINEL} and more"}
+        )
+
+    def function(messages, info):
+        if "检索关键词" in (info.instructions or ""):
+            raise RuntimeError(f"rewrite echoed {SENTINEL}")
+        return ModelResponse(parts=[TextPart("unused")])
+
+    factory = sqlite_factory()
+    service = PageQaService(
+        make_settings(**WINDOW_SETTINGS),
+        factory,
+        model=FunctionModel(function, stream_function=rejected_stream),
+    )
+
+    # The window-mode cross-language question runs the rewrite first (it
+    # fails and falls back), then the answer call fails with the echoing body.
+    events = await collect(
+        service,
+        message(long_zh_page(), question="explain backpropagation", playback_sec=1700.0),
+    )
+
+    assert events == [PageQaFailed("answer_unavailable")]
+    assert SENTINEL not in caplog.text
+    assert "exception_type=RuntimeError" in caplog.text  # rewrite failure: class only
+    assert "exception_type=ModelHTTPError" in caplog.text
+    assert "http_status=400" in caplog.text
+    assert threads(factory) == [] and turns(factory) == []

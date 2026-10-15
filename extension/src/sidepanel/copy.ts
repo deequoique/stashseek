@@ -26,6 +26,10 @@ const WORKER_COPY: Record<string, string> = {
   stale_player_response: "视频页面刚刚切换，插件没有使用旧视频字幕；请稍后重试。",
   kaltura_entry_missing: "没有识别到 Kaltura 视频，请确认视频已加载后刷新页面重试。",
   capture_unavailable: "页面结构可能已经变化，请刷新视频页面或升级插件后重试。",
+  capture_conflict: "这个视频正在保存或处理中，请稍后再试。",
+  capture_upload_failed: "字幕上传失败，请稍后重试。",
+  queue_unavailable: "保存任务暂时无法排队，请稍后重试。",
+  capture_too_large: "这个视频的字幕太长，无法保存。",
   request_failed: "搜藏助手没有完成请求，请稍后重试。",
 };
 

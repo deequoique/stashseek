@@ -463,4 +463,16 @@ describe("side panel save", () => {
     expect(await screen.findByText("无法连接搜藏助手，请确认服务正在运行。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存到资料库" })).toBeEnabled();
   });
+
+  it("explains a save that collides with an ingest still running instead of showing the raw code", async () => {
+    const env = makeEnvironment();
+    env.worker.saveCapture.mockRejectedValueOnce(new WorkerError("capture_conflict"));
+    const user = await renderReady(env);
+    await screen.findByText("字幕可用 · 官方字幕 · 2 条");
+
+    await user.click(screen.getByRole("button", { name: "保存到资料库" }));
+
+    expect(await screen.findByText("这个视频正在保存或处理中，请稍后再试。")).toBeInTheDocument();
+    expect(screen.queryByText(/capture_conflict/)).not.toBeInTheDocument();
+  });
 });
