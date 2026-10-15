@@ -14,6 +14,7 @@ from uuid import uuid4
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.asr.types import ASR_ERROR_CODES
 from app.ingest.submission import (
     MIN_REMAINING_PUBLISH_BUDGET_SECONDS,
     IngestQuotaExceeded,
@@ -34,6 +35,7 @@ SAFE_ERROR_CODES = frozenset(
         "transcript_unavailable",
         "transcript_invalid",
         "ingest_too_large",
+        *sorted(ASR_ERROR_CODES),
     }
 )
 Lifecycle = Literal[

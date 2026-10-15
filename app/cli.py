@@ -13,6 +13,11 @@ from app.channels.types import ChannelEnvelope
 from app.config import get_settings
 from app.diagnostics import configure_runtime_logging
 from app.db import get_session_factory, session
+from app.ingest.asr_backfill import (
+    DEFAULT_BACKFILL_LIMIT,
+    MAX_BACKFILL_LIMIT,
+    backfill_needs_asr,
+)
 from app.ingest.tasks import ingest_url
 from app.models import AppUser, ChannelIdentity
 from app.retrieval.search import bm25_search, vector_search
@@ -24,6 +29,18 @@ def _print(name, hits):
     print(f"\n{name}")
     for rank, hit in enumerate(hits, 1):
         print(f"{rank:>2}. {hit.title or hit.platform_id} | {hit.url} | {hit.score:.4f}\n    {hit.text[:240]}")
+
+
+def _backfill_limit(value: str) -> int:
+    try:
+        limit = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be an integer") from None
+    if not 1 <= limit <= MAX_BACKFILL_LIMIT:
+        raise argparse.ArgumentTypeError(
+            f"must be between 1 and {MAX_BACKFILL_LIMIT}"
+        )
+    return limit
 
 
 def main() -> None:
@@ -50,6 +67,15 @@ def main() -> None:
     rebind = user_commands.add_parser("rebind-identity")
     rebind.add_argument("--identity-id", type=int, required=True)
     rebind.add_argument("--user-id", type=int, required=True)
+    asr_backfill = commands.add_parser(
+        "asr-backfill",
+        help="re-dispatch public needs_asr items through ASR (ASR_ENABLED=true)",
+    )
+    asr_backfill.add_argument(
+        "--limit", type=_backfill_limit, default=DEFAULT_BACKFILL_LIMIT
+    )
+    asr_backfill.add_argument("--user-id", type=int)
+    asr_backfill.add_argument("--dry-run", action="store_true")
     commands.add_parser("gateway-server")
     mcp_server = commands.add_parser("mcp-server")
     mcp_server.add_argument(
@@ -89,6 +115,9 @@ def main() -> None:
         return
     if args.command in {"mcp-grant", "mcp-grants"}:
         _mcp_grants(args)
+        return
+    if args.command == "asr-backfill":
+        _asr_backfill(args)
         return
     settings = get_settings()
     logging_options = dict(
@@ -149,6 +178,31 @@ def main() -> None:
         )
     _print("BM25 / trigram", lexical)
     _print("Vector", vector)
+
+
+def _asr_backfill(args) -> None:
+    """Queue existing ``needs_asr`` items; print only counts and item IDs."""
+
+    if not get_settings().asr_enabled:
+        raise SystemExit("ASR is disabled; set ASR_ENABLED=true to backfill")
+    result = backfill_needs_asr(
+        limit=args.limit, user_id=args.user_id, dry_run=args.dry_run
+    )
+    print(
+        f"selected={len(result.selected)} queued={len(result.queued)} "
+        f"skipped={len(result.skipped)} failed={len(result.failed)} "
+        f"dry_run={str(result.dry_run).lower()}"
+    )
+    labels = {
+        **{item_id: "selected" for item_id in result.selected},
+        **{item_id: "queued" for item_id in result.queued},
+        **{item_id: "skipped" for item_id in result.skipped},
+        **{item_id: "failed" for item_id in result.failed},
+    }
+    for item_id in result.selected:
+        print(f"item={item_id} {labels[item_id]}")
+    if result.failed:
+        raise SystemExit(2)
 
 
 def _users(args) -> None:

@@ -14,11 +14,11 @@
 
 ### A. 存储、签名与公开路由
 
-- [ ] `app/config.py`：按 design 的表格加入 ASR 字段和开启时的校验。
-- [ ] `app/object_store.py`：新增 `put_file`、`open_stream`、`ObjectStream`、`ObjectNotFoundError`。
-- [ ] `app/asr/__init__.py`（空文件）和 `app/asr/signing.py`。
-- [ ] `app/api/app.py`：注册 `GET`/`HEAD` `/api/v1/asr-audio/{name}`，必须早于 SPA 兜底路由，并确认不会被中间件拦截。
-- [ ] 测试：
+- [x] `app/config.py`：按 design 的表格加入 ASR 字段和开启时的校验。
+- [x] `app/object_store.py`：新增 `put_file`、`open_stream`、`ObjectStream`、`ObjectNotFoundError`。
+- [x] `app/asr/__init__.py`（空文件）和 `app/asr/signing.py`。
+- [x] `app/api/app.py`：注册 `GET`/`HEAD` `/api/v1/asr-audio/{name}`，必须早于 SPA 兜底路由，并确认不会被中间件拦截。
+- [x] 测试：
   - `tests/test_asr_config.py`
   - `tests/test_asr_signing.py`
   - `tests/test_asr_audio_route.py`，用 TestClient 和 fake 存储
@@ -26,52 +26,52 @@
 
 ### B. ASR 包（只新增文件，不修改已有文件）
 
-- [ ] `app/asr/types.py`、`app/asr/audio.py`、`app/asr/funasr.py`、`app/asr/whisper.py`、`app/asr/transcriber.py`、`app/asr/connector.py`。
-- [ ] 与 A 的约定：
+- [x] `app/asr/types.py`、`app/asr/audio.py`、`app/asr/funasr.py`、`app/asr/whisper.py`、`app/asr/transcriber.py`、`app/asr/connector.py`。
+- [x] 与 A 的约定：
   - 只按 design 中写好的字段名使用 `Settings` 和对象存储的方法；
   - 测试中用 `SimpleNamespace` 或 fake 对象替代，不依赖 A 的实现；
   - `app/asr/__init__.py` 由 A 创建；B 如果需要可以创建同名空文件，内容必须为空。
-- [ ] 测试：
+- [x] 测试：
   - `tests/test_asr_funasr.py`
   - `tests/test_asr_whisper.py`
   - `tests/test_asr_audio_download.py`
   - `tests/test_asr_transcriber.py`
   - `tests/test_asr_connector.py`
-- [ ] 测试要覆盖：PRD 验收标准中关于 Fun-ASR 和备选的全部条目；临时对象在成功、失败和异常时都被清理；日志不含 URL、密钥或文本。
+- [x] 测试要覆盖：PRD 验收标准中关于 Fun-ASR 和备选的全部条目；临时对象在成功、失败和异常时都被清理；日志不含 URL、密钥或文本。
 
 ## 阶段 2：C 集成（A 和 B 合入并通过审查之后）
 
-- [ ] `app/ingest/tasks.py`：
+- [x] `app/ingest/tasks.py`：
   - 新增 `asr` 队列和路由；
   - `process_item` 支持 `capture_v1` 和 `asr_pending`；
   - `process_dispatch` 处理 handoff；
   - 新增 `transcribe_dispatch_task`；
   - `AsrError` 错误码映射；
   - 诊断允许列表。
-- [ ] `app/web/library.py` 的 `SAFE_ERROR_CODES`；检查 `app/ingest/notifications.py` 遇到未知失败码时的通用文案。
-- [ ] 部署：
+- [x] `app/web/library.py` 的 `SAFE_ERROR_CODES`；检查 `app/ingest/notifications.py` 遇到未知失败码时的通用文案。
+- [x] 部署：
   - `deploy/systemd/notebook-agent-asr-worker.service`
   - `deploy/scripts/notebook-agent-deploy`
   - `app/deployment.py` 的本地 worker 队列
   - 对应的部署测试
-- [ ] `app/cli.py` 新增 `asr-backfill` 命令，并补测试。
-- [ ] 文档：`.env.example`、`docs/reference/configuration.md`，以及运维文档（ffmpeg、unit、MinIO 生命周期规则）。
-- [ ] 测试：
+- [x] `app/cli.py` 新增 `asr-backfill` 命令，并补测试。
+- [x] 文档：`.env.example`、`docs/reference/configuration.md`，以及运维文档（ffmpeg、unit、MinIO 生命周期规则）。
+- [x] 测试：
   - `tests/test_asr_ingest_flow.py`：用 fake DB 和 dispatch 端到端验证 handoff → ready、单一完成事件、发布失败时的回退、ASR 关闭时行为不变、空转写失败为 `asr_no_speech`；
   - 更新 `tests/test_tasks.py` 和部署测试中受影响的断言。
 
 ## 阶段 3：检查与收尾（主会话）
 
-- [ ] `trellis-check`（Sonnet）：对照 spec 和 PRD 审查。
-- [ ] 运行验证命令：
+- [x] `trellis-check`（Sonnet）：对照 spec 和 PRD 审查。
+- [x] 运行验证命令：
 
   ```bash
   DATABASE_URL=<test DSN> uv run --frozen pytest -q tests/test_asr_*.py tests/test_tasks.py tests/test_deployment_cli.py tests/test_production_caddy_deployment.py tests/test_object_store*.py tests/test_web_api_app.py
   ```
 
   再加上 `ruff check`，对象是改动过的文件，并且只在仓库已配置 ruff 时运行。
-- [ ] 新增后端 spec `.trellis/spec/backend/asr-transcription.md`，并更新 `index.md`。
-- [ ] 提交到 `dev`：
+- [x] 新增后端 spec `.trellis/spec/backend/asr-transcription.md`，并更新 `index.md`。
+- [x] 提交到 `dev`：
   - 共享文件只暂存本任务的 hunk（以开工前的工作区快照为基准，计算差异后单独暂存）；
   - 新文件逐个加入。
 
@@ -79,3 +79,25 @@
 
 - 阶段 1 和阶段 2 都只增加代码路径，并且默认关闭；任何时候设置 `ASR_ENABLED=false` 都会回到现有行为。
 - 如果需要整体放弃，回退本任务提交，并删除 `app/asr/` 和 asr worker unit。
+
+## 实施记录（2026-10-15）
+
+- 阶段 1 和阶段 2 由 3 个 Sonnet `trellis-implement` 子 agent 完成，阶段 3 由 Sonnet `trellis-check` 审查。审查修复了 4 个问题：
+  1. httpx 的 INFO 日志会泄露预签名的 `transcription_url`，已加过滤器；
+  2. yt-dlp 子进程会继承密钥类环境变量，已过滤；
+  3. 计费时长现在优先从顶层的 `usage` 读取；
+  4. 显式设置不跟随重定向。
+- 与设计的偏差：
+  - `process_item(asr_handoff=False)` 只在 dispatch 路径中开启，避免 CLI 的 `ingest` 卡在 `fetching`；
+  - `_complete_dispatch` 新增 `from_states` 和 `converge_item_state` 参数，供发布失败时收敛使用；
+  - 新增 `app/asr/_common.py`；
+  - 回填逻辑放在 `app/ingest/asr_backfill.py`，因为现有的重试只允许 `failed` 状态的条目。
+- 验证：
+  - 工作区相关的 682 个测试全部通过；
+  - 只用暂存内容导出的独立目录中，424 个测试全部通过；
+  - `bash -n` 部署脚本通过。
+- 已知遗留，留作后续：
+  - worker 在转写中途被杀时，dispatch 会一直停在 `running`，目前没有修复 sweeper；
+  - 未过滤直播视频（可以加 `--match-filters "!is_live"`）；
+  - 新增专用的 `text_source` 枚举值需要迁移；
+  - 生产环境的启用步骤见 `docs/operations/production/ovh-caddy.md`。

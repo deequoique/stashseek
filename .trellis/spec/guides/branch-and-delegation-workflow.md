@@ -27,7 +27,7 @@
   - committing on `dev`.
 - **Every dispatch prompt must:**
   - start with `Active task: <task path>`;
-  - say that tests must point `DATABASE_URL` at the `.env.neon-test` branch, because a bare `pytest` reaches the production database;
+  - say that tests must point `DATABASE_URL` at the `.env.neon-test` branch, because a bare `pytest` reaches the production database. Rewrite the scheme to `postgresql+psycopg://`; the venv has no psycopg2, so the plain `postgresql://` DSN makes PostgreSQL-backed tests error;
   - say that sub-agents never commit.
 
 ## Common mistakes

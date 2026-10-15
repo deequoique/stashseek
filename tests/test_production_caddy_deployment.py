@@ -1,3 +1,5 @@
+import re
+import subprocess
 from pathlib import Path
 
 
@@ -37,6 +39,63 @@ def test_combined_runtime_and_background_units_are_isolated():
     for unit in (runtime, worker, beat):
         assert "Environment=STASHSEEK_LOG_DIR=/var/log/notebook-agent" in unit
         assert "ReadWritePaths=" in unit
+
+
+def test_asr_worker_unit_is_a_sandboxed_single_queue_optional_unit():
+    worker = _text("deploy/systemd/notebook-agent-worker.service")
+    asr = _text("deploy/systemd/notebook-agent-asr-worker.service")
+
+    exec_line = next(
+        line for line in asr.splitlines() if line.startswith("ExecStart=")
+    )
+    assert " worker " in exec_line
+    assert "--queues=asr --concurrency=1" in exec_line
+    assert "--hostname=notebook-agent-asr@%%h" in exec_line
+    assert re.search(r"--queues=(\S+)", exec_line).group(1) == "asr"
+
+    def body(unit: str) -> list[str]:
+        return [
+            line
+            for line in unit.splitlines()
+            if not line.startswith(("Description=", "ExecStart="))
+        ]
+
+    # Same identity, environment and sandbox as the main worker.
+    assert body(asr) == body(worker)
+    assert "MIGRATION_DATABASE_URL" not in asr and "migrations.env" not in asr
+    assert "Environment=STASHSEEK_LOG_DIR=/var/log/notebook-agent" in asr
+    assert "ReadWritePaths=/var/log/notebook-agent" in asr
+    # The main worker keeps its two queues; ASR work never lands on it.
+    assert re.search(r"--queues=(\S+)", worker).group(1) == "ingest,maintenance"
+
+
+def test_deploy_dispatcher_manages_the_optional_asr_unit_without_requiring_it():
+    script = _text("deploy/scripts/notebook-agent-deploy")
+
+    assert "asr_unit=notebook-agent-asr-worker.service" in script
+    assert 'systemctl cat "$asr_unit"' in script
+    assert script.count("asr_unit_installed") >= 5
+    stop_asr = script.index('systemctl stop "$asr_unit"')
+    switch_release = script.index('mv -Tf /opt/notebook-agent/current.next "$current"')
+    restart_core = script.index("systemctl restart notebook-agent-worker.service")
+    restart_asr = script.index('systemctl restart "$asr_unit"')
+    assert stop_asr < switch_release < restart_core < restart_asr
+    # Rollback stops the candidate ASR worker and restarts the previous one.
+    rollback = script[script.index("rollback_release() {") : script.index("if ! systemctl restart notebook-agent-dependencies.service")]
+    assert 'systemctl stop "$asr_unit"' in rollback
+    assert 'systemctl start "$asr_unit"' in rollback
+    assert "ASR worker startup failed; previous release restored" in script
+    # Every unit action is guarded, so a host without the unit deploys as before.
+    for line in script.splitlines():
+        if 'systemctl' in line and '"$asr_unit"' in line and "cat" not in line:
+            assert "asr_unit_installed" in line or line.strip() == 'systemctl stop "$asr_unit"'
+    result = subprocess.run(
+        ["bash", "-n", str(ROOT / "deploy/scripts/notebook-agent-deploy")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_private_gateway_and_langbot_units_are_isolated_and_telegram_only():

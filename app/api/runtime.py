@@ -160,6 +160,7 @@ def build_api_app(
         browser_companion=browser_companion,
         browser_capture_submission=browser_capture_submission,
         extension_sessions=ExtensionSessionService(email_auth) if email_auth is not None else None,
+        asr_audio_store=store,
     )
     return create_app(
         services=services,

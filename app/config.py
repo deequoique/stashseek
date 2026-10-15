@@ -200,6 +200,36 @@ def _validate_youtube_proxy_url(value: str | None) -> None:
         )
 
 
+def _validate_asr_https_url(name: str, value: str | None, *, allow_path: bool) -> None:
+    """Validate an ASR HTTPS base URL without echoing its value."""
+
+    message = (
+        f"{name} must be an https URL without credentials, query, fragment, "
+        "or trailing slash"
+        + ("" if allow_path else " and without a path")
+    )
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(message)
+    parsed = urlsplit(value)
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ValueError(message) from exc
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or "?" in value
+        or "#" in value
+        or value.endswith("/")
+        or (not allow_path and parsed.path)
+    ):
+        raise ValueError(message)
+
+
 @dataclass(frozen=True)
 class Settings:
     # --- Private runtime diagnostics ---
@@ -350,6 +380,54 @@ class Settings:
     )
     bilibili_fetch_timeout_seconds: float = field(
         default_factory=lambda: _env_float("BILIBILI_FETCH_TIMEOUT_SECONDS", 30.0)
+    )
+
+    # --- Hosted ASR for subtitle-less public videos ---
+    # Disabled by default. Required values and ranges are validated only when
+    # ASR_ENABLED=true so existing deployments need none of these variables.
+    asr_enabled: bool = field(default_factory=lambda: _env_bool("ASR_ENABLED", False))
+    dashscope_api_key: str | None = field(
+        default_factory=lambda: _env("DASHSCOPE_API_KEY")
+    )
+    dashscope_base_url: str = field(
+        default_factory=lambda: _env(
+            "DASHSCOPE_BASE_URL", "https://dashscope-intl.aliyuncs.com"
+        )
+        or "https://dashscope-intl.aliyuncs.com"
+    )
+    fun_asr_model: str = field(
+        default_factory=lambda: _env("FUN_ASR_MODEL", "fun-asr") or "fun-asr"
+    )
+    # Optional whisper-1 fallback; absent means no fallback is attempted.
+    openai_api_key: str | None = field(
+        default_factory=lambda: _env("OPENAI_API_KEY")
+    )
+    asr_whisper_fallback_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASR_WHISPER_FALLBACK_ENABLED", True)
+    )
+    asr_public_base_url: str | None = field(
+        default_factory=lambda: _env("ASR_PUBLIC_BASE_URL")
+    )
+    asr_audio_url_secret: str | None = field(
+        default_factory=lambda: _env("ASR_AUDIO_URL_SECRET")
+    )
+    asr_audio_url_ttl_seconds: int = field(
+        default_factory=lambda: _env_int("ASR_AUDIO_URL_TTL_SECONDS", 7200)
+    )
+    asr_max_duration_seconds: int = field(
+        default_factory=lambda: _env_int("ASR_MAX_DURATION_SECONDS", 14400)
+    )
+    asr_max_audio_bytes: int = field(
+        default_factory=lambda: _env_int("ASR_MAX_AUDIO_BYTES", 524_288_000)
+    )
+    asr_download_timeout_seconds: int = field(
+        default_factory=lambda: _env_int("ASR_DOWNLOAD_TIMEOUT_SECONDS", 900)
+    )
+    asr_provider_timeout_seconds: int = field(
+        default_factory=lambda: _env_int("ASR_PROVIDER_TIMEOUT_SECONDS", 1800)
+    )
+    asr_poll_interval_seconds: float = field(
+        default_factory=lambda: _env_float("ASR_POLL_INTERVAL_SECONDS", 5.0)
     )
 
     # --- MinIO (S3-compatible object storage) ---
@@ -656,6 +734,47 @@ class Settings:
         default_factory=lambda: _env("WEB_TRUSTED_PROXY_HOSTS", "") or ""
     )
 
+    def _validate_asr(self) -> None:
+        if not isinstance(self.dashscope_api_key, str) or not self.dashscope_api_key.strip():
+            raise ValueError("DASHSCOPE_API_KEY is required when ASR_ENABLED=true")
+        _validate_asr_https_url(
+            "DASHSCOPE_BASE_URL", self.dashscope_base_url, allow_path=True
+        )
+        if not isinstance(self.fun_asr_model, str) or not self.fun_asr_model.strip():
+            raise ValueError("FUN_ASR_MODEL must not be empty")
+        if not self.asr_public_base_url:
+            raise ValueError("ASR_PUBLIC_BASE_URL is required when ASR_ENABLED=true")
+        _validate_asr_https_url(
+            "ASR_PUBLIC_BASE_URL", self.asr_public_base_url, allow_path=False
+        )
+        if (
+            not isinstance(self.asr_audio_url_secret, str)
+            or len(self.asr_audio_url_secret) < 32
+        ):
+            raise ValueError(
+                "ASR_AUDIO_URL_SECRET must contain at least 32 characters"
+            )
+        bounded_ints = (
+            ("ASR_AUDIO_URL_TTL_SECONDS", self.asr_audio_url_ttl_seconds, 300, 86_400),
+            ("ASR_MAX_DURATION_SECONDS", self.asr_max_duration_seconds, 60, 43_200),
+            (
+                "ASR_MAX_AUDIO_BYTES",
+                self.asr_max_audio_bytes,
+                1024 * 1024,
+                2 * 1024 * 1024 * 1024,
+            ),
+            ("ASR_DOWNLOAD_TIMEOUT_SECONDS", self.asr_download_timeout_seconds, 30, 3_000),
+            ("ASR_PROVIDER_TIMEOUT_SECONDS", self.asr_provider_timeout_seconds, 60, 3_000),
+        )
+        for name, value, low, high in bounded_ints:
+            if not low <= value <= high:
+                raise ValueError(f"{name} must be between {low} and {high}")
+        if (
+            not math.isfinite(self.asr_poll_interval_seconds)
+            or not 1 <= self.asr_poll_interval_seconds <= 60
+        ):
+            raise ValueError("ASR_POLL_INTERVAL_SECONDS must be between 1 and 60")
+
     def __post_init__(self) -> None:
         if self.notebook_agent_env not in {"development", "production"}:
             raise ValueError("STASHSEEK_ENV must be development or production")
@@ -820,6 +939,8 @@ class Settings:
         if self.bilibili_fetch_timeout_seconds <= 0:
             raise ValueError("BILIBILI_FETCH_TIMEOUT_SECONDS must be positive")
         _validate_youtube_proxy_url(self.youtube_proxy_url)
+        if self.asr_enabled:
+            self._validate_asr()
         if self.ingest_notification_interval_seconds <= 0:
             raise ValueError("INGEST_NOTIFICATION_INTERVAL_SECONDS must be positive")
         if (
