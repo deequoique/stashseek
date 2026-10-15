@@ -88,6 +88,18 @@ CsrfHeader = Annotated[
 SESSION_COOKIE_SCHEMA = _SESSION_COOKIE_SCHEMA
 
 
+def _reject_page_thread(conversation_id: str) -> None:
+    """Page Q&A threads are read-only on the ordinary conversation routes.
+
+    They are grounded on a transcript that is never stored, so the library
+    agent must not continue them; the client resumes them from the video page.
+    ``ChannelEnvelope`` strips the id, so compare the stripped value.
+    """
+
+    if is_page_qa_conversation(conversation_id.strip()):
+        raise HTTPException(status_code=409, detail="page_thread_read_only")
+
+
 def _web_agent_transport_timeout(settings: object) -> float:
     """Cover the runtime's retrieval and answer stages plus dispatch overhead."""
 
@@ -898,6 +910,7 @@ def build_conversation_router(
         response_model=ConversationResponse,
         responses={
             401: {"model": ErrorResponse},
+            409: {"model": ErrorResponse},
             422: {"model": ErrorResponse},
             503: {"model": ErrorResponse},
             504: {"model": ErrorResponse},
@@ -913,6 +926,7 @@ def build_conversation_router(
         channel = service_or_unavailable()
         if not 1 <= len(conversation_id.strip()) <= _MAX_CONVERSATION_ID:
             raise HTTPException(status_code=422, detail="validation_error")
+        _reject_page_thread(conversation_id)
         try:
             # The legacy knowledge runtime owns two independently bounded
             # model stages: retrieval followed by answer composition.  Keep
@@ -943,6 +957,7 @@ def build_conversation_router(
             },
             401: {"model": ErrorResponse},
             406: {"model": ErrorResponse},
+            409: {"model": ErrorResponse},
             422: {"model": ErrorResponse},
             503: {"model": ErrorResponse},
         },
@@ -964,6 +979,7 @@ def build_conversation_router(
         channel = service_or_unavailable()
         if not 1 <= len(conversation_id.strip()) <= _MAX_CONVERSATION_ID:
             raise HTTPException(status_code=422, detail="validation_error")
+        _reject_page_thread(conversation_id)
         if not bool(getattr(settings, "agent_streaming_enabled", True)):
             raise HTTPException(
                 status_code=_STREAM_UNAVAILABLE_STATUS,
@@ -1525,6 +1541,7 @@ def build_conversation_router(
         response_model=ConversationResponse,
         responses={
             401: {"model": ErrorResponse},
+            409: {"model": ErrorResponse},
             422: {"model": ErrorResponse},
             503: {"model": ErrorResponse},
             500: {"model": ErrorResponse},
@@ -1538,6 +1555,7 @@ def build_conversation_router(
         channel = service_or_unavailable()
         if not 1 <= len(conversation_id.strip()) <= _MAX_CONVERSATION_ID:
             raise HTTPException(status_code=422, detail="validation_error")
+        _reject_page_thread(conversation_id)
         answer = await channel.handle(
             web_envelope(
                 session,

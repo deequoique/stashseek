@@ -3302,6 +3302,16 @@
             },
             "description": "Unauthorized"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3423,6 +3433,16 @@
             },
             "description": "Not Acceptable"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3506,6 +3526,16 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {
@@ -4112,12 +4142,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -4254,12 +4290,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -4311,12 +4353,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -4379,12 +4427,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -4456,12 +4510,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],

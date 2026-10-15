@@ -95,6 +95,7 @@ _SAFE_HTTP_CODES = frozenset(
         "streaming_disabled",
         "extension_session_invalid",
         "rate_limited",
+        "page_thread_read_only",
     }
 )
 
@@ -222,6 +223,7 @@ _SAFE_MESSAGES = {
     "streaming_disabled": "流式回答当前未启用，请使用兼容模式重试",
     "extension_session_invalid": "扩展登录已失效，请重新登录",
     "rate_limited": "提问过于频繁，请稍后重试",
+    "page_thread_read_only": "这是视频页问答记录，请回到视频页继续提问。",
 }
 
 
