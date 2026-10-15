@@ -6,8 +6,15 @@ import {
   captureActivePage,
   captureKalturaPage,
   captureYouTubePage,
+  classifyPageUrl,
+  controlPlayer,
+  isSeekSeconds,
+  normalizePageCapture,
+  readPlaybackSeconds,
+  seekPlayback,
   selectBestCapture,
   type CaptureAttempt,
+  type PlayerProbe,
 } from "./page-capture.js";
 import type { Cue, PageCapture } from "./protocol.js";
 
@@ -1476,5 +1483,460 @@ describe("capture attempt shape", () => {
     const attempt: CaptureAttempt = { status: "captured", capture: availableCapture("youtube") };
     expect(attempt.capture).not.toHaveProperty("captionUrl");
     expect(attempt.capture).not.toHaveProperty("ks");
+  });
+});
+
+describe("YouTube description and chapters", () => {
+  function stubYouTube(): void {
+    const href = `https://www.youtube.com/watch?v=${YOUTUBE_ID}`;
+    vi.stubGlobal("location", { href, hostname: "www.youtube.com", pathname: "/watch" });
+    vi.stubGlobal("document", { title: "Current title - YouTube" });
+  }
+
+  function markers(chapters: Array<{ title: unknown; startMs: unknown }>, key = "DESCRIPTION_CHAPTERS") {
+    return {
+      playerOverlays: { playerOverlayRenderer: { decoratedPlayerBarRenderer: { decoratedPlayerBarRenderer: { playerBar: {
+        multiMarkersPlayerBarRenderer: {
+          markersMap: [{ key, value: { chapters: chapters.map((chapter) => ({
+            chapterRenderer: { title: chapter.title, timeRangeStartMillis: chapter.startMs },
+          })) } }],
+        },
+      } } } } },
+    };
+  }
+
+  function stubNoCaptionVideo(extra: Record<string, unknown> = {}, details: Record<string, unknown> = {}): void {
+    const response = youtubeResponse(YOUTUBE_ID, []);
+    vi.stubGlobal("ytInitialPlayerResponse", {
+      ...response,
+      videoDetails: { ...(response.videoDetails as Record<string, unknown>), ...details },
+    });
+    if (Object.keys(extra).length) vi.stubGlobal("ytInitialData", extra);
+  }
+
+  async function readMetadata(): Promise<PageCapture["metadata"]> {
+    const result = await captureYouTubePage();
+    expect(result.status).toBe("no_caption");
+    if (result.status !== "no_caption") throw new Error("unreachable");
+    expect(normalizePageCapture(result.capture)).not.toBeNull();
+    return result.capture.metadata;
+  }
+
+  it("reads the description keeping its lines and dropping control characters", async () => {
+    stubYouTube();
+    stubNoCaptionVideo({}, { shortDescription: "  Intro line\r\nSecond\u0000 line\u0007\n\nLast  " });
+
+    const metadata = await readMetadata();
+
+    expect(metadata.description).toBe("Intro line\nSecond line\n\nLast");
+  });
+
+  it("leaves the description null when absent or blank and bounds it to 50,000 characters", async () => {
+    stubYouTube();
+    stubNoCaptionVideo({}, { shortDescription: "   " });
+    expect((await readMetadata()).description).toBeNull();
+
+    vi.unstubAllGlobals();
+    stubYouTube();
+    stubNoCaptionVideo();
+    expect((await readMetadata()).description).toBeNull();
+
+    vi.unstubAllGlobals();
+    stubYouTube();
+    stubNoCaptionVideo({}, { shortDescription: "x".repeat(80_000) });
+    expect((await readMetadata()).description).toHaveLength(50_000);
+  });
+
+  it("reads player-bar chapters with end times from the next start and the duration", async () => {
+    stubYouTube();
+    stubNoCaptionVideo({
+      currentVideoEndpoint: { watchEndpoint: { videoId: YOUTUBE_ID } },
+      ...markers([
+        { title: { simpleText: "Intro" }, startMs: 0 },
+        { title: { runs: [{ text: "Main " }, { text: "part" }] }, startMs: "30000" },
+        { title: { simpleText: "Outro" }, startMs: 90_500 },
+      ]),
+    });
+
+    const metadata = await readMetadata();
+
+    expect(metadata.chapters).toEqual([
+      { title: "Intro", start_sec: 0, end_sec: 30 },
+      { title: "Main part", start_sec: 30, end_sec: 90.5 },
+      { title: "Outro", start_sec: 90.5, end_sec: 120 },
+    ]);
+  });
+
+  it("prefers description chapters over auto chapters and sorts, dedupes and bounds them", async () => {
+    stubYouTube();
+    const many = Array.from({ length: 1_200 }, (_value, index) => ({ title: { simpleText: `Chapter ${index}` }, startMs: (index + 1) * 1_000 }));
+    stubNoCaptionVideo({
+      currentVideoEndpoint: { watchEndpoint: { videoId: YOUTUBE_ID } },
+      ...markers([{ title: { simpleText: "Auto" }, startMs: 0 }], "AUTO_CHAPTERS"),
+      engagementPanels: [markers([
+        { title: { simpleText: "B" }, startMs: 20_000 },
+        { title: { simpleText: "A" }, startMs: 0 },
+        { title: { simpleText: "A again" }, startMs: 0 },
+        { title: { simpleText: "   " }, startMs: 5_000 },
+        { title: { simpleText: "Bad time" }, startMs: -1 },
+        { title: { simpleText: "No time" }, startMs: null },
+      ])],
+    });
+    let metadata = await readMetadata();
+    expect(metadata.chapters.map((chapter) => chapter.title)).toEqual(["A", "B"]);
+    expect(metadata.chapters[0]).toEqual({ title: "A", start_sec: 0, end_sec: 20 });
+
+    vi.unstubAllGlobals();
+    stubYouTube();
+    stubNoCaptionVideo({
+      currentVideoEndpoint: { watchEndpoint: { videoId: YOUTUBE_ID } },
+      ...markers([{ title: { simpleText: "x".repeat(900) }, startMs: 0 }, ...many]),
+    });
+    metadata = await readMetadata();
+    expect(metadata.chapters).toHaveLength(1_000);
+    expect(metadata.chapters[0]?.title).toHaveLength(500);
+    expect(metadata.chapters.every((chapter) => chapter.title.length <= 500 && (chapter.end_sec === null || chapter.end_sec >= chapter.start_sec))).toBe(true);
+    // The duration (120 s) precedes the last kept chapter, so its end stays unknown.
+    expect(metadata.chapters.at(-1)?.end_sec).toBeNull();
+  });
+
+  it("returns no chapters when the shape is missing or the data belongs to another video", async () => {
+    stubYouTube();
+    stubNoCaptionVideo({ currentVideoEndpoint: { watchEndpoint: { videoId: YOUTUBE_ID } }, contents: { unrelated: true } });
+    expect((await readMetadata()).chapters).toEqual([]);
+
+    vi.unstubAllGlobals();
+    stubYouTube();
+    stubNoCaptionVideo({
+      currentVideoEndpoint: { watchEndpoint: { videoId: OTHER_YOUTUBE_ID } },
+      ...markers([{ title: { simpleText: "Stale" }, startMs: 0 }]),
+    });
+    expect((await readMetadata()).chapters).toEqual([]);
+
+    vi.unstubAllGlobals();
+    stubYouTube();
+    stubNoCaptionVideo(markers([{ title: { simpleText: "Unverifiable" }, startMs: 0 }]));
+    expect((await readMetadata()).chapters).toEqual([]);
+
+    vi.unstubAllGlobals();
+    stubYouTube();
+    stubNoCaptionVideo({ currentVideoEndpoint: { watchEndpoint: { videoId: YOUTUBE_ID } }, ...markers([{ title: { simpleText: "Bad" }, startMs: "soon" }]) });
+    expect((await readMetadata()).chapters).toEqual([]);
+  });
+
+  it("carries the description and chapters on a captioned capture too", async () => {
+    stubYouTube();
+    vi.stubGlobal("ytInitialPlayerResponse", {
+      videoDetails: { videoId: YOUTUBE_ID, title: "Current title", author: "Author", lengthSeconds: "120", shortDescription: "About this video" },
+      captions: { playerCaptionsTracklistRenderer: { captionTracks: [{ languageCode: "en", baseUrl: "https://www.youtube.com/api/timedtext?lang=en" }] } },
+    });
+    vi.stubGlobal("ytInitialData", {
+      currentVideoEndpoint: { watchEndpoint: { videoId: YOUTUBE_ID } },
+      ...markers([{ title: { simpleText: "Only" }, startMs: 0 }]),
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => json3("hello") })));
+
+    const result = await captureYouTubePage();
+
+    expect(result.status).toBe("captured");
+    if (result.status === "captured") {
+      expect(result.capture.metadata.description).toBe("About this video");
+      expect(result.capture.metadata.chapters).toEqual([{ title: "Only", start_sec: 0, end_sec: 120 }]);
+      expect(normalizePageCapture(result.capture)).not.toBeNull();
+    }
+  });
+});
+
+describe("page URL classification", () => {
+  it("accepts YouTube watch, shorts and youtu.be pages and the NTU media hosts only", () => {
+    expect(classifyPageUrl(`https://www.youtube.com/watch?v=${YOUTUBE_ID}`)).toBe("youtube");
+    expect(classifyPageUrl(`https://youtube.com/shorts/${YOUTUBE_ID}`)).toBe("youtube");
+    expect(classifyPageUrl(`https://youtu.be/${YOUTUBE_ID}`)).toBe("youtube");
+    expect(classifyPageUrl("https://ntulearn.ntu.edu.sg/ultra/courses/x")).toBe("ntu_kaltura");
+    expect(classifyPageUrl("https://ntulearnvideo.ntu.edu.sg/media/52_6ce010d")).toBe("ntu_kaltura");
+    expect(classifyPageUrl("https://ntulearnv1.ntu.edu.sg/x")).toBe("ntu_kaltura");
+  });
+
+  it("rejects other hosts, non-HTTPS URLs, the YouTube home page and malformed input", () => {
+    expect(classifyPageUrl("https://www.youtube.com/")).toBeNull();
+    expect(classifyPageUrl("https://www.youtube.com/watch?v=short")).toBeNull();
+    expect(classifyPageUrl(`http://www.youtube.com/watch?v=${YOUTUBE_ID}`)).toBeNull();
+    expect(classifyPageUrl("https://example.com/watch?v=abcdefghijk")).toBeNull();
+    expect(classifyPageUrl("not a url")).toBeNull();
+  });
+});
+
+type FakeVideo = {
+  readyState: number;
+  duration: number;
+  paused: boolean;
+  ended: boolean;
+  currentTime: number;
+};
+
+function fakeVideo(overrides: Partial<FakeVideo> = {}): FakeVideo {
+  return { readyState: 4, duration: 600, paused: false, ended: false, currentTime: 12, ...overrides };
+}
+
+function stubPlayerDocument(options: {
+  main?: FakeVideo[];
+  inPlayer?: FakeVideo[];
+  all?: FakeVideo[];
+  moviePlayer?: { classList: { contains: (name: string) => boolean }; seekTo?: (seconds: number, allow: boolean) => void } | null;
+}): void {
+  vi.stubGlobal("document", {
+    querySelectorAll: (selector: string) => {
+      if (selector === "video.html5-main-video") return options.main ?? [];
+      if (selector === "#movie_player video") return options.inPlayer ?? [];
+      if (selector === "video") return options.all ?? [];
+      return [];
+    },
+    getElementById: (id: string) => (id === "movie_player" ? options.moviePlayer ?? null : null),
+  });
+}
+
+describe("controlPlayer (injected player probe and seek)", () => {
+  it("reads the YouTube main video and ignores hover-preview videos", () => {
+    const main = fakeVideo({ currentTime: 83.5 });
+    const preview = fakeVideo({ currentTime: 3 });
+    stubPlayerDocument({ main: [main], all: [preview, main], moviePlayer: { classList: { contains: () => false } } });
+
+    expect(controlPlayer(null, "youtube")).toEqual({ status: "video", current_sec: 83.5, ready: true, playing: true, seeked: false });
+    expect(main.currentTime).toBe(83.5);
+  });
+
+  it("falls back to a video inside the movie player and reports a missing video", () => {
+    stubPlayerDocument({ inPlayer: [fakeVideo({ paused: true, currentTime: 7 })] });
+    expect(controlPlayer(null, "youtube")).toEqual({ status: "video", current_sec: 7, ready: true, playing: false, seeked: false });
+
+    vi.unstubAllGlobals();
+    stubPlayerDocument({});
+    expect(controlPlayer(null, "youtube")).toEqual({ status: "no_video" });
+  });
+
+  it("treats a playing ad as no video so the ad is never read or seeked", () => {
+    const main = fakeVideo({ currentTime: 4 });
+    const seekTo = vi.fn();
+    stubPlayerDocument({ main: [main], moviePlayer: { classList: { contains: (name) => name === "ad-showing" }, seekTo } });
+
+    expect(controlPlayer(null, "youtube")).toEqual({ status: "no_video" });
+    expect(controlPlayer(90, "youtube")).toEqual({ status: "no_video" });
+    expect(seekTo).not.toHaveBeenCalled();
+    expect(main.currentTime).toBe(4);
+  });
+
+  it("seeks YouTube through movie_player.seekTo with seek-ahead", () => {
+    const main = fakeVideo();
+    const seekTo = vi.fn();
+    stubPlayerDocument({ main: [main], moviePlayer: { classList: { contains: () => false }, seekTo } });
+
+    const result = controlPlayer(125.5, "youtube");
+
+    expect(seekTo).toHaveBeenCalledWith(125.5, true);
+    expect(result).toMatchObject({ status: "video", seeked: true });
+    expect(main.currentTime).toBe(12);
+  });
+
+  it("falls back to the media element when seekTo is missing or throws, and clamps to the duration", () => {
+    const withoutSeekTo = fakeVideo();
+    stubPlayerDocument({ main: [withoutSeekTo], moviePlayer: { classList: { contains: () => false } } });
+    expect(controlPlayer(125.5, "youtube")).toMatchObject({ status: "video", seeked: true, current_sec: 125.5 });
+    expect(withoutSeekTo.currentTime).toBe(125.5);
+
+    vi.unstubAllGlobals();
+    const throwing = fakeVideo({ duration: 100 });
+    stubPlayerDocument({ main: [throwing], moviePlayer: { classList: { contains: () => false }, seekTo: () => { throw new Error("player replaced"); } } });
+    expect(controlPlayer(500, "youtube")).toMatchObject({ status: "video", seeked: true, current_sec: 100 });
+    expect(throwing.currentTime).toBe(100);
+  });
+
+  it("reports an unseeked probe when the element refuses the assignment", () => {
+    const refusing = Object.defineProperty(fakeVideo(), "currentTime", { get: () => 9, set: () => { throw new Error("refused"); } });
+    stubPlayerDocument({ all: [refusing] });
+
+    expect(controlPlayer(30, "ntu_kaltura")).toMatchObject({ status: "video", seeked: false, current_sec: 9 });
+  });
+
+  it("picks the ready, playing Kaltura video among several and seeks only that one", () => {
+    const idle = fakeVideo({ readyState: 0, duration: Number.NaN, currentTime: 0 });
+    const paused = fakeVideo({ paused: true, currentTime: 30 });
+    const playing = fakeVideo({ currentTime: 61.25 });
+    stubPlayerDocument({ all: [idle, paused, playing] });
+
+    expect(controlPlayer(null, "ntu_kaltura")).toEqual({ status: "video", current_sec: 61.25, ready: true, playing: true, seeked: false });
+
+    const result = controlPlayer(300, "ntu_kaltura");
+
+    expect(result).toMatchObject({ status: "video", seeked: true, current_sec: 300 });
+    expect(playing.currentTime).toBe(300);
+    expect(paused.currentTime).toBe(30);
+    expect(idle.currentTime).toBe(0);
+  });
+
+  it("reports a not-ready video honestly and survives a hostile document", () => {
+    stubPlayerDocument({ all: [fakeVideo({ readyState: 0, currentTime: 0 })] });
+    expect(controlPlayer(null, "ntu_kaltura")).toEqual({ status: "video", current_sec: 0, ready: false, playing: false, seeked: false });
+
+    vi.unstubAllGlobals();
+    vi.stubGlobal("document", { querySelectorAll: () => { throw new Error("hostile"); } });
+    expect(controlPlayer(null, "ntu_kaltura")).toEqual({ status: "no_video" });
+  });
+
+  it("stays self-contained when serialised into another JavaScript context", () => {
+    const video = fakeVideo({ currentTime: 20 });
+    const moviePlayer = { classList: { contains: () => false }, seekTo: vi.fn() };
+    const injected = runInNewContext(`(${controlPlayer.toString()})`, {
+      document: {
+        querySelectorAll: (selector: string) => (selector === "video.html5-main-video" ? [video] : []),
+        getElementById: () => moviePlayer,
+      },
+    }) as (seekSec: number | null, kind: string) => PlayerProbe;
+
+    expect(injected(null, "youtube")).toMatchObject({ status: "video", current_sec: 20 });
+    expect(injected(44, "youtube")).toMatchObject({ status: "video", seeked: true });
+    expect(moviePlayer.seekTo).toHaveBeenCalledWith(44, true);
+  });
+});
+
+describe("playback coordinator", () => {
+  const youtubeUrl = `https://www.youtube.com/watch?v=${YOUTUBE_ID}`;
+  const kalturaUrl = "https://ntulearn.ntu.edu.sg/ultra/courses/example";
+  const video = (overrides: Partial<Extract<PlayerProbe, { status: "video" }>> = {}): PlayerProbe => ({
+    status: "video", current_sec: 10, ready: true, playing: true, seeked: false, ...overrides,
+  });
+
+  it("validates seek positions", () => {
+    expect(isSeekSeconds(0)).toBe(true);
+    expect(isSeekSeconds(3600.5)).toBe(true);
+    for (const value of [-1, Number.NaN, Number.POSITIVE_INFINITY, 31_536_001, "5", null, undefined]) {
+      expect(isSeekSeconds(value)).toBe(false);
+    }
+  });
+
+  it("reads YouTube playback from the top frame only, passing the arguments to the injected function", async () => {
+    const executeScript = vi.fn(async () => [{ frameId: 0, result: video({ current_sec: 83.45678 }) }]);
+    vi.stubGlobal("chrome", { scripting: { executeScript } });
+
+    await expect(readPlaybackSeconds(9, youtubeUrl)).resolves.toBe(83.457);
+
+    expect(executeScript).toHaveBeenCalledOnce();
+    expect(executeScript).toHaveBeenCalledWith({ target: { tabId: 9, allFrames: false }, world: "MAIN", func: controlPlayer, args: [null, "youtube"] });
+  });
+
+  it("returns null playback when there is no video, it is not ready, or the injection fails", async () => {
+    vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => [{ frameId: 0, result: { status: "no_video" } }]) } });
+    await expect(readPlaybackSeconds(9, youtubeUrl)).resolves.toBeNull();
+
+    vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => [{ frameId: 0, result: video({ ready: false, current_sec: 0 }) }]) } });
+    await expect(readPlaybackSeconds(9, youtubeUrl)).resolves.toBeNull();
+
+    vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => { throw new Error("no access"); }) } });
+    await expect(readPlaybackSeconds(9, youtubeUrl)).resolves.toBeNull();
+  });
+
+  it("rejects unsupported pages for both operations", async () => {
+    const executeScript = vi.fn();
+    vi.stubGlobal("chrome", { scripting: { executeScript } });
+
+    await expect(readPlaybackSeconds(9, "https://example.com/")).rejects.toThrow("unsupported_page");
+    await expect(seekPlayback(9, "https://www.youtube.com/", 5)).rejects.toThrow("unsupported_page");
+    expect(executeScript).not.toHaveBeenCalled();
+  });
+
+  it("reads Kaltura playback from the frame that has a ready, playing video", async () => {
+    const executeScript = vi.fn(async () => [
+      { frameId: 0, result: { status: "no_video" } },
+      { frameId: 2, result: video({ current_sec: 5, playing: false }) },
+      { frameId: 7, result: video({ current_sec: 321.5 }) },
+      { frameId: 9, error: "Frame URL contained ks=private-signature" },
+      { frameId: 11, result: { status: "video", current_sec: "bad" } },
+    ]);
+    vi.stubGlobal("chrome", { scripting: { executeScript } });
+
+    await expect(readPlaybackSeconds(4, kalturaUrl)).resolves.toBe(321.5);
+    expect(executeScript).toHaveBeenCalledOnce();
+    expect(executeScript).toHaveBeenCalledWith(expect.objectContaining({ target: { tabId: 4, allFrames: true }, args: [null, "ntu_kaltura"] }));
+  });
+
+  it("breaks Kaltura ties by the lowest frame id regardless of result order", async () => {
+    vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => [
+      { frameId: 8, result: video({ current_sec: 80 }) },
+      { frameId: 3, result: video({ current_sec: 30 }) },
+    ]) } });
+
+    await expect(readPlaybackSeconds(4, kalturaUrl)).resolves.toBe(30);
+  });
+
+  it("retries the top frame when an all-frames Kaltura read is rejected", async () => {
+    const executeScript = vi.fn()
+      .mockRejectedValueOnce(new Error("inaccessible frame"))
+      .mockResolvedValueOnce([{ frameId: 0, result: video({ current_sec: 12 }) }]);
+    vi.stubGlobal("chrome", { scripting: { executeScript } });
+
+    await expect(readPlaybackSeconds(4, kalturaUrl)).resolves.toBe(12);
+    expect(executeScript.mock.calls[1]?.[0].target).toEqual({ tabId: 4, allFrames: false });
+  });
+
+  it("seeks YouTube in the top frame and fails when no player accepted the position", async () => {
+    const executeScript = vi.fn(async () => [{ frameId: 0, result: video({ seeked: true, current_sec: 125.5 }) }]);
+    vi.stubGlobal("chrome", { scripting: { executeScript } });
+
+    await expect(seekPlayback(9, youtubeUrl, 125.5)).resolves.toBeUndefined();
+    expect(executeScript).toHaveBeenCalledOnce();
+    expect(executeScript).toHaveBeenCalledWith({ target: { tabId: 9, allFrames: false }, world: "MAIN", func: controlPlayer, args: [125.5, "youtube"] });
+
+    vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => [{ frameId: 0, result: { status: "no_video" } }]) } });
+    await expect(seekPlayback(9, youtubeUrl, 5)).rejects.toThrow("seek_failed");
+
+    vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => { throw new Error("no access"); }) } });
+    await expect(seekPlayback(9, youtubeUrl, 5)).rejects.toThrow("seek_failed");
+  });
+
+  it("rejects invalid seek positions before touching the page", async () => {
+    const executeScript = vi.fn();
+    vi.stubGlobal("chrome", { scripting: { executeScript } });
+
+    for (const value of [-1, Number.NaN, Number.POSITIVE_INFINITY, 31_536_001]) {
+      await expect(seekPlayback(9, youtubeUrl, value)).rejects.toThrow("invalid_command");
+    }
+    expect(executeScript).not.toHaveBeenCalled();
+  });
+
+  it("finds the Kaltura player frame first and then seeks only that frame", async () => {
+    const executeScript = vi.fn()
+      .mockResolvedValueOnce([
+        { frameId: 0, result: { status: "no_video" } },
+        { frameId: 4, result: video({ playing: false }) },
+        { frameId: 6, result: video() },
+      ])
+      .mockResolvedValueOnce([{ frameId: 6, result: video({ seeked: true, current_sec: 300 }) }]);
+    vi.stubGlobal("chrome", { scripting: { executeScript } });
+
+    await expect(seekPlayback(4, kalturaUrl, 300)).resolves.toBeUndefined();
+
+    expect(executeScript).toHaveBeenCalledTimes(2);
+    expect(executeScript.mock.calls[0]?.[0]).toMatchObject({ target: { tabId: 4, allFrames: true }, args: [null, "ntu_kaltura"] });
+    expect(executeScript.mock.calls[1]?.[0]).toMatchObject({ target: { tabId: 4, frameIds: [6] }, args: [300, "ntu_kaltura"] });
+    expect(executeScript.mock.calls[1]?.[0].target).not.toHaveProperty("allFrames");
+  });
+
+  it("seeks every Kaltura frame only when the frame id is unknown, and fails without a video", async () => {
+    const executeScript = vi.fn()
+      .mockResolvedValueOnce([{ result: video() }])
+      .mockResolvedValueOnce([{ result: video({ seeked: true }) }]);
+    vi.stubGlobal("chrome", { scripting: { executeScript } });
+    await expect(seekPlayback(4, kalturaUrl, 30)).resolves.toBeUndefined();
+    expect(executeScript.mock.calls[1]?.[0].target).toEqual({ tabId: 4, allFrames: true });
+
+    const noVideo = vi.fn(async () => [{ frameId: 0, result: { status: "no_video" } }]);
+    vi.stubGlobal("chrome", { scripting: { executeScript: noVideo } });
+    await expect(seekPlayback(4, kalturaUrl, 30)).rejects.toThrow("seek_failed");
+    expect(noVideo).toHaveBeenCalledOnce();
+
+    const refused = vi.fn()
+      .mockResolvedValueOnce([{ frameId: 6, result: video() }])
+      .mockResolvedValueOnce([{ frameId: 6, result: video({ seeked: false }) }]);
+    vi.stubGlobal("chrome", { scripting: { executeScript: refused } });
+    await expect(seekPlayback(4, kalturaUrl, 30)).rejects.toThrow("seek_failed");
   });
 });

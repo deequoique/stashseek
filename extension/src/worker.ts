@@ -1,16 +1,62 @@
-import { captureActivePage } from "./page-capture.js";
+import {
+  captureActivePage,
+  isSeekSeconds,
+  normalizePageCapture,
+  readPlaybackSeconds,
+  seekPlayback,
+} from "./page-capture.js";
 import {
   CAPTURE_REQUEST_TIMEOUT_MS,
   requestJson,
   resolveApiOrigin,
   storedOriginAction,
 } from "./api-client.js";
-import { captureRequest, CLIENT_VERSION, sha256Hex } from "./protocol.js";
+import { captureRequest, CLIENT_VERSION, sha256Hex, type PageCapture } from "./protocol.js";
 
 const API_ORIGIN = resolveApiOrigin(chrome.runtime.getManifest().host_permissions ?? []);
 const STORAGE_KEYS = ["apiOrigin", "accessToken", "captureToken", "expiresAt", "user", "tenant", "loginChallengeId", "deviceId", "pairingId", "pairingVerifier", "pendingCaptureRef", "pendingCaptureKey"];
 
-type Command = { type: "STATUS" | "START_PAIRING" | "FINISH_PAIRING" | "START_LOGIN" | "FINISH_LOGIN" | "OPEN_WORKSPACE" | "CAPTURE" | "LIBRARY" | "DISCONNECT"; email?: string; code?: string };
+type PlainCommandType = "STATUS" | "START_PAIRING" | "FINISH_PAIRING" | "START_LOGIN" | "FINISH_LOGIN" | "OPEN_WORKSPACE" | "CAPTURE" | "LIBRARY" | "DISCONNECT";
+const PLAIN_COMMANDS = new Set<string>(["STATUS", "START_PAIRING", "FINISH_PAIRING", "START_LOGIN", "FINISH_LOGIN", "OPEN_WORKSPACE", "CAPTURE", "LIBRARY", "DISCONNECT"]);
+
+// Closed command union. Replies are `{ ok: true, result }` or `{ ok: false, error }`.
+// The side panel uses the last four:
+//   READ_PAGE    -> PageCapture, read from the tab and never submitted
+//   PLAYBACK     -> { playback_sec: number | null }
+//   SEEK         -> { seeked: true } or error `seek_failed`
+//   SAVE_CAPTURE -> the capture submission result, same as CAPTURE but for a page already read
+type Command =
+  | { type: PlainCommandType; email?: string; code?: string }
+  | { type: "READ_PAGE"; tabId: number }
+  | { type: "PLAYBACK"; tabId: number }
+  | { type: "SEEK"; tabId: number; start_sec: number }
+  | { type: "SAVE_CAPTURE"; page: PageCapture };
+
+/** Returns a typed command, `unknown_command` for an unrecognised type, or `invalid_command` for a bad shape. */
+function parseCommand(message: unknown): Command | "unknown_command" | "invalid_command" {
+  if (!message || typeof message !== "object") return "unknown_command";
+  const record = message as Record<string, unknown>;
+  const type = record.type;
+  if (typeof type !== "string") return "unknown_command";
+  if (PLAIN_COMMANDS.has(type)) {
+    return {
+      type: type as PlainCommandType,
+      email: typeof record.email === "string" ? record.email : undefined,
+      code: typeof record.code === "string" ? record.code : undefined,
+    };
+  }
+  if (type === "READ_PAGE" || type === "PLAYBACK" || type === "SEEK") {
+    const tabId = record.tabId;
+    if (typeof tabId !== "number" || !Number.isSafeInteger(tabId) || tabId < 0) return "invalid_command";
+    if (type !== "SEEK") return { type, tabId };
+    return isSeekSeconds(record.start_sec) ? { type, tabId, start_sec: record.start_sec } : "invalid_command";
+  }
+  if (type === "SAVE_CAPTURE") {
+    const page = normalizePageCapture(record.page);
+    return page ? { type, page } : "invalid_command";
+  }
+  return "unknown_command";
+}
 
 function base64Url(bytes: Uint8Array): string {
   let raw = "";
@@ -82,12 +128,13 @@ async function finishPairing(_email?: string, code?: string) {
   return { paired: true };
 }
 
-async function capture() {
+async function requirePairedState(): Promise<Record<string, unknown>> {
   const state = await storageState();
   if (typeof state.captureToken !== "string") throw new Error("pairing_required");
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !tab.url) throw new Error("active_tab_missing");
-  const page = await captureActivePage(tab.id, tab.url);
+  return state;
+}
+
+async function submitCapture(state: Record<string, unknown>, page: PageCapture) {
   const payload = await captureRequest(page);
   const captureRef = await sha256Hex(`${page.platform}:${page.platform_id}:${payload.content_hash}`);
   const idempotency = state.pendingCaptureRef === captureRef && typeof state.pendingCaptureKey === "string"
@@ -108,6 +155,42 @@ async function capture() {
     }
     throw error;
   }
+}
+
+async function capture() {
+  const state = await requirePairedState();
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !tab.url) throw new Error("active_tab_missing");
+  const page = await captureActivePage(tab.id, tab.url);
+  return submitCapture(state, page);
+}
+
+/** Submits a page the side panel already read; the tab is not read again. */
+async function saveCapture(page: PageCapture) {
+  const state = await requirePairedState();
+  return submitCapture(state, page);
+}
+
+async function tabUrl(tabId: number): Promise<string> {
+  let tab: { url?: string } | undefined;
+  try { tab = await chrome.tabs.get(tabId); } catch { throw new Error("active_tab_missing"); }
+  // Without host permission for the page Chrome omits the URL, so it is not a supported media page.
+  if (!tab?.url) throw new Error("unsupported_page");
+  return tab.url;
+}
+
+/** Reads the tab's captions and metadata without submitting anything. */
+async function readPage(tabId: number): Promise<PageCapture> {
+  return captureActivePage(tabId, await tabUrl(tabId));
+}
+
+async function playback(tabId: number) {
+  return { playback_sec: await readPlaybackSeconds(tabId, await tabUrl(tabId)) };
+}
+
+async function seek(tabId: number, startSec: number) {
+  await seekPlayback(tabId, await tabUrl(tabId), startSec);
+  return { seeked: true };
 }
 
 async function disconnect() {
@@ -141,7 +224,11 @@ async function library() {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, respond) => {
-  const command = message as Command;
+  const command = parseCommand(message);
+  if (typeof command === "string") {
+    respond({ ok: false, error: command });
+    return false;
+  }
   if (command.type === "OPEN_WORKSPACE") {
     void chrome.tabs.create({ url: chrome.runtime.getURL("workspace.html#/chat") }).then(() => respond({ ok: true, result: { opened: true } }));
     return true;
@@ -154,6 +241,10 @@ chrome.runtime.onMessage.addListener((message, _sender, respond) => {
         : command.type === "CAPTURE" ? capture()
           : command.type === "LIBRARY" ? library()
           : command.type === "DISCONNECT" ? disconnect()
+            : command.type === "READ_PAGE" ? readPage(command.tabId)
+            : command.type === "PLAYBACK" ? playback(command.tabId)
+            : command.type === "SEEK" ? seek(command.tabId, command.start_sec)
+            : command.type === "SAVE_CAPTURE" ? saveCapture(command.page)
             : Promise.reject(new Error("unknown_command"));
   void operation.then((result) => respond({ ok: true, result })).catch((error: unknown) => respond({ ok: false, error: error instanceof Error ? error.message : "request_failed" }));
   return true;

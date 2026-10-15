@@ -1,4 +1,4 @@
-import type { Cue, PageCapture } from "./protocol.js";
+import type { Cue, PageCapture, Platform } from "./protocol.js";
 
 type SafeCaptureError =
   | "unsupported_page"
@@ -146,7 +146,8 @@ function isPageCapture(value: unknown): value is PageCapture {
     && captionRecord.cues.length === 0;
 }
 
-function normalizePageCapture(value: unknown): PageCapture | null {
+/** Validates and rebuilds a capture so only the public capture.v1 fields survive. */
+export function normalizePageCapture(value: unknown): PageCapture | null {
   try {
     const cloned = structuredClone(value);
     if (!isPageCapture(cloned)) return null;
@@ -226,7 +227,7 @@ function normalizeAttempt(value: unknown): CaptureAttempt | null {
   }
 }
 
-function aggregateAttempts(platform: "youtube" | "ntu_kaltura", values: unknown[]): PageCapture {
+function aggregateAttempts(platform: Platform, values: unknown[]): PageCapture {
   const attempts = values.map(normalizeAttempt).filter((attempt): attempt is CaptureAttempt => attempt !== null);
   const captures = attempts.flatMap((attempt) => (attempt.status === "captured" || attempt.status === "no_caption") ? [attempt.capture] : []);
   const selected = selectBestCapture(captures);
@@ -243,10 +244,11 @@ function aggregateAttempts(platform: "youtube" | "ntu_kaltura", values: unknown[
   throw new Error(failures[0] ?? "capture_unavailable");
 }
 
-export async function captureActivePage(tabId: number, url: string): Promise<PageCapture> {
+/** Maps a tab URL to the supported media adapter, or null for any other page. */
+export function classifyPageUrl(url: string): Platform | null {
   let parsed: URL;
-  try { parsed = new URL(url); } catch { throw new Error("unsupported_page"); }
-  if (parsed.protocol !== "https:") throw new Error("unsupported_page");
+  try { parsed = new URL(url); } catch { return null; }
+  if (parsed.protocol !== "https:") return null;
 
   const host = parsed.hostname.toLowerCase();
   const youtubeHost = host === "www.youtube.com" || host === "youtube.com" || host === "youtu.be";
@@ -257,10 +259,16 @@ export async function captureActivePage(tabId: number, url: string): Promise<Pag
   const kalturaHost = host === "ntulearn.ntu.edu.sg"
     || host === "ntulearnvideo.ntu.edu.sg"
     || host === "ntulearnv1.ntu.edu.sg";
-  const injection = youtubeHost && youtubeShape ? captureYouTubePage : kalturaHost ? captureKalturaPage : null;
-  if (!injection) throw new Error("unsupported_page");
+  if (youtubeHost && youtubeShape) return "youtube";
+  return kalturaHost ? "ntu_kaltura" : null;
+}
 
-  const allFrames = kalturaHost;
+export async function captureActivePage(tabId: number, url: string): Promise<PageCapture> {
+  const kind = classifyPageUrl(url);
+  if (!kind) throw new Error("unsupported_page");
+  const injection = kind === "youtube" ? captureYouTubePage : captureKalturaPage;
+
+  const allFrames = kind === "ntu_kaltura";
   let results: unknown[];
   try {
     results = await chrome.scripting.executeScript({
@@ -290,7 +298,7 @@ export async function captureActivePage(tabId: number, url: string): Promise<Pag
       return [];
     }
   });
-  return aggregateAttempts(youtubeHost ? "youtube" : "ntu_kaltura", values);
+  return aggregateAttempts(kind, values);
 }
 
 /** MAIN-world YouTube adapter; keep this function self-contained for MV3. */
@@ -555,12 +563,96 @@ export async function captureYouTubePage(): Promise<CaptureAttempt> {
     const author = typeof details.author === "string" ? clean(details.author).slice(0, 1000) || null : null;
     const durationValue = Number(details.lengthSeconds);
     const duration = Number.isFinite(durationValue) && durationValue >= 0 ? Math.floor(durationValue) : null;
+    // The description keeps its line structure; only control characters are dropped.
+    const description = (() => {
+      if (typeof details.shortDescription !== "string") return null;
+      const text = Array.from(details.shortDescription.replace(/\r\n?/g, "\n"))
+        .filter((character) => {
+          const code = character.codePointAt(0) ?? 0;
+          return code === 9 || code === 10 || (code >= 32 && code !== 127);
+        })
+        .join("")
+        .trim()
+        .slice(0, 50_000)
+        .trim();
+      return text || null;
+    })();
+    // Best-effort chapters from the player-bar markers. YouTube's SPA navigation
+    // does not refresh `ytInitialData`, so it is only trusted while it still
+    // describes this video; any other shape yields no chapters.
+    const chapters = ((): PageCapture["metadata"]["chapters"] => {
+      try {
+        const data = page.ytInitialData;
+        if (!data || typeof data !== "object") return [];
+        const endpoint = (data as Record<string, unknown>).currentVideoEndpoint;
+        const watchEndpoint = endpoint && typeof endpoint === "object"
+          ? (endpoint as Record<string, unknown>).watchEndpoint
+          : null;
+        const dataVideoId = watchEndpoint && typeof watchEndpoint === "object"
+          ? (watchEndpoint as Record<string, unknown>).videoId
+          : null;
+        if (dataVideoId !== id) return [];
+        const markerLists: Array<{ key: string; items: unknown[] }> = [];
+        const queue: unknown[] = [data];
+        const seen = new Set<unknown>();
+        for (let inspected = 0; inspected < queue.length && inspected < 50_000; inspected += 1) {
+          const value = queue[inspected];
+          if (!value || typeof value !== "object" || seen.has(value)) continue;
+          seen.add(value);
+          const record = value as Record<string, unknown>;
+          if (Array.isArray(record.markersMap)) {
+            for (const entry of record.markersMap) {
+              if (!entry || typeof entry !== "object") continue;
+              const marker = entry as Record<string, unknown>;
+              const markerValue = marker.value && typeof marker.value === "object" ? marker.value as Record<string, unknown> : null;
+              if (typeof marker.key === "string" && markerValue && Array.isArray(markerValue.chapters)) {
+                markerLists.push({ key: marker.key, items: markerValue.chapters });
+              }
+            }
+          }
+          if (Array.isArray(value)) queue.push(...value);
+          else queue.push(...Object.values(record));
+        }
+        const preferred = markerLists.find((list) => list.key === "DESCRIPTION_CHAPTERS")
+          ?? markerLists.find((list) => list.key === "AUTO_CHAPTERS")
+          ?? markerLists[0];
+        if (!preferred) return [];
+        const parsed: Array<{ title: string; start_sec: number }> = [];
+        for (const item of preferred.items.slice(0, 2_000)) {
+          const renderer = item && typeof item === "object" ? (item as Record<string, unknown>).chapterRenderer : null;
+          if (!renderer || typeof renderer !== "object") continue;
+          const fields = renderer as Record<string, unknown>;
+          const titleObject = fields.title && typeof fields.title === "object" ? fields.title as Record<string, unknown> : {};
+          const runs = Array.isArray(titleObject.runs) ? titleObject.runs as Array<Record<string, unknown> | null> : [];
+          const rawTitle = typeof titleObject.simpleText === "string"
+            ? titleObject.simpleText
+            : runs.map((run) => typeof run?.text === "string" ? run.text : "").join("");
+          const chapterTitle = clean(rawTitle).slice(0, 500).trim();
+          const rawStart = fields.timeRangeStartMillis;
+          const startMs = typeof rawStart === "number" ? rawStart
+            : typeof rawStart === "string" && /^\d+$/.test(rawStart) ? Number(rawStart) : Number.NaN;
+          if (!chapterTitle || !Number.isFinite(startMs) || startMs < 0) continue;
+          parsed.push({ title: chapterTitle, start_sec: startMs / 1000 });
+        }
+        const ordered = parsed
+          .sort((left, right) => left.start_sec - right.start_sec)
+          .filter((chapter, index, all) => index === 0 || chapter.start_sec > all[index - 1]!.start_sec)
+          .slice(0, 1_000);
+        return ordered.map((chapter, index) => ({
+          title: chapter.title,
+          start_sec: chapter.start_sec,
+          end_sec: ordered[index + 1]?.start_sec ?? (duration !== null && duration >= chapter.start_sec ? duration : null),
+        }));
+      } catch {
+        return [];
+      }
+    })();
     const baseCapture = (caption: PageCapture["caption"]): PageCapture => ({
       platform: "youtube",
       platform_id: id,
       canonical_url: `https://www.youtube.com/watch?v=${id}`,
       page_url: `https://www.youtube.com/watch?v=${id}`,
-      metadata: { title, author, duration_sec: duration, language: caption.status === "available" ? caption.language : null, description: null, cover_url: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, tags: [], chapters: [] },
+      metadata: { title, author, duration_sec: duration, language: caption.status === "available" ? caption.language : null, description, cover_url: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, tags: [], chapters },
       caption,
     });
     if (!tracks.length) return { status: "no_caption", capture: baseCapture({ status: "unavailable", source: null, language: null, cues: [] }) };
@@ -1524,4 +1616,177 @@ export async function captureKalturaPage(): Promise<CaptureAttempt> {
   } catch {
     return fail("capture_unavailable");
   }
+}
+
+const MAX_SEEK_SEC = 31_536_000;
+
+/** True for a playback position the player helpers accept: finite, non-negative, at most one year. */
+export function isSeekSeconds(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_SEEK_SEC;
+}
+
+export type PlayerProbe =
+  | { status: "no_video" }
+  | { status: "video"; current_sec: number; ready: boolean; playing: boolean; seeked: boolean };
+
+type VideoProbe = Extract<PlayerProbe, { status: "video" }>;
+
+/**
+ * MAIN-world player probe and seek; keep this function self-contained for MV3
+ * (Chrome serialises `func`, so it may use only its own arguments and globals).
+ * With `seekSec === null` it only reads the position of this frame's video.
+ */
+export function controlPlayer(seekSec: number | null, kind: "youtube" | "ntu_kaltura"): PlayerProbe {
+  type SeekablePlayer = { seekTo?: (seconds: number, allowSeekAhead: boolean) => void };
+  try {
+    if (typeof document.querySelectorAll !== "function") return { status: "no_video" };
+    const moviePlayer = kind === "youtube" && typeof document.getElementById === "function"
+      ? document.getElementById("movie_player")
+      : null;
+    let candidates: HTMLVideoElement[];
+    if (kind === "youtube") {
+      // While an ad plays, the main video element holds the ad, not the page's video.
+      if (moviePlayer?.classList?.contains("ad-showing")) return { status: "no_video" };
+      // Hover previews elsewhere on the page also use <video>; only the main player counts.
+      const main = Array.from(document.querySelectorAll("video.html5-main-video"));
+      candidates = (main.length ? main : Array.from(document.querySelectorAll("#movie_player video"))) as HTMLVideoElement[];
+    } else {
+      candidates = Array.from(document.querySelectorAll("video")) as HTMLVideoElement[];
+    }
+    const entries = candidates.map((video) => {
+      const duration = Number(video.duration);
+      const known = Number.isFinite(duration) && duration > 0;
+      const ready = video.readyState >= 1 && known;
+      return { video, duration: known ? duration : null, ready, playing: ready && !video.paused && !video.ended };
+    });
+    const rank = (entry: (typeof entries)[number]) => (entry.ready ? 2 : 0) + (entry.playing ? 1 : 0);
+    const best = entries.reduce<(typeof entries)[number] | undefined>(
+      (chosen, entry) => (!chosen || rank(entry) > rank(chosen) ? entry : chosen),
+      undefined,
+    );
+    if (!best) return { status: "no_video" };
+
+    let seeked = false;
+    if (seekSec !== null) {
+      const target = best.duration !== null ? Math.min(seekSec, best.duration) : seekSec;
+      if (kind === "youtube") {
+        const global = globalThis as typeof globalThis & { movie_player?: SeekablePlayer };
+        const player = (moviePlayer as unknown as SeekablePlayer | null) ?? global.movie_player;
+        try {
+          if (player && typeof player.seekTo === "function") {
+            player.seekTo(target, true);
+            seeked = true;
+          }
+        } catch { /* Fall back to the media element below. */ }
+      }
+      if (!seeked) {
+        try {
+          best.video.currentTime = target;
+          seeked = true;
+        } catch { /* A page-owned element may refuse the assignment. */ }
+      }
+    }
+    const current = Number(best.video.currentTime);
+    return {
+      status: "video",
+      current_sec: Number.isFinite(current) && current >= 0 ? current : 0,
+      ready: best.ready,
+      playing: best.playing,
+      seeked,
+    };
+  } catch {
+    return { status: "no_video" };
+  }
+}
+
+type FrameProbe = { frameId: number | null; probe: VideoProbe };
+type FrameTarget = { allFrames?: boolean; frameIds?: number[] };
+
+function parseVideoProbe(value: unknown): VideoProbe | null {
+  try {
+    if (!value || typeof value !== "object") return null;
+    const probe = value as Record<string, unknown>;
+    if (probe.status !== "video") return null;
+    if (!isSeekSeconds(probe.current_sec)) return null;
+    if (typeof probe.ready !== "boolean" || typeof probe.playing !== "boolean" || typeof probe.seeked !== "boolean") return null;
+    return { status: "video", current_sec: probe.current_sec, ready: probe.ready, playing: probe.playing, seeked: probe.seeked };
+  } catch {
+    return null;
+  }
+}
+
+async function runPlayerProbe(
+  tabId: number,
+  target: FrameTarget,
+  kind: Platform,
+  seekSec: number | null,
+): Promise<FrameProbe[]> {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId, ...target },
+    world: "MAIN",
+    func: controlPlayer,
+    args: [seekSec, kind],
+  }) as unknown as unknown[];
+  return results.flatMap((entry) => {
+    try {
+      if (!entry || typeof entry !== "object") return [];
+      const frame = entry as { frameId?: unknown; result?: unknown };
+      const probe = parseVideoProbe(frame.result);
+      if (!probe) return [];
+      return [{ frameId: typeof frame.frameId === "number" && Number.isInteger(frame.frameId) && frame.frameId >= 0 ? frame.frameId : null, probe }];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** Reads every frame; a rejected all-frames call (one inaccessible frame) retries the top frame only. */
+async function probeFrames(tabId: number, kind: Platform, seekSec: number | null, targets: FrameTarget[]): Promise<FrameProbe[]> {
+  for (const target of targets) {
+    try {
+      return await runPlayerProbe(tabId, target, kind, seekSec);
+    } catch { /* Try the next, narrower target. */ }
+  }
+  return [];
+}
+
+function playerTargets(kind: Platform): FrameTarget[] {
+  // The Kaltura player lives in a cross-origin frame; YouTube's is in the top frame.
+  return kind === "ntu_kaltura" ? [{ allFrames: true }, { allFrames: false }] : [{ allFrames: false }];
+}
+
+function bestFrame(frames: FrameProbe[]): FrameProbe | undefined {
+  const rank = (frame: FrameProbe) => (frame.probe.ready ? 2 : 0) + (frame.probe.playing ? 1 : 0);
+  return frames.reduce<FrameProbe | undefined>((best, frame) => {
+    if (!best || rank(frame) > rank(best)) return frame;
+    if (rank(frame) === rank(best) && (frame.frameId ?? Infinity) < (best.frameId ?? Infinity)) return frame;
+    return best;
+  }, undefined);
+}
+
+/** Current playback position in seconds, or null when the page has no ready video. */
+export async function readPlaybackSeconds(tabId: number, url: string): Promise<number | null> {
+  const kind = classifyPageUrl(url);
+  if (!kind) throw new Error("unsupported_page");
+  const best = bestFrame(await probeFrames(tabId, kind, null, playerTargets(kind)));
+  return best?.probe.ready ? Math.round(best.probe.current_sec * 1000) / 1000 : null;
+}
+
+/** Seeks the page's player; rejects with `seek_failed` when no player accepted the position. */
+export async function seekPlayback(tabId: number, url: string, startSec: number): Promise<void> {
+  if (!isSeekSeconds(startSec)) throw new Error("invalid_command");
+  const kind = classifyPageUrl(url);
+  if (!kind) throw new Error("unsupported_page");
+  if (kind === "youtube") {
+    const frames = await probeFrames(tabId, kind, startSec, playerTargets(kind));
+    if (!frames.some((frame) => frame.probe.seeked)) throw new Error("seek_failed");
+    return;
+  }
+  // Locate the frame holding the player first, so a stray video in another
+  // frame is never moved.
+  const best = bestFrame(await probeFrames(tabId, kind, null, playerTargets(kind)));
+  if (!best) throw new Error("seek_failed");
+  const targets: FrameTarget[] = best.frameId !== null ? [{ frameIds: [best.frameId] }] : [{ allFrames: true }];
+  const frames = await probeFrames(tabId, kind, startSec, targets);
+  if (!frames.some((frame) => frame.probe.seeked)) throw new Error("seek_failed");
 }
