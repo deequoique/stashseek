@@ -162,6 +162,7 @@ def build_api_app(
         extension_sessions=ExtensionSessionService(email_auth) if email_auth is not None else None,
         # Settings test doubles without the flag keep the route unmounted.
         include_page_qa_routes=bool(getattr(settings, "page_qa_enabled", False)),
+        asr_audio_store=store,
     )
     return create_app(
         services=services,

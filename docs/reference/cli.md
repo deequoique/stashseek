@@ -54,6 +54,22 @@ launcher 的 `stop` 只向当前 reservation 记录中的 supervisor 发信号�
 
 问题文本和回答可能包含私人资料，不要把 CLI 输出粘贴到公共日志或 issue。
 
+### ASR 回填
+
+```text
+.venv/bin/python -m app.cli asr-backfill [--limit N] [--user-id ID] [--dry-run]
+```
+
+把已有的 `needs_asr` 公开 YouTube/Bilibili 条目重新派发进 ASR 链路。需要
+`ASR_ENABLED=true`，否则命令拒绝执行（含 `--dry-run`）。`--limit` 默认 `20`，
+最大 `500`；`--user-id` 只处理一个租户。命令只选择未删除、未归档、没有浏览器采集
+记录的条目，为每个条目新建一个 dispatch 并走与重试相同的 `ingest` 队列发布路径
+（已有 active dispatch 的条目会被跳过）。`--dry-run` 只列出会处理的条目。
+
+输出只有计数和内部 item ID（`selected=… queued=… skipped=… failed=…` 与
+`item=<id> <状态>`），不含 URL；有发布失败时以状态 `2` 退出，对应条目保持
+`needs_asr`，可直接重跑。该命令不检查租户的每日配额，转写费用由运维自行把控。
+
 ### 用户与 identity 管理
 
 ```text
