@@ -1,14 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  ApiError,
   ConversationStreamError,
   consumeLinkToken,
   createTelegramLinkToken,
   requestJson,
   setUnauthorizedHandler,
   streamConversationMessage,
+  streamPageQuestion,
   StreamingUnavailableError,
 } from "./client";
+import type { PageQaMessageInput } from "./contracts";
 
 function streamRecord(event: Record<string, unknown>): string {
   return `event: ${String(event.type)}\ndata: ${JSON.stringify(event)}\n\n`;
@@ -371,3 +374,119 @@ describe("same-origin API client", () => {
     await expect(streamConversationMessage("conversation-1", { message_id: "message-4", text: "问题" })).rejects.toBeInstanceOf(StreamingUnavailableError);
   });
 });
+
+const PAGE_QUESTION: PageQaMessageInput = {
+  message_id: "page-message-1",
+  question: "这个视频讲了什么？",
+  playback_sec: 12.5,
+  page: {
+    platform: "youtube",
+    platform_id: "abcdefghijk",
+    canonical_url: "https://www.youtube.com/watch?v=abcdefghijk",
+    page_url: "https://www.youtube.com/watch?v=abcdefghijk",
+    metadata: { title: "A video", tags: [], chapters: [] },
+    caption: { status: "available", source: "official_cc", language: "en", cues: [{ start_sec: 1, end_sec: 2, text: "hello" }] },
+  },
+};
+const PAGE_CONVERSATION_ID = `page-${"a".repeat(32)}`;
+
+function pageEvent(type: string, sequence: number, extra: Record<string, unknown> = {}): string {
+  return streamRecord({ type, request_id: "request-page", message_id: "page-message-1", sequence, ...extra });
+}
+
+describe("page Q&A stream", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("posts the page to the page-qa route with the extension Bearer and the shared lifecycle checks", async () => {
+    vi.stubGlobal("chrome", {
+      storage: { local: { get: vi.fn(async () => ({ apiOrigin: "https://api.example", accessToken: "session-token" })) } },
+    });
+    const citation = { title: "A video", excerpt: "hello", url: "https://www.youtube.com/watch?v=abcdefghijk&t=1s", start_sec: 1 };
+    const final = { status: "ok", text: "答案 [S1]\n\n来源：\n1. A video", citations: [citation], action_results: [], thread_id: "thread-page", error_code: null };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response([
+        pageEvent("started", 1, { activity: "preparing" }),
+        pageEvent("text_delta", 2, { text: "答案 " }),
+        pageEvent("text_delta", 3, { text: "[S1]" }),
+        pageEvent("completed", 4, { activity: "completed", response: final }),
+      ].join(""), { status: 200, headers: { "Content-Type": "text/event-stream" } }),
+    );
+    const events: string[] = [];
+    const deltas: string[] = [];
+
+    await expect(streamPageQuestion(
+      PAGE_CONVERSATION_ID,
+      PAGE_QUESTION,
+      { onEvent: (event) => events.push(event.type), onTextDelta: (text) => deltas.push(text) },
+    )).resolves.toEqual(final);
+
+    expect(events).toEqual(["started", "text_delta", "text_delta", "completed"]);
+    expect(deltas).toEqual(["答案 ", "[S1]"]);
+    const [url, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
+    expect(url).toBe(`https://api.example/api/v1/page-qa/conversations/${PAGE_CONVERSATION_ID}/messages/stream`);
+    const headers = new Headers(init.headers);
+    expect(headers.get("Authorization")).toBe("Bearer session-token");
+    expect(headers.get("Accept")).toBe("text/event-stream");
+    expect(JSON.parse(init.body as string)).toEqual(PAGE_QUESTION);
+  });
+
+  it("rejects a server error event with its stable code", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response([
+        pageEvent("started", 1, { activity: "preparing" }),
+        pageEvent("error", 2, {
+          activity: "failed",
+          error_code: "answer_unavailable",
+          message: "暂时无法生成可靠回答",
+          response: { status: "failed", text: "暂时无法生成可靠回答", citations: [], action_results: [], error_code: "answer_unavailable" },
+        }),
+      ].join(""), { status: 200, headers: { "Content-Type": "text/event-stream" } }),
+    );
+
+    await expect(streamPageQuestion(PAGE_CONVERSATION_ID, PAGE_QUESTION)).rejects.toMatchObject({
+      name: "ConversationStreamError",
+      code: "answer_unavailable",
+    });
+  });
+
+  it("surfaces HTTP failures as ApiError instead of a streaming fallback", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ code: "rate_limited", message: "提问太频繁" }), {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await expect(streamPageQuestion(PAGE_CONVERSATION_ID, PAGE_QUESTION)).rejects.toMatchObject({ status: 429, code: "rate_limited" });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ code: "not_found", message: "未启用" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const error = await streamPageQuestion(PAGE_CONVERSATION_ID, PAGE_QUESTION).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).not.toBeInstanceOf(StreamingUnavailableError);
+  });
+
+  it("fails closed on a non-stream response and on a foreign message id", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+    await expect(streamPageQuestion(PAGE_CONVERSATION_ID, PAGE_QUESTION)).rejects.toMatchObject({ code: "stream_protocol_error" });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        streamRecord({ type: "started", request_id: "request-page", message_id: "someone-else", sequence: 1, activity: "preparing" }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      ),
+    );
+    await expect(streamPageQuestion(PAGE_CONVERSATION_ID, PAGE_QUESTION)).rejects.toMatchObject({ code: "stream_protocol_error" });
+  });
+
+  it("maps an aborted request to a cancelled stream error", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    await expect(streamPageQuestion(PAGE_CONVERSATION_ID, PAGE_QUESTION, {}, new AbortController().signal)).rejects.toMatchObject({ code: "cancelled" });
+  });
+});
+

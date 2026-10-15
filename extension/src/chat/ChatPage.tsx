@@ -28,6 +28,7 @@ import {
   type ExecutionPlanItem,
   type ExecutionStep,
 } from "./ExecutionTimeline";
+import { assistantTextWithoutSourceList } from "./answerText";
 import { MarkdownAnswer } from "./MarkdownAnswer";
 
 interface ChatPageProps {
@@ -77,12 +78,6 @@ function startTime(value: number | null | undefined): string | null {
   const minutes = Math.floor(value / 60);
   const seconds = Math.floor(value % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}`;
-}
-
-function assistantTextWithoutSourceList(text: string, hasCitations: boolean): string {
-  if (!hasCitations) return text;
-  const sourceListStart = text.lastIndexOf("\n\n来源：\n");
-  return sourceListStart === -1 ? text : text.slice(0, sourceListStart).trimEnd();
 }
 
 function markdownPreviewText(text: string): string {
@@ -502,7 +497,8 @@ export function ChatPage({
   });
 
   useEffect(() => {
-    const latest = history.data?.items?.[0];
+    // Page threads are read-only; open on the newest library conversation.
+    const latest = history.data?.items?.find((item) => item.page_qa !== true);
     if (!chatEnabled || !latest || selectedThreadId) return;
     setSelectedThreadId(latest.thread_id);
     setSelectedConversationId(latest.conversation_id);
@@ -512,7 +508,7 @@ export function ChatPage({
     if (
       !chatEnabled
       || !history.data
-      || (history.data.items?.length ?? 0) !== 0
+      || (history.data.items ?? []).some((item) => item.page_qa !== true)
       || selectedThreadId
       || newConversation.isPending
       || attemptedEmptyBootstrap.current
@@ -577,7 +573,7 @@ export function ChatPage({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = draft.trim();
-    if (!text || !selectedConversationId || sendMessage.isPending) return;
+    if (!text || !selectedConversationId || sendMessage.isPending || selectedIsPageThread) return;
     setPendingQuestion(text);
     pendingQuestionRef.current = text;
     pendingThreadIdRef.current = selectedThreadId;
@@ -606,6 +602,10 @@ export function ChatPage({
 
   const turns = transcript.data?.turns ?? [];
   const historyItems = history.data?.items ?? [];
+  // A page-Q&A thread belongs to the video page it was asked on: read-only here.
+  const selectedIsPageThread = transcript.data?.page_qa === true
+    || historyItems.find((item) => item.thread_id === selectedThreadId)?.page_qa === true;
+  const pageThreadLink = turns.flatMap((turn) => turn.citations ?? []).find((citation) => citation.url)?.url;
   const suggestedQuestions = Array.from(new Set([
     ...historyItems
       .filter((item) => item.thread_id !== selectedThreadId && item.title !== "新的检索")
@@ -671,7 +671,7 @@ export function ChatPage({
                         aria-current={item.thread_id === selectedThreadId ? "page" : undefined}
                         onClick={() => selectConversation(item.thread_id, item.conversation_id)}
                       >
-                        <strong>{item.title}</strong>
+                        <strong>{item.title}{item.page_qa === true ? <span className="chat-thread-badge">视频页</span> : null}</strong>
                         {item.preview ? <span>{markdownPreviewText(item.preview)}</span> : null}
                         <time dateTime={item.updated_at}>{displayTime(item.updated_at)}</time>
                       </button>
@@ -766,7 +766,7 @@ export function ChatPage({
                     <p className="chat-question-text">{turn.user_text}</p>
                   </article>
                   <article className={`chat-message chat-message--assistant chat-message--${turn.status}`}>
-                    <header className="chat-answer-heading"><p className="eyebrow"><i aria-hidden="true" />资料库回答</p>{(turn.citations?.length ?? 0) > 0 ? <span>依据 {turn.citations?.length}</span> : null}</header>
+                    <header className="chat-answer-heading"><p className="eyebrow"><i aria-hidden="true" />{selectedIsPageThread ? "视频页回答" : "资料库回答"}</p>{(turn.citations?.length ?? 0) > 0 ? <span>依据 {turn.citations?.length}</span> : null}</header>
                     {turn.status === "not_found" ? <p className="chat-answer-state">没有在当前资料库中找到足够依据。</p> : null}
                     {turn.status === "failed" ? <p className="chat-answer-state">这次检索未能完成。</p> : null}
                     <MarkdownAnswer>{assistantTextWithoutSourceList(turn.assistant_text, (turn.citations?.length ?? 0) > 0)}</MarkdownAnswer>
@@ -813,6 +813,12 @@ export function ChatPage({
             ) : null}
             {sendMessage.isError ? <p className="chat-error" role="alert">{sendErrorMessage(sendMessage.error)}</p> : null}
           </div>
+          {selectedIsPageThread ? (
+            <p className="chat-readonly-note" role="note">
+              这是视频页问答记录，回到视频页可以继续提问。
+              {pageThreadLink ? <> <a href={pageThreadLink} target="_blank" rel="noreferrer">打开这个视频 ↗</a></> : null}
+            </p>
+          ) : (
           <form className="chat-compose" onSubmit={submit}>
             <label className="sr-only" htmlFor="chat-question">向资料库提问</label>
             <div className="chat-compose__field">
@@ -823,6 +829,7 @@ export function ChatPage({
               </div>
             </div>
           </form>
+          )}
         </div>
       </div>
     </section>

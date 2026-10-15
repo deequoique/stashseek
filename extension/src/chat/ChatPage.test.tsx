@@ -730,3 +730,83 @@ describe("AI search chat page", () => {
     release();
   });
 });
+
+describe("page Q&A threads in the workspace", () => {
+  const pageItem = {
+    thread_id: "thread-page",
+    conversation_id: `page-${"b".repeat(32)}`,
+    title: "刚才说的是什么？",
+    preview: "他在讲数据库索引。",
+    updated_at: "2026-10-15T10:00:00Z",
+    page_qa: true,
+  };
+  const pageTurns: ConversationTurns = {
+    thread_id: "thread-page",
+    conversation_id: pageItem.conversation_id,
+    page_qa: true,
+    turns: [{
+      user_text: "刚才说的是什么？",
+      assistant_text: "他在讲数据库索引。[S12]\n\n来源：\n- 数据库课程\n  - [S12] https://www.youtube.com/watch?v=abcdefghijk&t=330s — 索引加速查询。",
+      status: "ok",
+      error_code: null,
+      citations: [{
+        title: "数据库课程",
+        excerpt: "索引加速查询。",
+        url: "https://www.youtube.com/watch?v=abcdefghijk&t=330s",
+        start_sec: 330,
+      }],
+      action_results: [],
+      created_at: "2026-10-15T10:00:00Z",
+    }],
+  };
+
+  it("shows a selected page thread read-only with a way back to the video", async () => {
+    const user = userEvent.setup();
+    renderPage({
+      fetchHistory: vi.fn().mockResolvedValue({ items: [history.items![0], pageItem], next_cursor: null }),
+      fetchTurns: vi.fn().mockImplementation(async (threadId: string) => (threadId === "thread-page" ? pageTurns : turns)),
+    });
+
+    await user.click(await screen.findByRole("button", { name: /^刚才说的是什么？/ }));
+
+    expect(await screen.findByText("这是视频页问答记录，回到视频页可以继续提问。")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "向资料库提问" })).not.toBeInTheDocument();
+    expect(screen.getByText("视频页回答")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /打开这个视频/ })).toHaveAttribute(
+      "href",
+      "https://www.youtube.com/watch?v=abcdefghijk&t=330s",
+    );
+    expect(screen.getByRole("link", { name: /数据库课程/ })).toHaveAttribute(
+      "href",
+      "https://www.youtube.com/watch?v=abcdefghijk&t=330s",
+    );
+  });
+
+  it("badges page threads in the history list and opens on the newest library conversation", async () => {
+    const fetchTurns = vi.fn().mockResolvedValue(turns);
+    renderPage({
+      fetchHistory: vi.fn().mockResolvedValue({ items: [pageItem, history.items![0]], next_cursor: null }),
+      fetchTurns,
+    });
+
+    await waitFor(() => expect(fetchTurns).toHaveBeenCalledWith("thread-1"));
+    expect(fetchTurns).not.toHaveBeenCalledWith("thread-page");
+    expect(screen.getByText("视频页")).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "向资料库提问" })).toBeInTheDocument();
+    expect(screen.queryByText("这是视频页问答记录，回到视频页可以继续提问。")).not.toBeInTheDocument();
+  });
+
+  it("starts a library conversation when the history holds only page threads", async () => {
+    const reset = vi.fn().mockResolvedValue({
+      status: "ok", text: "", citations: [], action_results: [], thread_id: "thread-new", error_code: null,
+    });
+    renderPage({
+      fetchHistory: vi.fn().mockResolvedValue({ items: [pageItem], next_cursor: null }),
+      fetchTurns: vi.fn().mockResolvedValue({ thread_id: "thread-new", conversation_id: "new-id", turns: [] }),
+      reset,
+    });
+
+    await waitFor(() => expect(reset).toHaveBeenCalledWith("new-id"));
+    expect(await screen.findByRole("textbox", { name: "向资料库提问" })).toBeEnabled();
+  });
+});

@@ -676,6 +676,9 @@ h2 { line-height: 1.1; }
 .chat-thread-list strong, .chat-thread-list span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-thread-list strong { font-size: 0.82rem; line-height: 1.35; }
 .chat-thread-select span { grid-column: 1 / -1; color: var(--muted); font-size: 0.7rem; }
+.chat-thread-select .chat-thread-badge { margin-left: 0.4rem; padding: 0.08rem 0.4rem; border: 1px solid rgba(49, 94, 83, 0.3); border-radius: 999px; background: rgba(49, 94, 83, 0.07); color: var(--green); font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em; vertical-align: 0.1em; }
+.chat-readonly-note { margin: 0; padding: 0.9rem 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.84rem; line-height: 1.6; }
+.chat-readonly-note a { color: var(--green); font-weight: 800; }
 .chat-thread-list time { color: var(--muted); font-size: 0.66rem; }
 .chat-thread-menu { position: relative; margin-top: 0.28rem; }
 .chat-thread-menu__trigger { width: 2.25rem; min-height: 2.25rem; display: grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 0.65rem; background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-weight: 900; letter-spacing: 0.08em; }

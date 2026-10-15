@@ -19,6 +19,7 @@ import type {
   ConversationResponse,
   ConversationStreamEvent,
   ConversationTurns,
+  PageQaMessageInput,
   BrowserDeviceList,
   PairingApproval,
 } from "./contracts";
@@ -449,37 +450,31 @@ function parseSseRecord(record: string): unknown | null {
   return JSON.parse(data.join("\n")) as unknown;
 }
 
-/**
- * Consume the browser SSE contract with strict correlation/sequence checks.
- * Repeated sequence numbers are idempotently ignored; a missing or future
- * sequence fails closed so a partial answer is never silently misassembled.
- */
-export async function streamConversationMessage(
-  conversationId: string,
-  input: { message_id: string; text: string },
-  onEvent?: ConversationStreamEventHandler,
+async function openConversationStream(
+  path: string,
+  body: unknown,
   signal?: AbortSignal,
-): Promise<ConversationResponse> {
+): Promise<Response> {
   const headers = new Headers({
     Accept: "text/event-stream",
     "Content-Type": "application/json",
   });
   const csrf = cookie("__Host-kb_csrf");
   if (csrf) headers.set("X-CSRF-Token", csrf);
-  let response: Response;
-  let streamUrl = `/api/v1/conversations/${encodeURIComponent(conversationId)}/messages/stream`;
+  let streamUrl = path;
   if (typeof chrome !== "undefined" && chrome.storage?.local) {
     const state = await chrome.storage.local.get(["apiOrigin", "accessToken"]);
-    streamUrl = `${typeof state.apiOrigin === "string" ? state.apiOrigin : "https://notebookai.deequoique.tech"}${streamUrl}`;
+    streamUrl = `${typeof state.apiOrigin === "string" ? state.apiOrigin : "https://notebookai.deequoique.tech"}${path}`;
     if (typeof state.accessToken === "string") headers.set("Authorization", `Bearer ${state.accessToken}`);
   }
+  let response: Response;
   try {
     response = await fetch(
       streamUrl,
       {
         method: "POST",
         headers,
-        body: JSON.stringify(input),
+        body: JSON.stringify(body),
         credentials: "same-origin",
         signal,
       },
@@ -490,34 +485,28 @@ export async function streamConversationMessage(
     }
     throw error;
   }
-
   if (!response.ok) {
     const payload = await streamErrorPayload(response);
-    if (
-      payload.code === "streaming_disabled"
-      || response.status === 404
-      || response.status === 406
-      || response.status === 415
-    ) {
-      throw new StreamingUnavailableError(payload.message);
-    }
     if (response.status === 401 && payload.code === "session_invalid") {
       unauthorizedHandler?.();
     }
     throw new ApiError(response.status, payload.code, payload.message);
   }
+  return response;
+}
 
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("text/event-stream")) {
-    // An older compatible server may answer this negotiation path with the
-    // ordinary projection. It is safe to accept because no second submission
-    // is made and the JSON route remains the canonical fallback.
-    const projection = await response.json() as unknown;
-    if (!isConversationResponse(projection)) {
-      throw new ConversationStreamError("stream_protocol_error", "流式响应格式无效");
-    }
-    return projection;
-  }
+/**
+ * Consume the browser SSE contract with strict correlation/sequence checks.
+ * Repeated sequence numbers are idempotently ignored; a missing or future
+ * sequence fails closed so a partial answer is never silently misassembled.
+ * Shared by the library conversation stream and the side-panel page Q&A
+ * stream so the lifecycle validation lives in exactly one place.
+ */
+async function consumeConversationStream(
+  response: Response,
+  messageId: string,
+  onEvent?: ConversationStreamEventHandler,
+): Promise<ConversationResponse> {
   if (!response.body) throw new ConversationStreamError("stream_unavailable", "流式连接不可用");
 
   const reader = response.body.getReader();
@@ -548,7 +537,7 @@ export async function streamConversationMessage(
     if (!isStreamEvent(raw)) throw new ConversationStreamError("stream_protocol_error", "流式响应格式无效");
     if (requestId === null) requestId = raw.request_id;
     if (raw.request_id !== requestId) throw new ConversationStreamError("stream_protocol_error", "流式响应标识不一致");
-    if (raw.message_id !== input.message_id) throw new ConversationStreamError("stream_protocol_error", "流式消息标识不一致");
+    if (raw.message_id !== messageId) throw new ConversationStreamError("stream_protocol_error", "流式消息标识不一致");
     if (raw.sequence <= lastSequence) return;
     if (raw.sequence !== lastSequence + 1) throw new ConversationStreamError("stream_protocol_error", "流式响应顺序无效");
     if (!started) {
@@ -720,6 +709,79 @@ export async function streamConversationMessage(
   }
   if (!completed) throw new ConversationStreamError("stream_protocol_error", "流式响应未正常结束");
   return completed;
+}
+
+/** Streams one library conversation message over SSE. */
+export async function streamConversationMessage(
+  conversationId: string,
+  input: { message_id: string; text: string },
+  onEvent?: ConversationStreamEventHandler,
+  signal?: AbortSignal,
+): Promise<ConversationResponse> {
+  let response: Response;
+  try {
+    response = await openConversationStream(
+      `/api/v1/conversations/${encodeURIComponent(conversationId)}/messages/stream`,
+      input,
+      signal,
+    );
+  } catch (error) {
+    if (
+      error instanceof ApiError
+      && (error.code === "streaming_disabled" || error.status === 404 || error.status === 406 || error.status === 415)
+    ) {
+      throw new StreamingUnavailableError(error.message);
+    }
+    throw error;
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("text/event-stream")) {
+    // An older compatible server may answer this negotiation path with the
+    // ordinary projection. It is safe to accept because no second submission
+    // is made and the JSON route remains the canonical fallback.
+    const projection = await response.json() as unknown;
+    if (!isConversationResponse(projection)) {
+      throw new ConversationStreamError("stream_protocol_error", "流式响应格式无效");
+    }
+    return projection;
+  }
+  return consumeConversationStream(response, input.message_id, onEvent);
+}
+
+export interface PageQuestionHandlers {
+  /** Every validated public stream event, in order. */
+  onEvent?: ConversationStreamEventHandler;
+  /** Convenience for the non-empty `text_delta` events. */
+  onTextDelta?: (text: string) => void;
+}
+
+/**
+ * Streams one question about the page the user is looking at. Nothing is
+ * ingested server-side. Resolves with the final projection; a server `error`
+ * event or a protocol violation rejects with `ConversationStreamError`, an
+ * HTTP failure (401, 413, 422, 429, ...) with `ApiError`.
+ */
+export async function streamPageQuestion(
+  conversationId: string,
+  body: PageQaMessageInput,
+  handlers: PageQuestionHandlers = {},
+  signal?: AbortSignal,
+): Promise<ConversationResponse> {
+  const response = await openConversationStream(
+    `/api/v1/page-qa/conversations/${encodeURIComponent(conversationId)}/messages/stream`,
+    body,
+    signal,
+  );
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("text/event-stream")) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new ConversationStreamError("stream_protocol_error", "流式响应格式无效");
+  }
+  return consumeConversationStream(response, body.message_id, (event) => {
+    handlers.onEvent?.(event);
+    if (event.type === "text_delta" && event.text) handlers.onTextDelta?.(event.text);
+  });
 }
 
 export function resetConversation(conversationId: string): Promise<ConversationResponse> {

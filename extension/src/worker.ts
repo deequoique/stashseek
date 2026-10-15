@@ -223,6 +223,16 @@ async function library() {
   });
 }
 
+/** The toolbar icon opens the side panel instead of a popup. Chrome persists the behaviour, but a failure here must never stop the commands below. */
+function configureSidePanel(): void {
+  try {
+    void Promise.resolve(chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true })).catch(() => undefined);
+  } catch { /* The side panel API is unavailable in this browser. */ }
+}
+
+chrome.runtime.onInstalled?.addListener(configureSidePanel);
+chrome.runtime.onStartup?.addListener(configureSidePanel);
+
 chrome.runtime.onMessage.addListener((message, _sender, respond) => {
   const command = parseCommand(message);
   if (typeof command === "string") {

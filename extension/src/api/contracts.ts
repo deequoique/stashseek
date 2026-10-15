@@ -55,3 +55,6 @@ export type ConversationHistoryItem = Schemas["ConversationHistoryItemResponse"]
 export type ConversationHistoryPage = Schemas["ConversationHistoryPageResponse"];
 export type ConversationTurn = Schemas["ConversationTurnResponse"];
 export type ConversationTurns = Schemas["ConversationTurnsResponse"];
+
+export type PageQaMessageInput = Schemas["PageQaMessageInput"];
+export type PageQaPage = Schemas["PageQaPage"];

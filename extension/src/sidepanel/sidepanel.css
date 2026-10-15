@@ -1,0 +1,84 @@
+/* Side panel layout. Palette, buttons, form fields and answer typography come from ../styles.css. */
+body { min-width: 0; min-height: 100vh; background-image: none; }
+#root { min-height: 100vh; }
+
+.sp-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1rem 1rem 1.1rem;
+  background:
+    radial-gradient(circle at 94% 0%, rgba(215, 255, 79, 0.2), transparent 9rem),
+    linear-gradient(rgba(74, 65, 49, 0.03) 1px, transparent 1px),
+    var(--paper);
+  background-size: auto, 100% 26px, auto;
+}
+.sp-shell h1 { margin-bottom: 0.4rem; font-size: 1.2rem; line-height: 1.25; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.sp-shell .eyebrow { margin-bottom: 0.2rem; font-size: 0.64rem; }
+
+.sp-brand { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.65rem; padding-bottom: 0.8rem; border-bottom: 1px solid rgba(81, 72, 58, 0.15); }
+.sp-brand .eyebrow, .sp-brand__name { margin: 0; }
+.sp-brand__name { margin-top: 0.15rem; font-size: 0.8rem; font-weight: 850; }
+.sp-brand__mark { position: relative; width: 28px; height: 28px; border: 4px solid var(--lime); border-right-color: transparent; border-radius: 50%; transform: rotate(-18deg); }
+.sp-brand__mark::before { content: ""; position: absolute; inset: 3px; border: 1px solid var(--green); border-radius: 50%; }
+.sp-brand__mark i { position: absolute; top: -6px; right: -5px; width: 5px; height: 5px; border-radius: 50%; background: var(--paper); box-shadow: 0 0 0 1px rgba(34, 35, 31, 0.2); }
+
+.sp-link { padding: 0.35rem 0; border: 0; background: transparent; color: var(--accent-dark); font-size: 0.78rem; font-weight: 800; text-decoration: underline; text-underline-offset: 0.2rem; }
+
+.sp-intro p, .sp-hint, .sp-privacy { margin: 0; color: var(--muted); font-size: 0.82rem; line-height: 1.6; }
+.sp-empty { padding: 1.1rem 0.9rem; border: 1px solid var(--line); border-radius: 0.9rem 0.9rem 0.9rem 0.25rem; background: rgba(255, 255, 255, 0.42); }
+.sp-empty h1 { font-size: 1.05rem; }
+.sp-empty p { margin: 0; }
+.sp-privacy { font-size: 0.72rem; }
+.sp-login .email-login-flow { margin-top: 0.4rem; }
+.sp-login .email-login-form .field input { min-height: 2.7rem; font-size: 0.95rem; }
+.sp-login__cancel { min-height: 36px; }
+
+.sp-video { display: grid; gap: 0.7rem; padding: 0.95rem; border: 1px solid rgba(81, 72, 58, 0.16); border-radius: 0.9rem 0.9rem 0.9rem 0.25rem; background: rgba(255, 255, 255, 0.46); }
+.sp-video h1 { margin: 0; font-size: 1.02rem; }
+.sp-video .text-button { justify-self: start; min-height: 36px; }
+.sp-status { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 0.6rem; }
+.sp-status p { margin: 0; color: #5f574e; font-size: 0.8rem; line-height: 1.55; }
+.sp-status__dot { width: 8px; height: 8px; margin-top: 0.38rem; border-radius: 50%; background: var(--yellow); box-shadow: 0 0 0 4px rgba(214, 169, 66, 0.13); }
+.sp-status[data-tone="ready"] .sp-status__dot { background: var(--green); box-shadow: 0 0 0 4px rgba(49, 94, 83, 0.13); }
+.sp-status[data-tone="error"] .sp-status__dot { background: var(--accent); box-shadow: 0 0 0 4px rgba(187, 75, 47, 0.13); }
+.sp-status[data-tone="loading"] .sp-status__dot { animation: sp-pulse 1.1s ease-in-out infinite alternate; }
+.sp-save__result { margin: 0; font-size: 0.8rem; line-height: 1.55; }
+.sp-save__result[data-tone="success"] { color: var(--green); }
+.sp-save__result[data-tone="action"] { color: #7a5a14; }
+.sp-save__result[data-tone="error"] { color: var(--accent-dark); }
+.sp-connect { display: grid; gap: 0.5rem; padding: 0.75rem; border: 1px solid var(--line); border-radius: 0.7rem; background: rgba(255, 255, 255, 0.5); }
+.sp-connect > p { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.55; }
+
+.sp-qa { flex: 1; display: grid; align-content: start; gap: 0.8rem; min-height: 0; }
+.sp-suggestions { display: grid; gap: 0.4rem; }
+.sp-suggestions button { min-height: 40px; padding: 0.5rem 0.8rem; border: 1px solid var(--line); border-radius: 0.7rem; background: rgba(255, 255, 255, 0.4); color: var(--green); font-size: 0.82rem; font-weight: 700; text-align: left; }
+.sp-suggestions button:hover { border-color: var(--green); }
+
+.sp-turns { display: grid; gap: 1rem; margin: 0; padding: 0; list-style: none; }
+.sp-turn { display: grid; gap: 0.5rem; }
+.sp-question { justify-self: end; max-width: 92%; margin: 0; padding: 0.55rem 0.8rem; border-radius: 0.9rem 0.9rem 0.2rem 0.9rem; background: var(--ink); color: #fff; font-size: 0.85rem; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
+.sp-answer { min-width: 0; padding: 0.15rem 0; font-size: 0.88rem; }
+.sp-answer__state { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.55; }
+.sp-answer--failed .sp-answer__state { color: var(--accent-dark); }
+
+.sp-citations { display: grid; gap: 0.35rem; margin: 0.7rem 0 0; padding: 0; list-style: none; }
+.sp-citation { width: 100%; min-height: 40px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.6rem; padding: 0.4rem 0.7rem; border: 1px solid rgba(49, 94, 83, 0.28); border-radius: 999px; background: rgba(49, 94, 83, 0.06); color: var(--green); font-size: 0.78rem; text-align: left; }
+.sp-citation:hover { background: rgba(49, 94, 83, 0.14); }
+.sp-citation__time { font-weight: 900; font-variant-numeric: tabular-nums; }
+.sp-citation__title { overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.sp-citation__excerpt { margin: 0.2rem 0 0.1rem 0.9rem; color: var(--muted); font-size: 0.74rem; }
+.sp-citation__excerpt summary { width: fit-content; cursor: pointer; }
+.sp-citation__excerpt p { margin: 0.3rem 0 0; line-height: 1.55; overflow-wrap: anywhere; }
+
+.sp-compose { position: sticky; bottom: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.5rem; padding: 0.6rem 0 0; background: linear-gradient(transparent, var(--paper) 0.6rem); }
+.sp-compose textarea { width: 100%; min-height: 2.9rem; max-height: 9rem; padding: 0.6rem 0.75rem; border: 1px solid var(--line); border-radius: 0.8rem; background: #fffdf8; color: var(--ink); font-size: 0.88rem; line-height: 1.5; resize: none; field-sizing: content; }
+.sp-compose .button { min-height: 44px; padding-inline: 1rem; }
+
+.sp-footer { display: flex; justify-content: center; margin-top: auto; padding-top: 0.4rem; }
+
+@keyframes sp-pulse { from { opacity: 0.45; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .sp-status[data-tone="loading"] .sp-status__dot { animation: none; }
+}

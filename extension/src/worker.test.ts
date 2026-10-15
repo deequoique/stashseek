@@ -50,12 +50,17 @@ async function loadWorker(initialStorage: Record<string, unknown> = { captureTok
   const executeScript = vi.fn();
   const fetchStub = vi.fn();
   let listener: Listener | undefined;
+  const lifecycle: Record<"installed" | "startup", Array<() => void>> = { installed: [], startup: [] };
+  const setPanelBehavior = vi.fn<(behavior: { openPanelOnActionClick: boolean }) => Promise<void>>(async () => undefined);
   vi.stubGlobal("chrome", {
     runtime: {
       getManifest: () => ({ host_permissions: ["https://www.youtube.com/*", `${ORIGIN}/*`] }),
       getURL: (path: string) => `chrome-extension://abc/${path}`,
       onMessage: { addListener: (callback: Listener) => { listener = callback; } },
+      onInstalled: { addListener: (callback: () => void) => { lifecycle.installed.push(callback); } },
+      onStartup: { addListener: (callback: () => void) => { lifecycle.startup.push(callback); } },
     },
+    sidePanel: { setPanelBehavior },
     storage: {
       local: {
         get: vi.fn(async (keys: string[]) => Object.fromEntries(keys.filter((key) => key in store).map((key) => [key, store[key]]))),
@@ -74,7 +79,7 @@ async function loadWorker(initialStorage: Record<string, unknown> = { captureTok
   const send = (message: unknown) => new Promise<Reply>((resolve) => {
     registered(message, {}, (response) => resolve(response as Reply));
   });
-  return { send, store, tabs, executeScript, fetchStub };
+  return { send, store, tabs, executeScript, fetchStub, lifecycle, setPanelBehavior };
 }
 
 function okResponse(body: unknown) {
@@ -338,3 +343,28 @@ describe("SAVE_CAPTURE", () => {
     expect(body).not.toContain("caption_url");
   });
 });
+
+describe("side panel behaviour", () => {
+  it("makes the toolbar icon open the side panel on install and on browser startup", async () => {
+    const { lifecycle, setPanelBehavior } = await loadWorker();
+    expect(lifecycle.installed).toHaveLength(1);
+    expect(lifecycle.startup).toHaveLength(1);
+    expect(setPanelBehavior).not.toHaveBeenCalled();
+
+    lifecycle.installed[0]?.();
+    lifecycle.startup[0]?.();
+
+    expect(setPanelBehavior).toHaveBeenCalledTimes(2);
+    expect(setPanelBehavior).toHaveBeenCalledWith({ openPanelOnActionClick: true });
+  });
+
+  it("keeps serving commands when the side panel API rejects or is missing", async () => {
+    const { lifecycle, setPanelBehavior, send } = await loadWorker();
+    setPanelBehavior.mockRejectedValueOnce(new Error("unsupported"));
+    expect(() => lifecycle.installed[0]?.()).not.toThrow();
+    setPanelBehavior.mockImplementationOnce(() => { throw new Error("sync failure"); });
+    expect(() => lifecycle.startup[0]?.()).not.toThrow();
+    await expect(send({ type: "STATUS" })).resolves.toEqual({ ok: true, result: { paired: true, pairing: false } });
+  });
+});
+
