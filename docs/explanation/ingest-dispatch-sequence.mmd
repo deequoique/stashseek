@@ -1,0 +1,59 @@
+sequenceDiagram
+    autonumber
+    actor User as 👤 用户
+    participant API as ⚙️ Ingestion API
+    participant DB as 💾 PostgreSQL
+    participant Broker as 📬 Celery Broker
+    participant Worker as ⚙️ Celery Worker
+    participant Source as 🌐 视频平台
+
+    User->>+API: 保存视频 URL
+    API->>API: 规范化 URL / 校验用户权限
+
+    rect rgb(232, 245, 233)
+        Note over API,DB: Admission transaction
+        API->>+DB: 检查 ContentItem 是否已存在
+        DB-->>-API: 不存在 / 已存在
+        API->>DB: 写入 ContentItem(state=pending)
+        API->>DB: 写入 IngestDispatch(attempt=1, state=pending)
+        Note over DB: 唯一约束 + request_key<br/>防止重复入库
+        DB-->>-API: COMMIT
+    end
+
+    API-->>-User: 已接收，等待处理
+
+    API->>+Broker: 发布 fetch_text_task(dispatch_id)
+    alt Broker 发布成功
+        Broker-->>-API: 返回 task_id
+        API->>+DB: 将 dispatch 更新为 enqueued
+        DB-->>-API: COMMIT
+    else Broker 发布失败或超时
+        Broker-->>-API: Error / timeout
+        API->>+DB: 将 dispatch 更新为 failed<br/>error_code=queue_unavailable
+        DB-->>-API: COMMIT
+        Note over API,DB: 后续 retry 创建新的 attempt
+    end
+
+    Broker-)Worker: 投递 dispatch_id
+    Worker->>+DB: 按 dispatch_id 加锁并 claim
+    alt 已被其他 worker 处理
+        DB-->>Worker: duplicate / no-op
+    else 可以处理
+        DB-->>-Worker: state=running
+        Worker->>+Source: 拉取标题、章节、字幕
+        Source-->>-Worker: 内容或可重试错误
+        alt 抓取失败且可重试
+            Worker->>+DB: dispatch 回到 enqueued
+            DB-->>-Worker: COMMIT
+            Note over Worker,Broker: Celery retry with backoff
+        else 抓取成功
+            Worker->>Worker: 分块、生成 embedding、写入 segments
+            Worker->>+DB: 更新 ContentItem=ready<br/>dispatch=completed
+            DB-->>-Worker: COMMIT
+        else 不可恢复失败
+            Worker->>+DB: ContentItem=failed<br/>dispatch=failed
+            DB-->>-Worker: COMMIT
+        end
+    end
+
+    Note over User,Source: ContentItem 是用户收藏的内容实体；<br/>IngestDispatch 是一次异步处理尝试和状态记录。

@@ -251,6 +251,144 @@ async def test_flag_on_forged_marker_uses_same_evidence_composer_without_retriev
 
 
 @pytest.mark.asyncio
+async def test_post_search_completion_text_is_discarded_and_composer_still_answers():
+    """R1: after any search the primary model's own text is never shown.
+
+    A minimal "检索完成" completion (the new post-search prompt contract) is
+    discarded exactly like any other primary text once evidence exists; the
+    server-owned structured Composer produces the visible answer.
+    """
+
+    citation = Citation(
+        item_id=1,
+        segment_id=3,
+        title="source",
+        excerpt="evidence",
+        url="https://example.test/source",
+    )
+    services = Services([citation])
+
+    def model(messages, _info):
+        has_return = any(
+            isinstance(part, ToolReturnPart)
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+        )
+        if has_return:
+            return ModelResponse(parts=[TextPart("检索完成")])
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    "search_segments",
+                    json.dumps({"query": "主题"}),
+                    tool_call_id="search-1",
+                )
+            ]
+        )
+
+    result = await KnowledgeAgent(
+        FunctionModel(model),
+        autonomy_settings(),
+        lambda _: services,
+        composer_model=composer_for(3, text="安全总结"),
+    ).run(request("总结我的资料"))
+
+    assert result.answer.status == "ok"
+    assert "安全总结 [S3]" in result.answer.text
+    assert "检索完成" not in result.answer.text
+    assert services.calls == ["search_segments"]
+
+
+@pytest.mark.asyncio
+async def test_todo_finalizes_normally_with_the_post_search_completion_text():
+    """The short post-search completion text does not block Todo finalization."""
+
+    citation = Citation(
+        item_id=1,
+        segment_id=3,
+        title="source",
+        excerpt="evidence",
+        url="https://example.test/source",
+    )
+    services = Services([citation])
+
+    def model(messages, _info):
+        has_todo_return = any(
+            isinstance(part, ToolReturnPart) and part.tool_name == "todo_write"
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+        )
+        has_search_return = any(
+            isinstance(part, ToolReturnPart) and part.tool_name == "search_segments"
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+        )
+        if not has_todo_return:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "todo_write",
+                        json.dumps(
+                            {"items": [{"id": "step", "title": "查找资料", "status": "completed"}]}
+                        ),
+                        tool_call_id="todo-1",
+                    )
+                ]
+            )
+        if not has_search_return:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "search_segments",
+                        json.dumps({"query": "主题"}),
+                        tool_call_id="search-1",
+                    )
+                ]
+            )
+        return ModelResponse(parts=[TextPart("检索完成")])
+
+    result = await KnowledgeAgent(
+        FunctionModel(model),
+        autonomy_settings(),
+        lambda _: services,
+        composer_model=composer_for(3, text="安全总结"),
+    ).run(request("总结我的资料"))
+
+    assert result.answer.status == "ok"
+    assert result.answer.error_code is None
+    assert "安全总结 [S3]" in result.answer.text
+
+
+@pytest.mark.asyncio
+async def test_no_search_capability_answer_is_unchanged_by_the_post_search_rule():
+    """A no-search capability reply still finishes with natural text as-is."""
+
+    services = Services()
+    composer_called = False
+
+    def composer(_messages, _info):
+        nonlocal composer_called
+        composer_called = True
+        return ModelResponse(parts=[TextPart("unexpected composer")])
+
+    result = await KnowledgeAgent(
+        TestModel(call_tools=[], custom_output_text="我可以帮你搜索和总结已保存的视频内容。"),
+        autonomy_settings(),
+        lambda _: services,
+        composer_model=FunctionModel(composer),
+    ).run(request("你能做什么"))
+
+    assert result.answer.status == "ok"
+    assert result.answer.text == "我可以帮你搜索和总结已保存的视频内容。"
+    assert result.answer.citations == []
+    assert services.calls == []
+    assert composer_called is False
+
+
+@pytest.mark.asyncio
 async def test_flag_on_explicit_url_question_cannot_finish_without_search():
     services = Services()
     result = await KnowledgeAgent(

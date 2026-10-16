@@ -37,7 +37,7 @@ from app.agent.answer_pipeline import (
 from app.agent.answer_validation import NaturalAnswerValidationError, validate_natural_answer
 from app.agent.autonomy import RecoveryLedger, RecoveryPolicy, TodoValidationError, TurnTodoStore
 from app.agent.context import TurnContext
-from app.agent.provider import composer_model_settings
+from app.agent.provider import composer_model_settings, retrieval_model_settings
 from app.agent.response import ResponseEnvelope
 from app.agent.runtime_state import AgentDeps, AgentExecution, ToolProgressObservation
 from app.agent.services import (
@@ -47,9 +47,11 @@ from app.agent.services import (
     RetrievalUnavailable,
 )
 from app.agent.streaming import AgentPlanItem, AgentStreamEvent, public_step_code
-from app.agent.types import AgentAnswer, AgentRequest
+from app.agent.types import AgentAnswer, AgentRequest, MediaCitation
 from app.config import Settings
 from app.diagnostics import RequestDiagnostics, classify_usage_limit
+from app.ingest.embed import MultimodalEmbeddingProvider
+from app.retrieval.media import MediaRetrievalService, compose_media_answer, render_media_answer
 from app.ingest.submission import parse_message_references
 
 BOUNDED_UNAVAILABLE_REMAINDER = "后续读取暂时不可用，未完成的部分不会被臆测。"
@@ -79,6 +81,21 @@ def _explicit_save_requested(semantic_text: str) -> bool:
 
 def _is_clarification_question(text: str) -> bool:
     return isinstance(text, str) and bool(text.strip()) and ("?" in text or "？" in text)
+
+
+def _is_no_search_social_or_capability(text: str) -> bool:
+    """Allow only closed, non-knowledge prompts to finish without retrieval."""
+
+    normalized = re.sub(r"\s+", "", text).strip().lower()
+    if normalized in {"你好", "您好", "嗨", "哈喽", "hello", "hi", "hey"}:
+        return True
+    return normalized in {
+        "你能做什么",
+        "你可以做什么",
+        "你能帮我什么",
+        "whatcanyoudo",
+        "howcanyouhelp",
+    }
 
 def _allow_blocked_todo_clarification(
     deps: AgentDeps,
@@ -274,10 +291,16 @@ class KnowledgeAgent:
         composer_model: Model | str | None = None,
         stream_model: Model | str | None = None,
         section_stream_factory: SectionStreamFactory | None = None,
+        multimodal_embedding_provider: MultimodalEmbeddingProvider | None = None,
+        media_search_service: MediaRetrievalService | None = None,
+        media_evidence_adapter=None,
+        vision_service=None,
     ) -> None:
         self._agent = build_agent(
             model,
             tool_timeout=settings.agent_tool_timeout_seconds,
+            multimodal_retrieval_enabled=bool(getattr(settings, "multimodal_retrieval_enabled", False)),
+            media_search_service=media_search_service,
         )
         # FunctionModel is widely used by the offline suite and explicitly
         # requires a stream_function for streamed model requests. Detect that
@@ -296,6 +319,7 @@ class KnowledgeAgent:
             answer_model,
             max_tokens=settings.agent_composer_max_tokens,
         )
+        self._retrieval_model_settings = retrieval_model_settings(model)
         self._answer_pipeline = AnswerPipeline(
             self._composer,
             composer_model_settings=self._composer_model_settings,
@@ -307,6 +331,11 @@ class KnowledgeAgent:
         self._settings = settings
         self._service_factory = service_factory
         self._action_factory = action_factory
+        self._multimodal_embedding_provider = multimodal_embedding_provider
+        self._answer_model = answer_model
+        self._media_search_service = media_search_service
+        self._media_evidence_adapter = media_evidence_adapter
+        self._vision_service = vision_service
 
     async def run(
         self,
@@ -466,7 +495,9 @@ class KnowledgeAgent:
         # a section plan is applicable. Actions, read failures, canonical
         # answers, and no-evidence outcomes stay on the compatibility path.
         natural_text = getattr(primary.value, "output", None)
-        streamable = bool(deps.citations and isinstance(natural_text, str))
+        streamable = bool(
+            deps.citations and not deps.media_evidence and isinstance(natural_text, str)
+        )
         if streamable:
             try:
                 deps.todo_store.finalize(
@@ -547,6 +578,21 @@ class KnowledgeAgent:
             context=request.context,
             todo_store=TurnTodoStore(),
             recovery_ledger=RecoveryLedger(),
+            active_tenant_id=request.tenant.app_user_id,
+            active_retrieval_run_id=request.request_id,
+            multimodal_embedding_provider=(
+                self._multimodal_embedding_provider
+                if self._settings.multimodal_retrieval_enabled else None
+            ),
+            multimodal_retrieval_enabled=self._settings.multimodal_retrieval_enabled,
+            media_evidence_adapter=(
+                self._media_evidence_adapter
+                if self._settings.multimodal_retrieval_enabled else None
+            ),
+            vision_service=(
+                self._vision_service
+                if self._settings.multimodal_retrieval_enabled else None
+            ),
         )
         deps.recovery_policy = RecoveryPolicy(deps.recovery_ledger)
         return deps
@@ -569,322 +615,333 @@ class KnowledgeAgent:
                 call_index=attempts,
                 agent_phase="retrieval",
             )
-            return {"parallel_tool_calls": False}
+            return dict(self._retrieval_model_settings)
 
         try:
-            history = ModelMessagesTypeAdapter.validate_python(list(request.history))
-            async with asyncio.timeout(self._settings.agent_timeout_seconds):
-                with self._agent.parallel_tool_call_execution_mode("sequential"):
-                    run_kwargs = {
-                        "deps": deps,
-                        "message_history": history,
-                        "usage_limits": UsageLimits(
-                            request_limit=self._settings.agent_request_limit,
-                            tool_calls_limit=self._settings.agent_tool_calls_limit,
-                            output_tokens_limit=self._settings.agent_output_token_limit,
-                        ),
-                        "usage": usage,
-                        "model_settings": record_model_attempt,
-                    }
-                    if event_sink is None or not self._primary_event_stream_available:
-                        result = await self._agent.run(
-                            request.question,
-                            **run_kwargs,
-                        )
-                    else:
-                        projector = _PrimaryStreamProjector(request, deps, event_sink)
-                        result = None
-                        async with self._agent.run_stream_events(
-                            request.question,
-                            **run_kwargs,
-                        ) as events:
-                            async for runtime_event in events:
-                                projector.on_event(runtime_event)
-                                if isinstance(runtime_event, AgentRunResultEvent):
-                                    result = runtime_event.result
-                        if result is None:
-                            raise RuntimeError("primary run did not produce a result")
-            return _PrimaryResult(result)
-        except TimeoutError:
-            diagnostics.event("agent_failed", error_code="timeout", agent_phase="retrieval")
-            if deps.actions.outcome is not None:
-                return self._terminal_action_execution(
-                    request, deps.actions.outcome, diagnostics
-                )
-            if deps.invalid_item_scope_attempt:
-                return self._failure(
-                    request,
-                    "只能依据本轮已返回的条目继续限定检索。",
-                    "item_scope_required",
-                    diagnostics,
-                    log_event=False,
-                )
-            if deps.citations:
-                recovered = await self._answer_pipeline.recover_answer(
-                    request, deps, diagnostics
-                )
-                if recovered.answer.status == "ok":
-                    recovered.answer.action_results = list(
-                        deps.actions.read_action_results
+            try:
+                history = ModelMessagesTypeAdapter.validate_python(list(request.history))
+                async with asyncio.timeout(self._settings.agent_timeout_seconds):
+                    with self._agent.parallel_tool_call_execution_mode("sequential"):
+                        run_kwargs = {
+                            "deps": deps,
+                            "message_history": history,
+                            "usage_limits": UsageLimits(
+                                request_limit=self._settings.agent_request_limit,
+                                tool_calls_limit=self._settings.agent_tool_calls_limit,
+                                output_tokens_limit=self._settings.agent_output_token_limit,
+                            ),
+                            "usage": usage,
+                            "model_settings": record_model_attempt,
+                        }
+                        if event_sink is None or not self._primary_event_stream_available:
+                            result = await self._agent.run(
+                                request.question,
+                                **run_kwargs,
+                            )
+                        else:
+                            projector = _PrimaryStreamProjector(request, deps, event_sink)
+                            result = None
+                            async with self._agent.run_stream_events(
+                                request.question,
+                                **run_kwargs,
+                            ) as events:
+                                async for runtime_event in events:
+                                    projector.on_event(runtime_event)
+                                    if isinstance(runtime_event, AgentRunResultEvent):
+                                        result = runtime_event.result
+                            if result is None:
+                                raise RuntimeError("primary run did not produce a result")
+                return _PrimaryResult(result)
+            except TimeoutError:
+                diagnostics.event("agent_failed", error_code="timeout", agent_phase="retrieval")
+                if deps.actions.outcome is not None:
+                    return self._terminal_action_execution(
+                        request, deps.actions.outcome, diagnostics
                     )
-                return recovered
-            if self._search_completed_without_evidence(deps):
-                return self._answer_pipeline.no_evidence(
-                    request, diagnostics, deps.actions.read_action_results
+                if deps.invalid_item_scope_attempt:
+                    return self._failure(
+                        request,
+                        "只能依据本轮已返回的条目继续限定检索。",
+                        "item_scope_required",
+                        diagnostics,
+                        log_event=False,
+                    )
+                if deps.citations:
+                    recovered = await self._answer_pipeline.recover_answer(
+                        request, deps, diagnostics
+                    )
+                    if recovered.answer.status == "ok":
+                        recovered.answer.action_results = list(
+                            deps.actions.read_action_results
+                        )
+                    return recovered
+                if self._search_completed_without_evidence(deps):
+                    return self._answer_pipeline.no_evidence(
+                        request, diagnostics, deps.actions.read_action_results
+                    )
+                if partial := self._partial_read_fallback(request, deps):
+                    return partial
+                return self._failure(
+                    request,
+                    "模型响应超时，请稍后重试。",
+                    "timeout",
+                    diagnostics,
+                    log_event=False,
                 )
-            if partial := self._partial_read_fallback(request, deps):
-                return partial
-            return self._failure(
-                request,
-                "模型响应超时，请稍后重试。",
-                "timeout",
-                diagnostics,
-                log_event=False,
-            )
-        except UsageLimitExceeded as exc:
-            kind, limit, used = classify_usage_limit(exc)
+            except UsageLimitExceeded as exc:
+                kind, limit, used = classify_usage_limit(exc)
+                diagnostics.event(
+                    "agent_failed",
+                    error_code="limit",
+                    exception=exc,
+                    limit_kind=kind,
+                    limit_value=limit,
+                    used_value=deps.tool_calls if kind == "tool_calls" else used,
+                    projected_value=used if kind == "tool_calls" else None,
+                    agent_phase="retrieval",
+                )
+                if deps.actions.outcome is not None:
+                    return self._terminal_action_execution(
+                        request, deps.actions.outcome, diagnostics
+                    )
+                if deps.invalid_item_scope_attempt:
+                    return self._failure(
+                        request,
+                        "只能依据本轮已返回的条目继续限定检索。",
+                        "item_scope_required",
+                        diagnostics,
+                        log_event=False,
+                    )
+                if deps.citations:
+                    return await self._answer_pipeline.recover_answer(
+                        request, deps, diagnostics
+                    )
+                if self._search_completed_without_evidence(deps):
+                    return self._answer_pipeline.no_evidence(
+                        request, diagnostics, deps.actions.read_action_results
+                    )
+                if partial := self._partial_read_fallback(request, deps):
+                    return partial
+                return self._failure(
+                    request,
+                    self._limit_text(kind, phase="retrieval"),
+                    "limit",
+                    diagnostics,
+                    log_event=False,
+                )
+            except EmbeddingUnavailable:
+                if deps.actions.outcome is not None:
+                    return self._terminal_action_execution(
+                        request, deps.actions.outcome, diagnostics
+                    )
+                if deps.invalid_item_scope_attempt:
+                    return self._failure(
+                        request,
+                        "只能依据本轮已返回的条目继续限定检索。",
+                        "item_scope_required",
+                        diagnostics,
+                        log_event=False,
+                    )
+                if deps.citations:
+                    return await self._answer_pipeline.recover_answer(
+                        request, deps, diagnostics
+                    )
+                if self._search_completed_without_evidence(deps):
+                    return self._answer_pipeline.no_evidence(
+                        request, diagnostics, deps.actions.read_action_results
+                    )
+                return self._failure(
+                    request,
+                    "查询能力暂时不可用，请稍后重试。",
+                    "embedding_unavailable",
+                    diagnostics,
+                )
+            except RetrievalUnavailable:
+                if deps.actions.outcome is not None:
+                    return self._terminal_action_execution(
+                        request, deps.actions.outcome, diagnostics
+                    )
+                if deps.invalid_item_scope_attempt:
+                    return self._failure(
+                        request,
+                        "只能依据本轮已返回的条目继续限定检索。",
+                        "item_scope_required",
+                        diagnostics,
+                        log_event=False,
+                    )
+                if deps.citations:
+                    return await self._answer_pipeline.recover_answer(
+                        request, deps, diagnostics
+                    )
+                if self._search_completed_without_evidence(deps):
+                    return self._answer_pipeline.no_evidence(
+                        request, diagnostics, deps.actions.read_action_results
+                    )
+                return self._failure(
+                    request,
+                    "查询能力暂时不可用，请稍后重试。",
+                    "retrieval_unavailable",
+                    diagnostics,
+                )
+            except ModelHTTPError as exc:
+                diagnostics.event(
+                    "agent_failed",
+                    error_code="runtime_error",
+                    exception=exc,
+                    http_status=exc.status_code,
+                    agent_phase="retrieval",
+                )
+                if deps.actions.outcome is not None:
+                    return self._terminal_action_execution(
+                        request, deps.actions.outcome, diagnostics
+                    )
+                if deps.invalid_item_scope_attempt:
+                    return self._failure(
+                        request,
+                        "只能依据本轮已返回的条目继续限定检索。",
+                        "item_scope_required",
+                        diagnostics,
+                        log_event=False,
+                    )
+                if deps.citations:
+                    return await self._answer_pipeline.recover_answer(
+                        request, deps, diagnostics
+                    )
+                if self._search_completed_without_evidence(deps):
+                    return self._answer_pipeline.no_evidence(
+                        request, diagnostics, deps.actions.read_action_results
+                    )
+                if partial := self._partial_read_fallback(request, deps):
+                    return partial
+                return self._failure(
+                    request,
+                    "知识库暂时无法完成检索，请稍后重试。",
+                    "runtime_error",
+                    diagnostics,
+                    log_event=False,
+                )
+            except UnexpectedModelBehavior as exc:
+                if deps.actions.outcome is not None:
+                    return self._terminal_action_execution(
+                        request, deps.actions.outcome, diagnostics
+                    )
+                if deps.actions.input_mismatch:
+                    outcome = deps.actions.finalize_input_mismatch()
+                    diagnostics.event("action_validated", error_code=outcome.error_code)
+                    envelope = ResponseEnvelope.action(
+                        status=outcome.status,
+                        text=outcome.text,
+                        action_code=outcome.error_code or "action_failed",
+                        results=outcome.results,
+                        error_code=outcome.error_code,
+                    )
+                    return AgentExecution(
+                        envelope.project(thread_id=request.thread_public_id),
+                        [],
+                    )
+                if deps.invalid_item_scope_attempt:
+                    return self._failure(
+                        request,
+                        "只能依据本轮已返回的条目继续限定检索。",
+                        "item_scope_required",
+                        diagnostics,
+                        log_event=False,
+                    )
+                diagnostics.event(
+                    "agent_failed",
+                    error_code="runtime_error",
+                    exception=exc,
+                    agent_phase="retrieval",
+                )
+                if deps.citations:
+                    return await self._answer_pipeline.recover_answer(
+                        request, deps, diagnostics
+                    )
+                if self._search_completed_without_evidence(deps):
+                    return self._answer_pipeline.no_evidence(
+                        request, diagnostics, deps.actions.read_action_results
+                    )
+                if partial := self._partial_read_fallback(request, deps):
+                    return partial
+                return self._failure(
+                    request,
+                    "知识库暂时无法完成检索，请稍后重试。",
+                    "runtime_error",
+                    diagnostics,
+                    log_event=False,
+                )
+            except KnowledgeNotFound:
+                if deps.actions.outcome is not None:
+                    return self._terminal_action_execution(
+                        request, deps.actions.outcome, diagnostics
+                    )
+                if deps.invalid_item_scope_attempt:
+                    return self._failure(
+                        request,
+                        "只能依据本轮已返回的条目继续限定检索。",
+                        "item_scope_required",
+                        diagnostics,
+                        log_event=False,
+                    )
+                if deps.citations:
+                    return await self._answer_pipeline.recover_answer(
+                        request, deps, diagnostics
+                    )
+                if self._search_completed_without_evidence(deps):
+                    return self._answer_pipeline.no_evidence(
+                        request, diagnostics, deps.actions.read_action_results
+                    )
+                return self._failure(
+                    request,
+                    "请求的知识片段不存在。",
+                    "not_found",
+                    diagnostics,
+                )
+            except Exception as exc:
+                diagnostics.event(
+                    "agent_failed",
+                    error_code="runtime_error",
+                    exception=exc,
+                    agent_phase="retrieval",
+                )
+                if deps.actions.outcome is not None:
+                    return self._terminal_action_execution(
+                        request, deps.actions.outcome, diagnostics
+                    )
+                if deps.invalid_item_scope_attempt:
+                    return self._failure(
+                        request,
+                        "只能依据本轮已返回的条目继续限定检索。",
+                        "item_scope_required",
+                        diagnostics,
+                        log_event=False,
+                    )
+                if deps.citations:
+                    return await self._answer_pipeline.recover_answer(
+                        request, deps, diagnostics
+                    )
+                if self._search_completed_without_evidence(deps):
+                    return self._answer_pipeline.no_evidence(
+                        request, diagnostics, deps.actions.read_action_results
+                    )
+                if partial := self._partial_read_fallback(request, deps):
+                    return partial
+                return self._failure(
+                    request,
+                    "知识库暂时无法完成检索，请稍后重试。",
+                    "runtime_error",
+                    diagnostics,
+                    log_event=False,
+                )
+
+        finally:
             diagnostics.event(
-                "agent_failed",
-                error_code="limit",
-                exception=exc,
-                limit_kind=kind,
-                limit_value=limit,
-                used_value=deps.tool_calls if kind == "tool_calls" else used,
-                projected_value=used if kind == "tool_calls" else None,
+                "stage_usage",
                 agent_phase="retrieval",
-            )
-            if deps.actions.outcome is not None:
-                return self._terminal_action_execution(
-                    request, deps.actions.outcome, diagnostics
-                )
-            if deps.invalid_item_scope_attempt:
-                return self._failure(
-                    request,
-                    "只能依据本轮已返回的条目继续限定检索。",
-                    "item_scope_required",
-                    diagnostics,
-                    log_event=False,
-                )
-            if deps.citations:
-                return await self._answer_pipeline.recover_answer(
-                    request, deps, diagnostics
-                )
-            if self._search_completed_without_evidence(deps):
-                return self._answer_pipeline.no_evidence(
-                    request, diagnostics, deps.actions.read_action_results
-                )
-            if partial := self._partial_read_fallback(request, deps):
-                return partial
-            return self._failure(
-                request,
-                self._limit_text(kind, phase="retrieval"),
-                "limit",
-                diagnostics,
-                log_event=False,
-            )
-        except EmbeddingUnavailable:
-            if deps.actions.outcome is not None:
-                return self._terminal_action_execution(
-                    request, deps.actions.outcome, diagnostics
-                )
-            if deps.invalid_item_scope_attempt:
-                return self._failure(
-                    request,
-                    "只能依据本轮已返回的条目继续限定检索。",
-                    "item_scope_required",
-                    diagnostics,
-                    log_event=False,
-                )
-            if deps.citations:
-                return await self._answer_pipeline.recover_answer(
-                    request, deps, diagnostics
-                )
-            if self._search_completed_without_evidence(deps):
-                return self._answer_pipeline.no_evidence(
-                    request, diagnostics, deps.actions.read_action_results
-                )
-            return self._failure(
-                request,
-                "查询能力暂时不可用，请稍后重试。",
-                "embedding_unavailable",
-                diagnostics,
-            )
-        except RetrievalUnavailable:
-            if deps.actions.outcome is not None:
-                return self._terminal_action_execution(
-                    request, deps.actions.outcome, diagnostics
-                )
-            if deps.invalid_item_scope_attempt:
-                return self._failure(
-                    request,
-                    "只能依据本轮已返回的条目继续限定检索。",
-                    "item_scope_required",
-                    diagnostics,
-                    log_event=False,
-                )
-            if deps.citations:
-                return await self._answer_pipeline.recover_answer(
-                    request, deps, diagnostics
-                )
-            if self._search_completed_without_evidence(deps):
-                return self._answer_pipeline.no_evidence(
-                    request, diagnostics, deps.actions.read_action_results
-                )
-            return self._failure(
-                request,
-                "查询能力暂时不可用，请稍后重试。",
-                "retrieval_unavailable",
-                diagnostics,
-            )
-        except ModelHTTPError as exc:
-            diagnostics.event(
-                "agent_failed",
-                error_code="runtime_error",
-                exception=exc,
-                http_status=exc.status_code,
-                agent_phase="retrieval",
-            )
-            if deps.actions.outcome is not None:
-                return self._terminal_action_execution(
-                    request, deps.actions.outcome, diagnostics
-                )
-            if deps.invalid_item_scope_attempt:
-                return self._failure(
-                    request,
-                    "只能依据本轮已返回的条目继续限定检索。",
-                    "item_scope_required",
-                    diagnostics,
-                    log_event=False,
-                )
-            if deps.citations:
-                return await self._answer_pipeline.recover_answer(
-                    request, deps, diagnostics
-                )
-            if self._search_completed_without_evidence(deps):
-                return self._answer_pipeline.no_evidence(
-                    request, diagnostics, deps.actions.read_action_results
-                )
-            if partial := self._partial_read_fallback(request, deps):
-                return partial
-            return self._failure(
-                request,
-                "知识库暂时无法完成检索，请稍后重试。",
-                "runtime_error",
-                diagnostics,
-                log_event=False,
-            )
-        except UnexpectedModelBehavior as exc:
-            if deps.actions.outcome is not None:
-                return self._terminal_action_execution(
-                    request, deps.actions.outcome, diagnostics
-                )
-            if deps.actions.input_mismatch:
-                outcome = deps.actions.finalize_input_mismatch()
-                diagnostics.event("action_validated", error_code=outcome.error_code)
-                envelope = ResponseEnvelope.action(
-                    status=outcome.status,
-                    text=outcome.text,
-                    action_code=outcome.error_code or "action_failed",
-                    results=outcome.results,
-                    error_code=outcome.error_code,
-                )
-                return AgentExecution(
-                    envelope.project(thread_id=request.thread_public_id),
-                    [],
-                )
-            if deps.invalid_item_scope_attempt:
-                return self._failure(
-                    request,
-                    "只能依据本轮已返回的条目继续限定检索。",
-                    "item_scope_required",
-                    diagnostics,
-                    log_event=False,
-                )
-            diagnostics.event(
-                "agent_failed",
-                error_code="runtime_error",
-                exception=exc,
-                agent_phase="retrieval",
-            )
-            if deps.citations:
-                return await self._answer_pipeline.recover_answer(
-                    request, deps, diagnostics
-                )
-            if self._search_completed_without_evidence(deps):
-                return self._answer_pipeline.no_evidence(
-                    request, diagnostics, deps.actions.read_action_results
-                )
-            if partial := self._partial_read_fallback(request, deps):
-                return partial
-            return self._failure(
-                request,
-                "知识库暂时无法完成检索，请稍后重试。",
-                "runtime_error",
-                diagnostics,
-                log_event=False,
-            )
-        except KnowledgeNotFound:
-            if deps.actions.outcome is not None:
-                return self._terminal_action_execution(
-                    request, deps.actions.outcome, diagnostics
-                )
-            if deps.invalid_item_scope_attempt:
-                return self._failure(
-                    request,
-                    "只能依据本轮已返回的条目继续限定检索。",
-                    "item_scope_required",
-                    diagnostics,
-                    log_event=False,
-                )
-            if deps.citations:
-                return await self._answer_pipeline.recover_answer(
-                    request, deps, diagnostics
-                )
-            if self._search_completed_without_evidence(deps):
-                return self._answer_pipeline.no_evidence(
-                    request, diagnostics, deps.actions.read_action_results
-                )
-            return self._failure(
-                request,
-                "请求的知识片段不存在。",
-                "not_found",
-                diagnostics,
-            )
-        except Exception as exc:
-            diagnostics.event(
-                "agent_failed",
-                error_code="runtime_error",
-                exception=exc,
-                agent_phase="retrieval",
-            )
-            if deps.actions.outcome is not None:
-                return self._terminal_action_execution(
-                    request, deps.actions.outcome, diagnostics
-                )
-            if deps.invalid_item_scope_attempt:
-                return self._failure(
-                    request,
-                    "只能依据本轮已返回的条目继续限定检索。",
-                    "item_scope_required",
-                    diagnostics,
-                    log_event=False,
-                )
-            if deps.citations:
-                return await self._answer_pipeline.recover_answer(
-                    request, deps, diagnostics
-                )
-            if self._search_completed_without_evidence(deps):
-                return self._answer_pipeline.no_evidence(
-                    request, diagnostics, deps.actions.read_action_results
-                )
-            if partial := self._partial_read_fallback(request, deps):
-                return partial
-            return self._failure(
-                request,
-                "知识库暂时无法完成检索，请稍后重试。",
-                "runtime_error",
-                diagnostics,
-                log_event=False,
+                request_count=usage.requests,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                tool_call_count=usage.tool_calls,
             )
 
     async def _finalize_primary_result(
@@ -973,7 +1030,13 @@ class KnowledgeAgent:
             )
 
         if deps.search_calls < 1:
-            if reference_scope:
+            no_search_allowed = bool(
+                deps.actions.read_action_results
+                or deps.actions.read_action_texts
+                or _is_no_search_social_or_capability(request.question)
+                or _allow_blocked_todo_clarification(deps, natural_text)
+            )
+            if not no_search_allowed:
                 return self._failure(
                     request,
                     "未完成必要的知识库检索，因此不返回无来源答案。",
@@ -1018,7 +1081,77 @@ class KnowledgeAgent:
                 _canonical_history(request.question, validated.text),
             )
 
+        if deps.multimodal_retrieval_enabled and deps.media_evidence:
+            if deps.successful_searches:
+                try:
+                    evidence = tuple(deps.media_evidence.values())
+                    citations = tuple(deps.citations.values())
+                    self._recheck_media_evidence(deps, evidence)
+                    draft = await compose_media_answer(
+                        self._answer_model,
+                        request,
+                        evidence,
+                        timeout_seconds=self._settings.agent_timeout_seconds,
+                        output_tokens_limit=self._settings.agent_composer_max_tokens,
+                        citations=citations,
+                    )
+                    self._recheck_selected_media(deps, evidence, draft)
+                    text, _sources = render_media_answer(
+                        draft, evidence, citations=citations,
+                    )
+                    selected_ids = {
+                        evidence_id
+                        for section in draft.sections
+                        for evidence_id in section.evidence_ids
+                    }
+                    media_citations = [
+                        MediaCitation(
+                            evidence_id=item.evidence_id,
+                            media_id=item.candidate.media_id,
+                            item_id=item.candidate.item_id,
+                            title=item.title,
+                            location=item.location,
+                            start_sec=item.inspection.start_sec,
+                            end_sec=item.inspection.end_sec,
+                            evidence=list(item.inspection.evidence),
+                        )
+                        for item in evidence
+                        if item.evidence_id in selected_ids
+                    ]
+                    return AgentExecution(
+                        AgentAnswer(
+                            status="ok",
+                            text=text,
+                            citations=[item for item in citations if f"S{item.segment_id}" in selected_ids],
+                            media_citations=media_citations,
+                            action_results=list(deps.actions.read_action_results),
+                            thread_id=request.thread_public_id,
+                        ),
+                        _canonical_history(request.question, text),
+                    )
+                except Exception:
+                    return self._failure(
+                        request,
+                        "媒体证据回答暂时不可用，请稍后重试。",
+                        "answer_unavailable",
+                        diagnostics,
+                        log_event=False,
+                    )
         if deps.successful_searches and not deps.citations:
+            if (deps.multimodal_retrieval_enabled and deps.media_manifest is not None
+                    and deps.media_manifest.candidates):
+                return AgentExecution(
+                    AgentAnswer(
+                        status="ok",
+                        text="已找到相似媒体候选，但当前没有可用于回答的已验证视觉证据。",
+                        action_results=list(deps.actions.read_action_results),
+                        thread_id=request.thread_public_id,
+                    ),
+                    _canonical_history(
+                        request.question,
+                        "已找到相似媒体候选，但当前没有可用于回答的已验证视觉证据。",
+                    ),
+                )
             return self._answer_pipeline.no_evidence(
                 request, diagnostics, deps.actions.read_action_results
             )
@@ -1043,6 +1176,35 @@ class KnowledgeAgent:
             "answer_unavailable",
             diagnostics,
             log_event=False,
+        )
+
+    @staticmethod
+    def _recheck_media_evidence(deps, evidence) -> None:
+        from app.agent.media import MediaState
+
+        adapter = deps.media_evidence_adapter
+        if not deps.multimodal_retrieval_enabled or adapter is None:
+            raise RuntimeError("media evidence adapter unavailable")
+        for item in evidence:
+            item.__post_init__()
+            if (item.candidate.tenant_id != deps.active_tenant_id
+                    or item.candidate.run_id != deps.active_retrieval_run_id
+                    or deps.media_manifest is None
+                    or deps.media_manifest.get(item.candidate.media_id) != item.candidate):
+                raise RuntimeError("media evidence scope mismatch")
+            state = adapter.recheck(item.candidate, phase="before_answer")
+            if type(state) is not MediaState or not state.inspectable:
+                raise RuntimeError("media evidence is no longer answerable")
+
+    @staticmethod
+    def _recheck_selected_media(deps, evidence, draft) -> None:
+        selected_ids = {
+            evidence_id
+            for section in draft.sections
+            for evidence_id in section.evidence_ids
+        }
+        KnowledgeAgent._recheck_media_evidence(
+            deps, tuple(item for item in evidence if item.evidence_id in selected_ids)
         )
 
     @staticmethod

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from dataclasses import asdict
+import time
 from typing import Annotated
 
 from pydantic import Field
@@ -10,7 +12,19 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.exceptions import ModelRetry
 
 from app.agent.autonomy import ErrorEnvelope, RecoveryGrant
-from app.agent.limits import SEARCH_RESULT_LIMIT
+from app.agent.limits import (
+    INSPECT_MEDIA_CALLS_LIMIT,
+    INSPECT_MEDIA_CANDIDATE_LIMIT,
+    INSPECT_MEDIA_TIMEOUT_SECONDS,
+    SEARCH_RESULT_LIMIT,
+)
+from app.agent.media import (
+    MediaInspectionRequest,
+    MediaInspectionResult,
+    MediaInspectionValidationError,
+    MediaState,
+    MediaEvidence,
+)
 from app.agent.runtime_state import (
     AgentDeps,
     NORMAL_RETRIEVAL_CALLS_LIMIT,
@@ -20,7 +34,12 @@ from app.agent.runtime_state import (
     _citation_matches_scope,
 )
 from app.agent.agent_tools.policy import ToolPolicy
-from app.agent.types import RetrievalToolPayload
+from app.agent.types import (
+    RetrievalToolPayload,
+    UnifiedRetrievalCandidate,
+    UnifiedRetrievalResult,
+)
+from app.retrieval.media import MediaRetrievalService, MediaSearchResult
 from app.ingest.submission import normalize_item_reference
 
 
@@ -38,7 +57,13 @@ def _item_details_matches_scope(
     )
 
 
-def register_retrieval_tools(agent: Agent, policy: ToolPolicy) -> None:
+def register_retrieval_tools(
+    agent: Agent,
+    policy: ToolPolicy,
+    *,
+    multimodal_retrieval_enabled: bool = False,
+    media_search_service=None,
+) -> None:
     def _run_search_segments(
         ctx: RunContext[AgentDeps],
         query: str,
@@ -183,6 +208,20 @@ def register_retrieval_tools(agent: Agent, policy: ToolPolicy) -> None:
                 ctx.deps.reference_scope,
             )
         ]
+        ctx.deps.last_retrieval_result = UnifiedRetrievalResult(
+            candidates=tuple(
+                UnifiedRetrievalCandidate(
+                    candidate_id=f"segment:{citation.segment_id}",
+                    kind="text",
+                    score=float(getattr(citation, "_retrieval_score", 0.0) or 0.0),
+                    item_id=citation.item_id,
+                    segment_id=citation.segment_id,
+                    start_sec=citation.start_sec,
+                )
+                for citation in citations
+            ),
+            source="text",
+        )
         ctx.deps.tool_event(
             "search_segments", "succeeded", call_index, len(citations)
         )
@@ -388,3 +427,266 @@ def register_retrieval_tools(agent: Agent, policy: ToolPolicy) -> None:
             "evidence": [citation.model_dump()] if citation is not None else [],
             "reason": None,
         }
+
+    @agent.tool(prepare=policy.prepare_media_inspection)
+    def inspect_media(
+        ctx: RunContext[AgentDeps],
+        question: Annotated[str, Field(min_length=1, max_length=500)],
+        media_ids: Annotated[list[str], Field(min_length=1, max_length=INSPECT_MEDIA_CANDIDATE_LIMIT)],
+    ) -> dict:
+        """Inspect only opaque media IDs exposed by this retrieval run."""
+
+        if not ctx.deps.multimodal_retrieval_enabled:
+            return {"status": "skipped", "reason": "disabled", "evidence": []}
+        normalized_question = question.strip()
+        normalized_ids = list(dict.fromkeys(media_ids))
+        if not normalized_question:
+            raise ModelRetry("question must not be empty")
+        if len(normalized_ids) != len(media_ids):
+            raise ModelRetry("media_ids must be unique")
+        if len(normalized_ids) > INSPECT_MEDIA_CANDIDATE_LIMIT:
+            raise ModelRetry("inspect_media accepts at most three candidates")
+        manifest = ctx.deps.media_manifest
+        if manifest is None:
+            raise ModelRetry("media_ids must come from the current retrieval run")
+        if (
+            ctx.deps.active_tenant_id is None
+            or manifest.tenant_id != ctx.deps.active_tenant_id
+        ):
+            return {
+                "status": "error",
+                "error": {"category": "scope", "code": "vision_scope_mismatch"},
+                "evidence": [],
+            }
+        if (
+            ctx.deps.active_retrieval_run_id is None
+            or manifest.run_id != ctx.deps.active_retrieval_run_id
+        ):
+            return {
+                "status": "error",
+                "error": {"category": "scope", "code": "vision_scope_mismatch"},
+                "evidence": [],
+            }
+        candidates = [manifest.get(media_id) for media_id in normalized_ids]
+        if any(candidate is None for candidate in candidates):
+            raise ModelRetry("media_ids must come from the current retrieval run")
+        service = ctx.deps.vision_service
+        adapter = ctx.deps.media_evidence_adapter
+        if service is None or adapter is None:
+            return {
+                "status": "error",
+                "error": {"category": "unavailable", "code": "vision_unavailable"},
+                "evidence": [],
+            }
+        if not ctx.deps.reserve_media_inspection(INSPECT_MEDIA_CALLS_LIMIT):
+            return {
+                "status": "error",
+                "error": {"category": "limit", "code": "vision_budget_exhausted"},
+                "evidence": [],
+            }
+
+        results: list[dict] = []
+        deadline = time.monotonic() + INSPECT_MEDIA_TIMEOUT_SECONDS
+        try:
+            inspected, call_index = policy.execute_tool(
+                ctx.deps,
+                "inspect_media",
+                lambda: _inspect_media_candidates(
+                    ctx.deps,
+                    service,
+                    candidates=candidates,
+                    question=normalized_question,
+                    adapter=adapter,
+                    deadline=deadline,
+                ),
+            )
+            for result, evidence in inspected:
+                if not isinstance(result, MediaInspectionResult) or not isinstance(evidence, MediaEvidence):
+                    raise TypeError("vision service returned invalid result")
+                # Commit the operation result at the tool boundary. This keeps
+                # finalization independent from helper side effects and works
+                # for both fresh and cached inspections.
+                ctx.deps.media_evidence[evidence.evidence_id] = evidence
+                results.append(evidence.as_dict())
+        except FutureTimeoutError:
+            return {
+                "status": "error",
+                "error": {"category": "timeout", "code": "vision_timeout"},
+                "evidence": [],
+            }
+        except Exception:
+            # execute_tool already records provider exceptions at the tool
+            # boundary; do not expose or duplicate the underlying failure.
+            return {
+                "status": "error",
+                "error": {"category": "provider_failure", "code": "vision_failed"},
+                "evidence": [],
+            }
+        ctx.deps.tool_event("inspect_media", "succeeded", call_index, len(results))
+        return {"status": "ok", "evidence": results, "reason": None}
+
+    if multimodal_retrieval_enabled and media_search_service is not None:
+        @agent.tool(prepare=policy.prepare_search)
+        def search_media(
+            ctx: RunContext[AgentDeps],
+            query: Annotated[str, Field(min_length=1, max_length=500)],
+            limit: int = INSPECT_MEDIA_CANDIDATE_LIMIT,
+        ) -> dict:
+            """Search tenant-bound media candidates in the multimodal space."""
+
+            if not ctx.deps.multimodal_retrieval_enabled:
+                return {"status": "skipped", "reason": "disabled", "evidence": []}
+            if skipped := policy.skipped_payload(ctx, "search_media", RetrievalKind.SEARCH):
+                return skipped
+            if ctx.deps.multimodal_embedding_provider is None:
+                return {"status": "error", "error": {"category": "unavailable", "code": "media_provider_unavailable"}, "evidence": []}
+            try:
+                query_limit = max(1, min(int(limit), INSPECT_MEDIA_CANDIDATE_LIMIT))
+                if type(media_search_service) is not MediaRetrievalService:
+                    raise ValueError("media search requires the concrete repository wrapper")
+                result, call_index = policy.execute_tool(
+                    ctx.deps,
+                    "search_media",
+                    lambda: media_search_service.search_media(
+                        tenant_id=ctx.deps.active_tenant_id or 0,
+                        run_id=ctx.deps.active_retrieval_run_id or "",
+                        query=query.strip(),
+                        embedder=ctx.deps.multimodal_embedding_provider,
+                        limit=query_limit,
+                    ),
+                )
+                if type(result) is not MediaSearchResult:
+                    raise ValueError("media search returned invalid result")
+                manifest = result.manifest
+                result.validate(
+                    tenant_id=ctx.deps.active_tenant_id or manifest.tenant_id,
+                    run_id=ctx.deps.active_retrieval_run_id or manifest.run_id,
+                    limit=query_limit,
+                )
+                if ctx.deps.active_tenant_id not in (None, manifest.tenant_id) or ctx.deps.active_retrieval_run_id not in (None, manifest.run_id):
+                    raise ValueError("media search scope mismatch")
+                ctx.deps.media_manifest = manifest
+                # Replacement search scopes revoke older evidence, even when
+                # media IDs happen to be reused under a changed content hash.
+                ctx.deps.media_evidence.clear()
+                ctx.deps.media_evidence_adapter = media_search_service.adapter
+                ctx.deps.last_retrieval_result = UnifiedRetrievalResult(
+                    candidates=tuple(
+                        UnifiedRetrievalCandidate(
+                            candidate_id="M" + item.media_id, kind="media", score=score,
+                            item_id=item.item_id, media_id=item.media_id,
+                        )
+                        for item, score in zip(manifest.candidates, result.scores)
+                    ), source="multimodal",
+                )
+                ctx.deps.successful_searches += 1
+                ctx.deps.tool_event("search_media", "succeeded", call_index, len(manifest.candidates))
+                return {"status": "ok", "evidence": [
+                    {"media_id": item.media_id, "item_id": item.item_id, "score": score}
+                    for item, score in zip(manifest.candidates, result.scores)
+                ], "reason": None}
+            except Exception:
+                return {"status": "error", "error": {"category": "provider_failure", "code": "media_search_failed"}, "evidence": []}
+
+
+def _inspect_media_candidates(
+    deps: AgentDeps,
+    service,
+    *,
+    candidates,
+    question: str,
+    adapter,
+    deadline: float,
+) -> list[tuple[MediaInspectionResult, MediaEvidence]]:
+    inspected: list[tuple[MediaInspectionResult, MediaEvidence]] = []
+    for candidate in candidates:
+        # Never retain evidence from a failed, stale, or negative reinspection.
+        deps.media_evidence.pop("M" + candidate.media_id, None)
+        try:
+            value = _inspect_cached_media(
+                deps,
+                service,
+                candidate=candidate,
+                question=question,
+                adapter=adapter,
+                deadline=deadline,
+            )
+        except MediaInspectionValidationError:
+            continue
+        if value is not None:
+            inspected.append(value)
+    return inspected
+
+
+def _inspect_cached_media(
+    deps: AgentDeps,
+    service,
+    *,
+    candidate,
+    question: str,
+    adapter,
+    deadline: float,
+) -> tuple[MediaInspectionResult, MediaEvidence] | None:
+    cache_key = (
+        candidate.tenant_id,
+        candidate.run_id,
+        candidate.media_id,
+        candidate.content_hash,
+        question,
+        candidate.model_version,
+        candidate.prompt_version,
+    )
+    result = deps.media_inspection_cache.values.get(cache_key)
+    if time.monotonic() >= deadline:
+        raise FutureTimeoutError()
+    before = adapter.recheck(candidate, phase="before_inspection")
+    if type(before) is not MediaState or not before.inspectable:
+        deps.media_inspection_cache.values.pop(cache_key, None)
+        raise MediaInspectionValidationError("media candidate is not inspectable")
+    if result is None:
+        request = MediaInspectionRequest(
+            tenant_id=candidate.tenant_id,
+            item_id=candidate.item_id,
+            run_id=candidate.run_id,
+            media_id=candidate.media_id,
+            content_hash=candidate.content_hash,
+            question=question,
+            model_version=candidate.model_version,
+            prompt_version=candidate.prompt_version,
+        )
+        if time.monotonic() >= deadline:
+            raise FutureTimeoutError()
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(service.inspect_media, request)
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise FutureTimeoutError()
+            result = future.result(timeout=remaining)
+        finally:
+            if not future.done():
+                future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+    if type(result) is not MediaInspectionResult:
+        raise MediaInspectionValidationError("vision service returned invalid result")
+    result.validate()
+    if any(getattr(result, name) != getattr(candidate, name) for name in (
+        "tenant_id", "item_id", "run_id", "media_id", "content_hash", "model_version", "prompt_version",
+    )):
+        raise MediaInspectionValidationError("vision result provenance mismatch")
+    if not result.publishable:
+        return None
+    after = adapter.recheck(candidate, phase="before_publish")
+    if type(after) is not MediaState or not after.inspectable:
+        deps.media_inspection_cache.values.pop(cache_key, None)
+        raise MediaInspectionValidationError("media candidate is not publishable")
+    evidence = adapter.publish_evidence(candidate, result)
+    if type(evidence) is not MediaEvidence:
+        raise MediaInspectionValidationError("media adapter returned invalid evidence")
+    evidence.__post_init__()
+    if evidence.candidate != candidate or evidence.inspection != result:
+        raise MediaInspectionValidationError("media adapter changed inspection provenance")
+    if time.monotonic() >= deadline:
+        raise FutureTimeoutError()
+    deps.media_inspection_cache.values[cache_key] = result
+    return result, evidence

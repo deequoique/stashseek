@@ -13,11 +13,16 @@ from app.channels.service import ChannelService
 from app.channels.pending_actions import PendingConfirmationService
 from app.config import Settings, get_settings
 from app.db import get_session_factory
-from app.ingest.embed import EmbeddingProvider, ZhipuEmbedder
+from app.ingest.embed import (
+    EmbeddingProvider,
+    MultimodalEmbeddingProvider,
+    ZhipuEmbedder,
+)
 from app.ingest.submission import build_ingest_submission_service
 from app.ingest.tasks import publish_ingest_dispatch
 from app.tls import TrustedCA, configure_trusted_ca
 from app.web.auth import WebAuthService
+from app.ingest.wemm_local import MediaResolverLike, ModelLoader, WemmLocalEmbedder
 
 
 def build_embedding_provider(
@@ -40,6 +45,40 @@ def build_embedding_provider(
     )
 
 
+def build_multimodal_embedding_provider(
+    settings: Settings,
+    *,
+    trusted_ca: TrustedCA | None = None,
+    media_resolver: MediaResolverLike | None = None,
+    model_loader: ModelLoader | None = None,
+) -> MultimodalEmbeddingProvider | None:
+    """Build the opt-in local WeMM provider without changing text embedding.
+
+    ``media_resolver`` is intentionally an injection point. The composition
+    root has no authority to resolve tenant-owned media, so the default
+    provider can embed text but rejects image/video references until a caller
+    supplies an authorized, context-managed resolver.
+    """
+
+    if not settings.multimodal_retrieval_enabled or not settings.wemm_enabled:
+        return None
+    # Kept in the signature for callers that already compose providers with a
+    # shared trusted-CA object. The local adapter has no HTTP transport.
+    del trusted_ca
+    return WemmLocalEmbedder(
+        model=settings.wemm_model,
+        revision=settings.wemm_revision or "",
+        dimensions=settings.wemm_dimensions,
+        device=settings.wemm_device,
+        batch_size=settings.wemm_batch_size,
+        max_inputs=settings.wemm_max_inputs,
+        max_text_chars=settings.wemm_max_text_chars,
+        max_media_bytes=settings.wemm_max_media_bytes,
+        media_resolver=media_resolver,
+        model_loader=model_loader,
+    )
+
+
 def build_knowledge_agent(
     settings: Settings,
     *,
@@ -48,6 +87,11 @@ def build_knowledge_agent(
     factory = session_factory or get_session_factory()
     trusted_ca = configure_trusted_ca(settings.tls_ca_bundle)
     embedder = build_embedding_provider(settings, trusted_ca=trusted_ca)
+    multimodal_embedder = (
+        build_multimodal_embedding_provider(settings, trusted_ca=trusted_ca)
+        if settings.multimodal_retrieval_enabled
+        else None
+    )
 
     def service_factory(request):
         return KnowledgeServices(request.tenant, factory, embedder=embedder)
@@ -80,6 +124,7 @@ def build_knowledge_agent(
         service_factory,
         action_factory=action_factory,
         stream_model=stream_model,
+        multimodal_embedding_provider=multimodal_embedder,
     )
 
 

@@ -32,6 +32,10 @@ extension/node_modules/
 extension/dist/
 output/playwright/
 
+# Local interview preparation notes
+面试准备/
+
 # Local Codex/OMX runtime state
 .omx/
 .gstack/
+.neon

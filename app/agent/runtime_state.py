@@ -12,16 +12,24 @@ from pydantic_ai.messages import ModelMessage
 from app.agent.actions import AgentActionRuntime
 from app.agent.autonomy import RecoveryLedger, RecoveryPolicy, TodoValidationError, TurnTodoStore
 from app.agent.context import TurnContext
+from app.agent.media import (
+    MediaCandidateAdapter,
+    MediaCandidateManifest,
+    MediaEvidence,
+    MediaInspectionCache,
+    VisionService,
+)
 from app.agent.services import KnowledgeServices
-from app.agent.types import AgentAnswer, Citation
+from app.agent.types import AgentAnswer, Citation, UnifiedRetrievalResult
 from app.diagnostics import RequestDiagnostics
 from app.ingest.submission import normalize_item_reference
+from app.ingest.embed import MultimodalEmbeddingProvider
 
 NORMAL_RETRIEVAL_CALLS_LIMIT = 5
 NORMAL_SEARCH_CALLS_LIMIT = 2
 NORMAL_EXPANSION_CALLS_LIMIT = 3
 MAX_SOURCE_ITEMS = 5
-COMPOSER_EVIDENCE_EXCERPT_CHARS = 360
+COMPOSER_EVIDENCE_EXCERPT_CHARS = 1200
 COMPRESSED_EVIDENCE_LIMIT = 8
 
 
@@ -32,6 +40,8 @@ class RetrievalKind(str, Enum):
 
 class ReservationResult(str, Enum):
     EXECUTE = "execute"
+    # Retained for type/compatibility only. Every retrieval call within the
+    # stage budgets now executes sequentially; this value is never returned.
     SAME_STEP_SKIPPED = "same_step_skipped"
     STAGE_BUDGET_EXHAUSTED = "stage_budget_exhausted"
 
@@ -85,7 +95,6 @@ class AgentDeps:
     expansion_calls: int = 0
     tool_calls: int = 0
     citations: dict[int, Citation] = field(default_factory=dict)
-    last_retrieval_run_step: int | None = None
     diagnostics: RequestDiagnostics | None = None
     # Legacy exact-reference compatibility for trusted callers.  The normal
     # URL-plus-question route leaves this empty so retrieval remains tenant-wide.
@@ -111,16 +120,46 @@ class AgentDeps:
     read_recovery_exhausted: bool = False
     todo_used: bool = False
     tool_observations: list[ToolProgressObservation] = field(default_factory=list)
+    # Populated only by the current retrieval run. Model arguments are checked
+    # against this exact opaque-ID set; they never authorize media access.
+    media_manifest: MediaCandidateManifest | None = None
+    vision_service: VisionService | None = None
+    media_inspection_cache: MediaInspectionCache = field(
+        default_factory=MediaInspectionCache
+    )
+    media_evidence_adapter: MediaCandidateAdapter | None = None
+    media_evidence: dict[str, MediaEvidence] = field(default_factory=dict)
     _tool_lock: threading.Lock = field(default_factory=threading.Lock)
+    media_inspection_calls: int = 0
+    # Set by the orchestrator for new runs; None preserves direct-construction
+    # compatibility for isolated tool consumers.
+    active_tenant_id: int | None = None
+    active_retrieval_run_id: str | None = None
+    # Optional rollout-only provider. The legacy text service never consumes
+    # this field, so enabling the flag cannot alter Segment retrieval.
+    multimodal_embedding_provider: MultimodalEmbeddingProvider | None = None
+    multimodal_retrieval_enabled: bool = False
+    last_retrieval_result: UnifiedRetrievalResult | None = None
+
+    def reserve_media_inspection(self, limit: int) -> bool:
+        with self._tool_lock:
+            if self.media_inspection_calls >= limit:
+                return False
+            self.media_inspection_calls += 1
+            return True
 
     def reserve_retrieval(
         self, *, run_step: int, kind: RetrievalKind
     ) -> ReservationResult:
-        """Atomically reserve the only backend retrieval allowed in a step."""
+        """Atomically reserve one backend retrieval within the stage budgets.
+
+        Every retrieval call in the local sequential execution order may
+        execute, bounded only by the server-owned stage budgets below.
+        ``run_step`` is retained for caller compatibility; it no longer gates
+        execution (there is no "one retrieval per model step" rule).
+        """
 
         with self._tool_lock:
-            if self.last_retrieval_run_step == run_step:
-                return ReservationResult.SAME_STEP_SKIPPED
             if self.retrieval_calls >= NORMAL_RETRIEVAL_CALLS_LIMIT:
                 return ReservationResult.STAGE_BUDGET_EXHAUSTED
             if kind is RetrievalKind.SEARCH:
@@ -132,7 +171,6 @@ class AgentDeps:
                     return ReservationResult.STAGE_BUDGET_EXHAUSTED
                 self.expansion_calls += 1
             self.retrieval_calls += 1
-            self.last_retrieval_run_step = run_step
             return ReservationResult.EXECUTE
 
     def record(self, values: list[Citation] | Citation) -> None:
@@ -217,6 +255,10 @@ class ComposerDeps:
     last_failure_reason: str | None = None
     required_item_ids: frozenset[int] = frozenset()
     max_segments: int = COMPRESSED_EVIDENCE_LIMIT
+    # Optional inspected media evidence selected during this run.  Keeping it
+    # on the Composer deps makes the text-only path compatible with the
+    # multimodal answer renderer while preserving an empty default.
+    media_evidence: dict[str, MediaEvidence] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

@@ -975,6 +975,86 @@
         "title": "ConversationHistoryPageResponse",
         "type": "object"
       },
+      "ConversationMediaCitationResponse": {
+        "additionalProperties": false,
+        "description": "Browser-safe projection of validated media evidence.",
+        "properties": {
+          "end_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Sec"
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "evidence_id": {
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "integer"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Location"
+          },
+          "media_id": {
+            "title": "Media Id",
+            "type": "string"
+          },
+          "start_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Sec"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title"
+          }
+        },
+        "required": [
+          "evidence_id",
+          "media_id",
+          "item_id"
+        ],
+        "title": "ConversationMediaCitationResponse",
+        "type": "object"
+      },
       "ConversationPlanItem": {
         "additionalProperties": false,
         "description": "Browser-safe projection of one transient turn plan item.",
@@ -1041,6 +1121,13 @@
             ],
             "default": null,
             "title": "Error Code"
+          },
+          "media_citations": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationMediaCitationResponse"
+            },
+            "title": "Media Citations",
+            "type": "array"
           },
           "status": {
             "title": "Status",
@@ -1358,6 +1445,13 @@
               }
             ],
             "title": "Error Code"
+          },
+          "media_citations": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationMediaCitationResponse"
+            },
+            "title": "Media Citations",
+            "type": "array"
           },
           "status": {
             "title": "Status",

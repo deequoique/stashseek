@@ -678,6 +678,85 @@ def test_long_connector_transcript_keeps_per_cue_semantic_embedding():
     assert 0 < len(embedder.calls[1]) < cue_count
 
 
+def test_semantic_budget_guard_skips_per_cue_embedding_when_insufficient(monkeypatch):
+    cue_count = 100
+    item = type(
+        "Item",
+        (),
+        {
+            "id": 46,
+            "user_id": 7,
+            "platform": "youtube",
+            "platform_id": "dQw4w9WgXcQ",
+            "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "chapters": [],
+            "state": "pending",
+            "raw_object_key": None,
+            "raw_format": "json3",
+            "content_hash": None,
+            "text_source": "none",
+            "lang": None,
+            "fail_reason": None,
+            "deleted_at": None,
+            "purge_claimed_at": None,
+        },
+    )()
+
+    class DB:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return None
+        def get(self, model, _item_id):
+            assert model is ContentItem
+            return item
+        def commit(self): return None
+        def refresh(self, _value): return None
+        def execute(self, _statement): return None
+        def add(self, _value): return None
+
+    # 60 chars/cue * 100 cues == 6000 cue chars. The guard rejects per-cue
+    # embedding whenever cue_chars + 1.2 * cue_chars exceeds the remaining
+    # budget (13200 > 13100 here), while still leaving enough budget for the
+    # much smaller final per-chunk vectors call below.
+    cues = [Cue(index, index + 0.8, "a" * 60) for index in range(cue_count)]
+
+    class Connector:
+        platform = "youtube"
+
+        def fetch_meta(self, _platform_id):
+            return None
+
+        def fetch_text(self, _platform_id):
+            return TextResult(b"connector transcript", cues, "official_cc", "en")
+
+    class Store:
+        def put(self, *_args): return None
+
+    class Embedder:
+        def __init__(self): self.calls = []
+        def embed(self, values):
+            self.calls.append(list(values))
+            return [[1.0, 0.0] for _ in values]
+
+    embedder = Embedder()
+    limits = replace(Settings(), ingest_max_embedding_chars_per_item=13100)
+    monkeypatch.setattr("app.ingest.tasks.get_settings", lambda: limits)
+
+    state = process_item(
+        item.id,
+        connector=Connector(),
+        embedder=embedder,
+        object_store=Store(),
+        session_factory=lambda: DB(),
+    )
+
+    assert state == "ready"
+    # The pre-flight budget guard rejects per-cue embedding for this item, so
+    # only the final per-chunk embedding call reaches the provider, and the
+    # ingest still completes instead of raising IngestLimitExceeded.
+    assert len(embedder.calls) == 1
+    assert 0 < len(embedder.calls[0]) < cue_count
+
+
 def test_bilibili_srt_uses_format_specific_object_key_and_content_type():
     item = type(
         "Item",
