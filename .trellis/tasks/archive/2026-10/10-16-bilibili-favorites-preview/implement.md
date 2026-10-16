@@ -1,5 +1,10 @@
 # Execution plan — public favorites and part-selection UI
 
+Execution complete: product code and independent review passed, followed by native
+parent browser acceptance. Work commit: `788b2ae`, dependent on SSO `2bb6dbc`.
+The checklist below is the original plan, not the current task status. Exact
+test counts and remaining pre-existing failures are in the parent verification.md.
+
 Planning only. Do not run `task.py start` or product implementation until the
 parent's complete final plan is approved. Preserve all existing SSO/BV/share/chat
 work; never reset it, commit it as this task, or deploy as part of verification.
