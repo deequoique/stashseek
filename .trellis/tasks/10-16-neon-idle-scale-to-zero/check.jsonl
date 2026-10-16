@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend spec index and layer conventions"}
+{"file": ".trellis/spec/backend/ingest-completion-queue.md", "reason": "Notification task, repair sweep, ledger claim/ACK and heartbeat contracts being extended"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Neon scale-to-zero contract the change must satisfy; pytest DB isolation"}
+{"file": ".trellis/spec/backend/knowledge-item-management.md", "reason": "Recycle-bin purge semantics affected by daily purge default"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Privacy-safe numeric diagnostics for new heartbeat/index fields"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Fail-open read / best-effort write handling for Redis"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Quality and test conventions for backend changes"}
+{"file": ".trellis/tasks/10-16-neon-idle-scale-to-zero/research/idle-wake-evidence.md", "reason": "Evidence the acceptance criteria are measured against"}
