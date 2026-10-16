@@ -22,7 +22,14 @@ from app.connectors.base import TransientFetchError
 from app.connectors.bilibili import BilibiliConnector
 from app.connectors.youtube import YouTubeConnector
 
-AUDIO_FORMAT_SELECTOR = "bestaudio[ext=m4a]/bestaudio"
+# ASR models resample to 16 kHz mono, so roughly 40-72 kbps is enough, and the
+# YouTube proxy is billed per GB.  The 40 kbps floor skips YouTube's ~30 kbps
+# "ultralow" formats; the last fallback is today's plain ``bestaudio`` for
+# videos with no stream whose abr is known to fall in range.
+AUDIO_FORMAT_SELECTOR = (
+    "bestaudio[abr>=40][abr<=72][ext=m4a]/bestaudio[abr>=40][abr<=72]"
+    "/worstaudio[abr>=40]/bestaudio"
+)
 _MAX_SOCKET_TIMEOUT_SECONDS = 30.0
 _TOO_LARGE_MARKER = "larger than max-filesize"
 _INCOMPLETE_SUFFIXES = frozenset({"part", "ytdl", "temp"})

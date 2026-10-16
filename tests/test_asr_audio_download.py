@@ -15,6 +15,11 @@ YOUTUBE_CANONICAL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 BILIBILI_URL = "https://www.bilibili.com/video/BV1GJ411x7h7?spm_id_from=333"
 BILIBILI_CANONICAL = "https://www.bilibili.com/video/BV1GJ411x7h7"
 PROXY = "http://127.0.0.1:18080"
+# Speech-adequate low-bitrate audio: the YouTube proxy is billed per GB.
+EXPECTED_AUDIO_FORMAT_SELECTOR = (
+    "bestaudio[abr>=40][abr<=72][ext=m4a]/bestaudio[abr>=40][abr<=72]"
+    "/worstaudio[abr>=40]/bestaudio"
+)
 
 
 def _settings(**overrides):
@@ -65,7 +70,7 @@ def test_youtube_arguments_and_result(tmp_path):
     assert args[:3] == [sys.executable, "-m", "yt_dlp"]
     pairs = dict(zip(args, args[1:]))
     assert "--ignore-config" in args and "--no-cache-dir" in args and "--no-playlist" in args
-    assert pairs["-f"] == AUDIO_FORMAT_SELECTOR == "bestaudio[ext=m4a]/bestaudio"
+    assert pairs["-f"] == AUDIO_FORMAT_SELECTOR == EXPECTED_AUDIO_FORMAT_SELECTOR
     assert pairs["--max-filesize"] == "1000"
     assert pairs["--socket-timeout"] == "30.0"
     assert pairs["-o"] == f"{tmp_path}/audio.%(ext)s"
@@ -109,6 +114,7 @@ def test_bilibili_uses_canonical_url_no_youtube_args_and_no_proxy(tmp_path):
 
     args, kwargs = runner.calls[0]
     assert args[-1] == BILIBILI_CANONICAL
+    assert dict(zip(args, args[1:]))["-f"] == EXPECTED_AUDIO_FORMAT_SELECTOR
     assert "--extractor-args" not in args
     # A configured YouTube proxy never applies here.
     assert not any("proxy" in name.lower() for name in kwargs["env"])
