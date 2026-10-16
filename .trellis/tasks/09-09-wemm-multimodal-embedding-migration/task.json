@@ -1,0 +1,34 @@
+{
+  "id": "wemm-multimodal-embedding-migration",
+  "name": "wemm-multimodal-embedding-migration",
+  "title": "WeMM-Embedding 多模态检索架构迁移",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "backend-agent-ingest-retrieval",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-09-09",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-09-media-embedding-ingestion",
+    "09-09-inspect-media-agent-tool",
+    "09-09-multimodal-retrieval-rollout",
+    "09-09-media-asset-vector-index"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "将 SearchSeek 从纯文本 embedding 检索扩展为 WeMM 文本/图片/视频统一向量检索，并增加受限的按需多模态候选验证 tool。",
+    "blocked_reason": "subagent_provider_502_and_approval_timeouts"
+  }
+}

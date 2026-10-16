@@ -1,0 +1,28 @@
+{
+  "id": "inspect-media-agent-tool",
+  "name": "inspect-media-agent-tool",
+  "title": "实现多模态候选验证 Agent Tool",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-09-09",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-09-wemm-multimodal-embedding-migration",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "实现受限 inspect_media 多模态验证 tool、缓存和证据结构。"
+  }
+}

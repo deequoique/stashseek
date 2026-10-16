@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/browser-companion-capture.md", "reason": "Preserve capture secrecy; intentionally replace companion-only product boundary with explicit session scope"}
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "Reuse session/tenant/runtime boundary"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Migrate frontend quality checks to extension"}
+{"file": ".trellis/spec/backend/agent-execution-streaming.md", "reason": "Preserve streamed answer/event contract"}

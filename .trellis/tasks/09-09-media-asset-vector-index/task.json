@@ -1,0 +1,29 @@
+{
+  "id": "media-asset-vector-index",
+  "name": "media-asset-vector-index",
+  "title": "新增媒体资产与向量索引",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-09-09",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-09-wemm-multimodal-embedding-migration",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "新增媒体资产、向量版本与 pgvector 索引生命周期。",
+    "execution": "last-before-production"
+  }
+}

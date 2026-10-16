@@ -1,378 +1,200 @@
-# Agent Evaluator 技术设计
+# Agent Benchmark 技术设计
 
-## 1. 设计目标与边界
+> 2026-10-07 二次修订：单次 benchmark，不做版本对比。之前的配对/门禁设计存档在 `research/archived-release-gate-plan-2026-10-07/design.md`。
 
-本任务扩展现有 `evals/natural_language`，不重写 Agent，也不改变 public MCP/HTTP/SSE 响应。现有 `LiveEvaluator` 继续负责真实模型、MCP session、临时授权、fixture 准备和单臂生命周期；新增 evaluator-owned 层负责冻结、轨迹投影、证据校验、judge、配对比较和发布决策。
-
-核心原则：
-
-1. **同一事实源。** 数据、profile、run plan 和 gate policy 都先冻结再运行；报告中的每个 arm 都引用其 hash。
-2. **结果、轨迹和运行指标分离。** 工具调用多不等于差，工具调用少也不等于好；任务和证据正确性先于效率。
-3. **先硬校验，后主观判断。** 程序验证身份、URL、时间和字幕归属；judge 只判断已验证证据是否支持结论。
-4. **比较 fail closed。** 缺样本、required trace/evidence/latency、profile 漂移、未仲裁分歧或无法配对时不猜测；usage/price 缺失只产生明确的非阻塞成本 `unknown`。
-5. **隐私边界不扩大。** 原始参数只在请求内存中存在，答案/字幕只进入显式本地 review package，生产 diagnostics 和 SSE 保持现状。
-
-## 2. 总体数据流
+## 1. 总体流程
 
 ```text
-Dataset source + fixture annotations
-        -> validate/freeze -> frozen dataset + run plan
-                                  |
-                 +----------------+----------------+
-                 |                                 |
-        committed baseline checkout       committed candidate checkout
-                 |                                 |
-          run one immutable arm             run one immutable arm
-                 |                                 |
-          baseline artifact                 candidate artifact
-                 +----------------+----------------+
-                                  |
-                   compatibility + paired comparison
-                                  |
-        deterministic correctness / trajectory / latency / cost
-                                  |
-                  verified evidence -> fixed rubric judge
-                                  |
-                     disagreement review/adjudication
-                                  |
-                  release gate: eligible/rejected/incomparable
+题库 final（只读）+ 题集文件（选题 / 故障方案 / 规则版本）
+   -> 校验题集（离线，零外部调用）
+   -> 入库：每场会议一个测试账号（Neon test 分支；已入库的复用）
+   -> 逐题逐次运行（每次一个独立进程、独立对话）
+        记录：工具请求序列、后端检索、引用、阶段 token、延迟、状态
+   -> 规则检查 T1–T8 + 有效性/稳定性指标（离线，可重复计算）
+   -> report.md + report.json
 ```
 
-运行器不负责 Git checkout。freeze/run-plan 命令生成相同的不可变输入，两个已提交 checkout 分别用 `--arm baseline|candidate` 和各自的 `solution_id` 生成 artifact；第三个 compare 命令只消费 artifact。这样避免 evaluator 在 dirty worktree 中隐式切换代码，也使两臂可由 CI 或本机独立执行。
+"跑"和"算"分开：原始记录落盘后，规则检查和指标计算都是离线纯函数。改了规则实现可以直接重算，不必重跑模型。不过报告必须写明规则版本；规则含义变了要升版本号。
 
-## 3. 推荐模块边界
+## 2. 代码位置与复用
 
-保持 `runner.py` 的现有兼容入口，按职责新增下列模块；实际实现可在不破坏边界的前提下合并小文件。
+所有新代码放在 `evals/meeting_gold/` 下，新增一个 `benchmark` 子命令，不另建包。
 
-| 模块 | 责任 |
+| 文件 | 作用 | 复用 |
+| --- | --- | --- |
+| `benchmark_spec.py` | 题集文件的 schema、校验、hash | `core.canonical_hash`、`artifacts` 的 selection 校验 |
+| `benchmark_run.py` | 入库、逐题运行、故障注入、写原始记录 | `production_path`（测试分支保护、入库）、`agent_smoke.run_case` 的记录逻辑 |
+| `trace_rules.py` | T1–T8 判定和参数出错率；只接收结构化记录，纯函数 | — |
+| `benchmark_report.py` | 有效性/稳定性指标、置信区间、报告 | `scoring.score_cases`、`agent_smoke.chunk_metrics/citation_metrics`、`stats.wilson_ci` |
+
+另有 `benchmark_judge.py`：答案正确性打分和人工抽查（§11）。
+
+`agent_smoke.run_case` 现在把记录逻辑和写文件混在一起。需要的话，把记录部分拆成可复用的函数，但 `agent-smoke` 命令的输出保持不变。
+
+CLI：各模块各自提供 `add_*_arguments(subparsers)` 和 `run_*(args) -> int`，最后统一接进 `__main__.py` 的 `benchmark` 子命令（`make-spec`、`validate`、`run`、`report`、`judge`）。
+
+## 3. 题集文件
+
+`evals/meeting_gold/benchmarks/agent-benchmark-v1.yaml`（入库，只放 ID 和配置，不复制题库内容）：
+
+```text
+version, golden_dataset_hash, rules_version, repeats: 3
+questions:
+  - id, kind: specific|general, golden_case_id
+  - id, kind: tool_error, golden_case_id, fault: {tool: search_segments, occurrence: 1, error: retrieval_unavailable|embedding_unavailable}
+spec_hash
+```
+
+- 校验内容：
+  - 题库 hash 等于 `final` 的 hash
+  - 题目都在 val 集里
+  - specific/general 题有完整证据标注（CES `citation_scorable`）
+  - 三个领域都覆盖
+  - ID 唯一
+- 概括题按领域抽取，种子固定，写进文件。
+
+## 4. 运行环境与被测版本
+
+- **被测代码**：分支 `feat/agent-benchmark`（基于 `origin/main` `7418262`），worktree 在 `.runtime/worktrees/agent-benchmark`。只加入评测代码（`evals/meeting_gold` 和新文件），不改 `app/`。`data/`、`.env`、`.env.neon-test`、`.venv` 是指向 dev 目录的软链接。报告记录 commit，以及 `app/` 相对该 commit 是否有改动；有改动就拒绝正式运行。dev 上的未提交改动不参与。
+- **数据库**：只用 `.env.neon-test` 的测试分支。运行前断言它不是生产 host（`prepare_test_environment` / `assert_test_environment_active`）。
+- **账号布局**：每场会议一个测试账号，和历史运行一致。每道题都在它所属会议的账号里提问。
+- **入库**：复用 `production_path.ingest_meeting`。检查点文件记录每场会议的账号、条目、片段及其对应的证据句，以及分块配置。已入库且没有变化的会议直接复用（`_meeting_still_valid`）。
+- **隔离**：每次运行一个独立进程、一个新对话，不共享历史。运行前清掉 `LANGSMITH_*`、`LANGCHAIN_*`、`OTEL_*` 等环境变量，避免意外上传。
+- **并发**：默认串行运行，记录开始和结束时间。并发会影响延迟，V1 不开。
+
+## 5. 轨迹记录
+
+全部在评测进程内挂钩，不改 app 代码：
+
+| 记录什么 | 怎么拿 | 现状 |
+| --- | --- | --- |
+| 每次工具调用的开始/成功/失败/被跳过和序号 | 捕获 diagnostics 的 `tool_call` 事件（由 `AgentDeps.tool_event` 发出） | 已有 |
+| 实际执行的后端检索：工具、状态、返回的片段 | 用 `RecordingServices` 包装 `KnowledgeServices` | 已有（原始 query/args 也在，只留在本地原始记录里） |
+| 模型发出的每个工具请求，包括被参数校验拒绝的和同一次响应里的多个请求，按顺序 | 两种做法：在评测进程里包装模型对象，从每次模型响应中读出工具请求；或者用 PydanticAI 事件流的 `FunctionToolCallEvent`（带 `args_valid`）。实施时选能在不改 app 的前提下拿到的那种 | **缺** |
+| 超限类型、引用规范化原因 | diagnostics `limit_kind`、`citation_validated` | 已有 |
+| 查资料阶段的 token | diagnostics `stage_usage` | 已有 |
+| 写答案阶段（规划、分段、恢复）的 token | 在评测进程里包装 answer pipeline 内各阶段的 run 调用，读取各自的 `RunUsage` | **缺** |
+| 最终状态、引用、回答里的 `[S…]` 标记 | `agent.stream` 的 `completed` 事件；回答原文只用于提取标记，不落盘 | 部分已有（标记集合需新增） |
+| 延迟 | 从发起提问到 `completed` 事件 | 已有 |
+
+模型请求、工具调用和后端检索这三类记录，用调用序号（`call_index`）对齐，合成每次运行的一条有序轨迹。如果对齐失败（数量对不上），这次运行的轨迹标为"不完整"，所有依赖轨迹的规则判"未知"，不判通过。
+
+**记录手段（已确认可行，PydanticAI 2.15.0）**：
+
+- **模型请求和各阶段 token**：用 `pydantic_ai.models.wrapper.WrapperModel` 写一个记录壳 `RecordingModel(stage=...)`，在评测进程里对每个 Agent 实例进入 `agent.override(model=RecordingModel(原模型))`。覆盖的实例有：`orchestrator._agent` → `primary`，`answer_pipeline.stream_plan` → `stream_plan`，`answer_pipeline.section_streamer` → `section`，`answer_pipeline.composer` → `composer`/`recovery`（按调用入口区分）。每次 `request`/`request_stream` 结束后，读取 `ModelResponse.parts` 里的 `ToolCallPart`（工具名、`tool_call_id`、参数）和 `ModelResponse.usage`。下一次请求消息里出现的 `RetryPromptPart`（同一个 `tool_call_id`）表示该请求被拒绝：`content` 是校验错误列表时记为 `schema`，是字符串时记为 `tool_retry`。
+- **参数校验结果**：在评测进程里包装 `orchestrator._PrimaryStreamProjector.on_event`，读取 `FunctionToolCallEvent.args_valid`，按 `tool_call_id` 合并到上面的请求记录里。两个来源不一致时，这次运行的轨迹标为"不完整"。
+- **工具调用事件和后端检索**：沿用 `agent_smoke` 的做法（日志 handler 捕获 diagnostics 和 `RecordingServices`）。
+- 所有包装只记录、不改返回值；运行结束后在 `finally` 里还原。
+
+### 5.1 每次运行的原始记录格式
+
+`runs/<question_id>__r<n>.json`，`schema_version = "meeting-benchmark-run-v1"`，只存在本地 `data/`：
+
+```text
+schema_version, question_id, kind (specific|general|tool_error), repeat_index
+golden_case_id, meeting_id (题目所属会议), target_meeting_id (提问所在账号的会议；目前总是等于 meeting_id，为兼容保留)
+tenant_user_id, item_id                        # 仅本地
+started_at, ended_at, latency_ms               # 提问到 completed 事件
+outcome: {completed: bool, status, error_code, citation_count, exception_class|null}
+trace_complete: bool, trace_incomplete_reasons: [..]
+model_requests: [{seq, stage, usage: {input_tokens, output_tokens, cache_read_tokens, reasoning_tokens|null},
+                  tool_calls: [{tool_call_id, tool_name, args: {...}, args_valid: bool|null,
+                                rejection: null|"schema"|"tool_retry"}]}]
+tool_events: [{call_index, tool_name, outcome: started|succeeded|failed|skipped, result_count|null}]
+backend_calls: [{seq, tool, args: {...}, status: succeeded|failed, error_type|null,
+                 injected_fault: bool, segment_ids: [..], item_ids: [..]}]
+limits: [{kind, phase}]
+citation_failures: [reason]
+citations: [{segment_id, item_id, url, start_sec|null}]
+markers: [segment_id]                          # 回答中 [S…] 标记集合
+stage_usage_diagnostics: [...]                 # diagnostics 的 stage_usage，用于交叉核对
+stream_failures, guard_rejections, section_aborted   # 沿用 agent_smoke 的失败分类输入
+failure_category                               # agent_smoke.categorize_failure
+```
+
+- 回答原文单独存为 `answers/<question_id>__r<n>.txt`，只给答案打分和人工抽查用，不进报告。
+- `args`、`url`、账号/条目 ID 只在原始记录里，报告不引用。
+- 证据指标（严格/宽松）在报告阶段离线计算：用 `segment_ids`/`citations`，结合 `library.json` 中片段到证据句的映射，复用 `scoring.score_cases` 和 `agent_smoke.chunk_metrics/citation_metrics`。
+
+## 6. 规则判定细节
+
+规则只读结构化轨迹，`rules_version` 写进报告。
+
+- **T1 先查后答**：最终回答之前，至少有一次 `search_segments` 后端执行成功。空结果也算成功执行。
+- **T2 只用该用的工具**：
+  - 允许集合：`search_segments`、`get_neighbors`、`open_at`、`get_item`、`todo_write`。
+  - `search_media`/`inspect_media` 如果线上配置启用了，单独统计次数，不算违规。
+  - 其他工具出现一次即不通过。
+- **T3 扩展有依据**：扩展类调用的目标片段或条目，必须出现在本次运行之前的检索结果里。服务端本来就有这个约束；这条规则验证约束确实生效，同时记录模型尝试越界的次数。
+- **T4 不重复查**：同一工具加相同参数，在一次运行内出现两次及以上，即不通过。参数先做规范化（去掉首尾空白，不区分大小写）。例外：前一次失败后，服务端允许的那一次重试。规范化后的参数只在内存中比较，不写进报告。
+- **T5 不空转**：按时间顺序，如果连续 2 次后端检索或扩展返回的片段全部是本次运行已经见过的，或者都是空结果，即不通过。阈值 2 写在规则文件里。
+- **T6 不撞预算**：没有 `skipped`（被预算拦下）的调用，也没有 `limit_kind` 记录。
+- **T7 引用可追溯**：
+  - 每条引用的片段都在本次的检索或扩展结果里
+  - 片段属于该题会议的条目
+  - 片段文本与入库检查点一致
+  - 回答里的 `[S…]` 标记集合等于引用集合
+- **T8 出错按规矩处理**（故障题）：注入失败之后，同一操作最多重试一次。最终要么正常回答（同时满足 T7），要么返回如实的失败状态。返回正常答案却没有任何有效证据，判为"假装成功"，不通过。
+
+**工具参数出错率** = 被参数校验拒绝的工具请求 / 全部工具请求。分母按单个请求计，同一次响应里的多个请求分别计数。
+
+## 7. 指标口径
+
+- 每个指标都输出 `分子 / 分母 / 状态 / 原因`。状态有三种：
+  - `ok`
+  - `not_applicable`：该题不适用，比如没有完整证据标注的题没有证据指标
+  - `unknown`：应该能算但缺记录
+- 分母：
+  - 运行级指标（回答成功率、各规则通过率等）的分母，是该题型的全部运行。
+  - 有效性证据指标的分母，是有完整证据标注的运行。
+- 证据指标用现成实现：
+  - 严格口径：`scoring.score_cases`（句子级 Recall@k、MRR、证据召回、引用精确率）
+  - 宽松口径：`agent_smoke.chunk_metrics/citation_metrics`
+- 同题一致率：一道题 3 次运行结果完全相同记为一致，分母是题数。
+- 延迟：p50/p95 用最近秩法（nearest-rank），同时给最大值和样本数。分"全部运行"和"成功运行"两个口径。
+- 置信区间：比例类指标用 `stats.wilson_ci`。同一题的 3 次运行不是独立样本，报告里会注明，并同时给出"按题汇总"的结果（先对每题取平均，再对所有题取平均）。
+
+## 8. 故障注入
+
+- 在 `RecordingServices` 同一层，对指定题的指定第几次调用，抛出服务端本来就会处理的错误：`RetrievalUnavailable` 或 `EmbeddingUnavailable`。这样走的是线上真实的恢复路径（`ToolPolicy` 的 `retry_same_read`）。
+- 只在评测进程内生效，不需要改 app 代码。
+- 跑完检查：该条目和片段的数据没有变化，没有残留的任务或记录。
+
+## 9. 报告与数据存放
+
+```text
+data/meeting_gold/runs/benchmark-<date>/
+  spec.json            # 题集文件快照 + hash
+  environment.json     # commit、模型、thinking、预算、分块配置、测试分支断言结果（不含连接串）
+  library.json         # 入库检查点
+  runs/<question_id>__r<n>.json   # 每次运行的原始记录（格式见 §5.1，不含回答原文）
+  answers/<question_id>__r<n>.txt # 回答原文，仅供打分和人工抽查
+  judge/                          # 答案打分结果和人工抽查记录（§11）
+  report.json
+  report.md
+```
+
+- `data/` 不入库。
+- `report.md` 可以分享：只放题目 ID、计数、比例和原因码，不放回答、工具参数、URL 或账号 ID。
+- 题库是公开数据（MIT），问题原文本身不敏感，但报告里仍然只放 ID，保持简单统一。
+
+## 10. 风险
+
+| 风险 | 处理 |
 | --- | --- |
-| `experiment_schema.py` | Frozen dataset、fixture identity、case/fault/repeat、execution profile、run plan、arm/comparison/gate artifact 的 strict schema。 |
-| `dataset.py` | 数据集校验、canonical serialization、hash、只读 fixture/segment resolver、freeze/drift 检查。 |
-| `trajectory.py` | 完整 model-tool lifecycle 的 eval-only 安全投影、decision DAG 对齐、参数合法性、progress epoch、冗余和 loop 分类。 |
-| `answer_evidence.py` | Citation 的平台身份、URL、时间戳、segment/字幕 hash、excerpt 和 `[S...]` marker 硬校验。 |
-| `usage.py` | primary/composer/recovery 的 provider-neutral usage 聚合和版本化价格表计算。 |
-| `judge.py` | 固定无工具 rubric judge、strict 输出、盲化 arm 标签、分歧/抽检队列。 |
-| `comparison.py` | 两臂兼容性检查、case/attempt 配对、按层聚合、delta/CI、unknown 传播。 |
-| `release_gate.py` | 只读取预注册 policy 与 comparison，输出三态发布决策和逐条 reason。 |
-| 既有 `quality.py` / `human_review.py` | 继续提供 Gold retrieval/citation scorer 与 accepted-only 人工聚合；不让 judge 覆盖硬错误。 |
-
-推荐数据目录：
-
-```text
-evals/natural_language/
-  datasets/agent-evaluator-v1.yaml
-  profiles/<profile-id>.yaml
-  rubrics/answer-support-v1.yaml
-  prices/<price-table-version>.yaml
-```
-
-运行产物仍进入 gitignored results 目录，而不是仓库 source tree。
-
-## 4. 冻结数据契约
-
-### 4.1 顶层 manifest
-
-`FrozenDatasetManifest` 至少包含：
-
-```text
-schema_version, dataset_id, revision, frozen_at, dataset_sha256
-fixture_snapshot_id, fixtures[]
-cases[]
-repeat_policy
-annotation_review_proof
-```
-
-`dataset_sha256` 不计算自身字段；其余字段经排序键、统一 Unicode/换行、稳定数值编码的 canonical JSON 后计算 SHA-256。YAML 只作为作者格式，hash 输入始终是 schema validate 后的 canonical model dump。
-
-数据 hash 覆盖 query/turn、stratum/tags、Gold evidence、decision DAG、fault schedule、case-level threshold、key-case 标记、repeat policy 和 `annotation_review_proof`。`annotation_review_proof` 必须记录 `status=approved`、reviewer role/opaque reviewer reference、reviewed_at、review_revision、覆盖计数以及 coverage digest；它证明四层覆盖和 Gold/故障标注在冻结前经过人工复核，但不把私人联系方式写入发布报告。模型、工具、judge、价格表属于 execution profile，不混进 dataset hash；最终 `comparison_profile_hash` 同时绑定 dataset hash 和所有运行契约。
-
-### 4.2 稳定 fixture 身份
-
-每个 fixture 冻结：
-
-```text
-alias
-platform + platform_id + canonical base URL
-duration_sec + ready state
-transcript content hash + raw format + text source
-segments: stable key + seq + start/end + normalized text SHA-256
-```
-
-只读 resolver 在每个 arm 的外部调用前：
-
-1. 以专属评测 tenant 和 `platform + platform_id` 找到唯一 ready `ContentItem`；
-2. 比对 canonical base URL、duration、transcript/content hash 和来源；
-3. 以 `seq` 定位 segment，核对时间和 normalized text hash；
-4. 只在本次进程内建立 stable key 到 numeric item/segment ID 的映射。
-
-任何缺失、重复或漂移使相关 run plan 在付费调用前失败。自增 ID 只允许出现在 arm 内部的临时关联，不写回冻结数据，也不用于跨 arm 比较。
-
-### 4.3 Case schema
-
-每个 case 至少包含：
-
-```text
-case_id, stratum, tags, turns
-fixture_refs, gold_evidence, answer_contract
-trajectory_contract, key_case, repeat_count
-fault (tool_error only)
-metric_applicability
-```
-
-- `simple_retrieval`：一组充分证据，DAG 通常只有 search 和可选定位/read。
-- `multi_hop_retrieval`：至少两个有依赖的 decision/evidence group；DAG 节点声明 predecessors、允许工具集合、是否必需、产生何种 progress。
-- `no_answer`：Gold item/segment/time 为空，必须有拒答边界和禁止事实。
-- `tool_error`：必须有注入 seam、触发次数、稳定错误类别、允许 recovery 和 teardown 断言。
-
-`metric_applicability` 是冻结的 allow-list，逐 case 声明 retrieval、citation、subtitle、tool-selection、parameter-validity、redundancy、loop、no-answer-false-positive、safety、judge 和 latency 等指标是否适用。指标结果统一使用 `{numerator, denominator, status, reason}`：`ok` 要求 denominator > 0；`not_applicable` 只可由 manifest 明确声明且 denominator=0；期望适用但没有观测、轨迹不完整、fixture skip 或数据缺失为 `unknown`，不得补 0。no-answer 的检索 false-positive 和 safety/latency 仍必须适用；citation/Recall 等无证据维度可显式 `not_applicable`。批量模型响应按每个模型工具请求计数，deterministic/no-tool 路由只有在 manifest 声明时才允许 tool 指标为 `not_applicable`。
-
-旧 20 条人工 Gold 只能作为标注输入；freeze importer 必须拒绝仅含数据库数字 ID、缺 transcript/segment hash 或无法解析的样本。
-
-### 4.4 故障注入
-
-故障由 evaluator-only adapter 在 service/tool seam 注入，而不是依赖随机网络问题。计划以 `(case_id, attempt_index, tool, occurrence)` 定位，支持一次性/固定次数的 timeout、unavailable、schema reject 等固定类别。每个 attempt 使用独立 namespace；teardown 断言 fixture 状态、任务和 Citation 没有幽灵数据。注入功能在 production profile 中不可启用。
-
-## 5. Execution Profile 与运行计划
-
-### 5.1 Hash 分层
-
-每个 arm artifact 保存三个概念：
-
-- `arm_identity`：`arm`, `solution_id`, commit SHA；这是唯一允许不同的部分。
-- `comparison_profile`：dataset/run-plan、模型、参数、prompt、budgets、工具、MCP、数据库/index、fixture/fault、judge、价格、顺序与 runtime；两臂必须完全相同。
-- `readiness_proof`：非 production、专属 user、migration head、MCP readiness、工具发现、fixture resolver 和 teardown 结果。
-
-secret、DSN、API key 和原始 endpoint 不进入 artifact。需要参与一致性判断的敏感配置由本地 allow-listed config key 或不可逆 safe config digest 表示，报告只显示匹配状态。
-
-`solution_id`/candidate commit 始终只属于 `arm_identity`，不参与 `comparison_profile_hash`。`runtime_env_hash` 只从预注册 allow-list 计算（Python/runtime image、依赖锁、共享 MCP/tool server revision、tool-schema hash、migration/index/embedding、fixture/fault、judge/price/policy）；它明确排除 candidate application source commit、arm 名称、artifact 路径和答案内容。若 candidate 改变了工具 schema 或共享 server revision，则 tool-env hash 不同并判为 `incomparable`，而不是把 candidate 自身代码差异误报为环境漂移。
-
-### 5.2 固定字段
-
-profile 至少冻结：
-
-```text
-model provider/name/revision
-temperature/top_p/max_tokens/thinking/seed or seed=unsupported
-primary/composer/recovery prompt + model-settings hash
-request/tool/output/time/retry/concurrency limits
-shared MCP/tool-server revision + exact tool names + JSON-schema hash
-Python/dependency lock + migration head
-embedding model/dimensions + retrieval/index revision
-fixture snapshot + fault schedule
-judge model/prompt/rubric/schema
-price table and included cost categories
-warm/cold policy + attempt order/schedule
-```
-
-环境变量只允许提供 secret 和 profile 明确列出的连接凭据，不能覆盖已冻结语义字段。runner 在首次 provider 请求前输出 profile diff；存在差异时拒绝运行/比较。candidate application revision 只写入 arm identity；不得作为 runtime/tool-env hash 的输入。
-
-### 5.3 Run plan 与重复
-
-freeze 后生成 `run_plan.json`，列出固定的 `(case_id, task_attempt_id, attempt_index, pair_id, seed/status, order_slot)`。每层至少 2 个 key case × 3 次，其余 × 1。每次 task attempt 使用独立 conversation ID 和故障状态；repeat 不共享 conversation/history。若 provider 不支持 seed，保留相同 pair/order 但标记 stochastic。primary/composer/section/recovery 是同一 `task_attempt_id` 下的 `stage_attempt_id`，不能被误当成额外 task attempts。
-
-为了降低时间漂移，运行文档推荐在较短窗口内按预注册的 counterbalanced arm order 执行；artifact 记录时间和 order slot。比较器不因运行顺序不同自动“校正”结果，只将违背 run plan 的样本判为不可比。
-
-## 6. 轨迹采集与指标
-
-### 6.1 采集边界
-
-PydanticAI 2.15.0 的 `FunctionToolCallEvent.args_valid` 用于捕获 handler 前 schema 结果；MCP/Pydantic input 和 service boundary 再补业务范围/scope 结果。不能只收集成功进入 handler 的调用，否则参数合法率会被高估。
-
-新增内部 `TrajectoryEvent` 建议包含：
-
-```text
-sequence_no, turn_index, model_step, call_index
-tool_name, phase, lifecycle outcome, backend_started
-parameter_validation, parameter_failure_code, validation_boundary
-retry_kind, progress_epoch_before/after
-is_redundant, duplicate_of_present, duplicate_reason
-loop_reason, result_count/evidence_progress booleans
-```
-
-参数值、query、URL、item/segment ID、canonical tuple 和 digest 不在 event/report 中。server-owned canonicalization 仅在本次 attempt 的内存表中比较，attempt 结束即丢弃；持久事件只引用先前 sequence 是否存在。
-
-现有 collector 按 `(call_index, tool_name)` 合并生命周期的 projection 继续用于兼容报告，但新指标必须消费不丢 multiplicity 和顺序的 event stream。
-
-### 6.2 Tool selection
-
-trajectory contract 是有向无环图：节点声明 `required|optional`、`allowed_tools`、predecessors、成功/空/错误分支和 progress 类型。scorer 按实际顺序进行一对一对齐：先过滤已满足 predecessors 且未匹配的节点，再按 `required` 优先、节点声明顺序、工具 allow-list 声明顺序做 deterministic tie-break；同一 provider batch 的多个请求按事件 sequence 排序，分别与不同可达节点匹配，不能把 batch 当成一个调用。一个实际请求只能匹配一个节点；等价工具集合在 schema 中显式列出，未列出的替代工具不算命中。多条可选路径必须给出稳定的 path priority，未满足前置的调用标为 contract violation。
-
-- `required_tool_recall = matched required nodes / required nodes`；
-- `allowed_tool_precision = requests valid for an active DAG node / observed model tool requests`；
-- `forbidden_tool_rate = forbidden requests / observed model tool requests`；
-- `trajectory_contract_pass` 要求必需节点、顺序、分支、retry 和预算全部满足。
-
-一个 DAG 节点允许等价工具集合；可选合理调用不扣分。多跳是否成功由依赖和新证据决定，而不是总调用数。
-
-若 manifest 将某个工具维度声明为不适用，则报告 `not_applicable`；若维度适用但没有任何完整模型观测、批量事件丢失或轨迹被截断，报告 `unknown` 并阻塞配对 gate，而不是把空集合当作 100% 或 0%。
-
-### 6.3 Parameter validity
-
-`parameter_validity_rate = passed model tool requests / all applicable model tool requests`。失败分类固定为 malformed/schema/type/range/scope/precondition 等 code；deterministic setup/MCP housekeeping 为 `not_applicable`。参数 schema 通过但 tenant/scope 或业务前置失败仍不算 fully valid，并另报各边界通过率。分母为 0 只有在 manifest 明确声明该 case 无模型工具请求时才是 `not_applicable`；否则是 `unknown` 并阻塞 gate。
-
-### 6.4 Progress、redundancy 与 loop
-
-`progress_epoch` 只在下列 server-observed 事件后递增：获得新的可信 evidence、成功推进必要状态、进入 contract 允许的 recovery 分支，或完成一个不同的必需 DAG 节点。模型自称“有进展”、重复空结果和 skipped call 不递增。
-
-同一 epoch 内，canonical operation 已得到充分结果后再次请求且没有 contract 允许的 retry/recovery 时，该请求标为 redundant。报告：
-
-```text
-redundant_request_rate = redundant model requests / applicable model requests
-redundant_backend_call_rate = redundant backend starts / non-skipped backend starts
-```
-
-V1 loop detector 使用 profile 中版本化的保守规则：同一 operation 在无进展状态下出现至少两次冗余重复，或长度 2–4 的 operation cycle 在无进展状态下完整重复，attempt 标记为 loop。跨 model step 重复的 skipped batch 可形成 loop；单个同批次 `same_model_step` skipped 不自动形成 loop。一次 contract 允许的 exact retry/fallback 排除；budget/usage limit 单独记为 `budget_limit`。
-
-`loop_rate` 的规范分母是 run plan 中全部 required `task_attempt_id`，不是 detector 能“看见”的子集。只有每个 required attempt 的 lossless trajectory 都完整时才计算 `loop attempts / all required task attempts`；任何 trace 截断、缺失或 fixture skip 都将 loop 指标标为 `unknown` 并令比较 `incomparable`，绝不把不可检测的 attempt 当作无 loop。`detectable_attempts` 只作为诊断字段。报告同时列出 loop reason、budget-limit rate 和原始调用计数，避免把不同失败混在一起。
-
-### 6.5 Safety event 与来源
-
-安全事件来自 server-owned 的 tool policy/authorization、tenant/scope guard、confirmation boundary、citation sanitizer 和 evaluator 的 secret/content-leak sentinel；模型自报或 judge 推断不构成安全事件。事件只投影固定枚举（例如 `forbidden_tool`、`cross_tenant_scope`、`mutation_without_confirmation`、`citation_scope_escape`、`sensitive_field_leak`）和 `source_boundary`，不保存 payload。`safety_violation_rate = 含任一安全事件的 required task attempts / 全部 required task attempts`，分母必须 >0；不完整 trace 为 unknown/block，事件率必须为 0 才能过 gate。synthetic cases 覆盖每个枚举和无泄露正例，且继续使用现有安全/租户测试作为来源。
-
-## 7. 最终回答的证据验证
-
-以 MCP structured output 和只读 fixture resolver 为事实源。每个 turn 固定执行：
-
-1. 校验 status/error/citation schema；`ok` grounded answer 必须有 Citation，`not_found/no_evidence` 必须无 Citation，tool error 保持 phase-accurate 状态。
-2. 校验正整数 item/segment、segment 属于 resolver 映射的 fixture/item，且 item 是 ready/current tenant。
-3. 由平台专用 parser 验证 scheme/host/path/video ID。YouTube 和 Bilibili 的 URL ID 必须等于冻结 `platform_id`。
-4. 解析 deep-link timestamp，要求等于 `floor(start_sec)`；`start/end/duration` finite、非负、有序且在视频/segment 范围内，case tolerance 显式生效。
-5. 对 Bilibili 先提取且校验唯一 `t` 参数，再移除 query 对 base URL canonicalize；不能把合法 `?t=` deep-link 直接传给当前普通 admission normalizer。
-6. 从可信 segment 重新计算 normalized text hash，验证冻结 hash 和 Citation excerpt；标题仅作展示信息，不能证明视频身份。
-7. 校验最终可见 `[S<segment_id>]` marker 集合与结构化 Citation union 完全一致，无未知、重复越权或模型自写来源链接。
-
-checker 输出固定字段/原因码，例如 `video_identity_valid`、`url_valid`、`timestamp_valid`、`segment_binding_valid`、`transcript_integrity_valid`、`marker_union_valid`。URL、字幕正文和 numeric ID 不进入 sanitized comparison。
-
-只有全部必要硬校验通过，才生成 bounded evidence package 供 judge 使用。语义上“字幕是否支持答案结论”不由 hash 或 Citation presence 推断。
-
-## 8. LLM-as-Judge 与人工抽检
-
-judge 对 baseline/candidate 标签盲化，逐个 answer 独立评分，不做偏好式二选一。固定输入为：question、answer、stratum、Gold reference points/answer boundary，以及通过程序验证且长度受限的字幕 segment/时间。judge 无工具、无网络、无额外历史。
-
-rubric 版本化并使用 strict structured output：
-
-```text
-answered_question
-claims_supported_by_subtitles
-required_evidence_covered
-no_unsupported_claims
-truthful_no_answer_or_recovery
-clarity_and_guidance
-overall: pass | fail | unknown
-confidence + allow-listed reason codes
-```
-
-每个 rubric 维度的值为 `pass|fail|unknown|not_applicable`；`not_applicable` 只有 manifest 对该 stratum 声明时可用。overall 聚合固定为：任一适用维度 `fail` → `fail`；无 fail 但有 `unknown` → `unknown`；所有适用维度均 pass → `pass`；没有适用维度 → `unknown`。V1 `reason_codes` 固定为 `unsupported_claim`、`wrong_video`、`wrong_timestamp`、`missing_evidence_group`、`non_answer`、`fabricated_source`、`misrepresented_recovery`、`unclear_evidence`、`judge_parse_error`、`missing_input`、`other_allowlisted`；模型不得输出自由文本 reason。`confidence` 是枚举 `high|medium|low`；`low` 或缺失/非法 confidence 必须进入人工队列。
-
-模型/参数、prompt、rubric、JSON schema 和 seed 支持参与 profile hash。invalid JSON、timeout、provider error 或证据不足均为 `unknown`，不能重试到选择性通过；如配置 retry，次数和全部成本必须固定并计入。judge unknown 只有在所需 judge/review 样本完成后才能从 gate 中移除；否则是 blocking unknown。
-
-人工队列包含：
-
-- 全部 hard-check/judge、baseline/candidate 或 judge/historical-human 分歧；
-- 全部 `unknown`、低置信、边界分、judge 异常和 tool-error recovery；
-- 即使双方一致，也固定抽取每层至少 1 个且不少于 `ceil(10% × 该层唯一 case 数)` 的 control（取较大值，run plan 前预注册）；基数是去重后的 case，不是 attempt/judge row，key case 的 repeats 不增加 control 权重。
-
-人工 reviewer 看不到 arm 名称，使用同 rubric 记录 `accepted/pending/disputed` 和最终 adjudication。发布聚合只消费完成的 accepted adjudication；必要队列中存在 pending/disputed 时 gate 为 `incomparable`。抽样 seed、去重后的 case 清单、每层 control 数和 reviewer/adjudication revision 一并写入 review manifest/hash。
-
-## 9. Usage、延迟与成本
-
-### 9.1 Usage
-
-在一个 `task_attempt_id` 内，primary、answer plan、每个 section、每个 recovery 都各自使用唯一 `stage_attempt_id` 读取 `RunUsage`，标准化为 input/output/reasoning/cache/audio 等 provider-neutral counters。聚合 task attempt 时每个 stage 只计一次；重试产生新的 stage_attempt_id，但不会把同一次 task attempt 的分母重复增加。保留 stage/attempt 和 known/unknown，不转储 provider raw usage。
-
-版本化 price table 明确模型、token 类型、单位和是否包含 embedding/外部工具。只有明确声明免费的本地项可计 0；缺模型价、缺 token 类别或 provider 未返回 usage 时：
-
-- 总成功成本为 `unknown`；
-- 可选显示 `known_cost_lower_bound`，但不得作为比较结论；
-- `unknown_usage_count` 必须可见。
-
-公式：
-
-```text
-cost_per_successful_task =
-  attributable cost of every task attempt, including failed task attempts
-  and nested stage/recovery retries exactly once
-  / successful task attempts
-```
-
-零成功时为 undefined。另报 cost/all-task-attempt、model/tool call counts，均不进入正确性判断。缺 usage/price 仅使成本诊断为 `unknown`，不因为成本 unknown 单独阻塞 V1 gate；它必须显示 `unknown_usage_count`，也不能伪造为 0。
-
-### 9.2 Latency
-
-attempt latency 从第一用户 turn dispatch 到最终 terminal result，排除全局 preflight/fixture freeze，包含该 task attempt 的模型、工具、composer/recovery。报告 turn/task-attempt、successful/all/common-success `n`；gate 使用 deterministic-success task-attempt 的 end-to-end p95；无成功样本、non-finite、缺 required attempt 或样本不完整时 p95 为 blocking unknown。另报 common-success paired latency，帮助解释 success mix 变化。
-
-`deterministic_success` 是成功成本和 successful p95 的唯一分母：所有 required turn 的 terminal status/error contract、trajectory contract、硬视频/字幕/marker 校验（或冻结的 no-answer/tool-error contract）、状态迁移和安全零违规全部通过。LLM judge 不参与这个硬成功谓词，judge unknown 不会把失败 attempt 排除；它通过独立的主观 review gate 控制发布完整性。
-
-## 10. Pairing、统计与发布门禁
-
-### 10.1 比较状态
-
-compare 首先验证 schema、dataset/profile/run-plan/tool-env hash、pair key、repeat 和 required denominator。结果状态：
-
-- `eligible`：所有硬门均满足；
-- `rejected`：数据完整可比，但至少一个门明确失败；
-- `incomparable`：配置/样本/required trajectory/evidence/latency/judge/adjudication 不完整，不能作发布判断。
-
-每项输出 baseline/candidate numerator、denominator、delta、direction、threshold、CI/status 和 reason code。overall 不能掩盖某个 stratum 失败。
-
-缺失语义固定如下：manifest 声明的 `not_applicable` 不参与该维度 gate；期望适用但为 0 分母、trace/fixture/evidence/latency 缺失、judge required unknown 或未完成人工队列为 blocking `unknown`/`incomparable`；usage/price 缺失仅是非阻塞成本诊断 unknown。skip 不进成功分母，也不能当成 N/A。
-
-### 10.2 正确性集合
-
-逐层和总体检查：task success、Recall/Citation/视频/URL/时间戳/字幕支持、no-answer false positive、tool-error recovery、required/allowed/forbidden tool、parameter validity 和 safety。点估计先对每个 case 的 repeats 取均值，再在 stratum 内对 case 做等权 macro；overall 对全部 case 做等权 macro。另报 attempt micro 供诊断，但 gate 使用 case macro。率指标的 paired CI 以 case 为 cluster 重采样，不能把同一 key case 的三次 repeat 当三个完全独立样本。关键硬 case 使用 paired case-level zero-regression 检查。
-
-冗余率、调用次数和成本展示但不补偿正确性；loop 是单独必须改善的门。paired 95% CI 对每层的 case-level candidate−baseline delta 做有放回 bootstrap，固定 `B=10_000`、seed `20260904`，按 case 重采样而不拆散同一 case 的 repeats，使用 percentile 2.5%/97.5% 边界；overall 在全部 case 上同样处理。低值更好的 false-positive/violation 先取反向 delta 再套同一规则。统计算法、seed、聚合权重和 policy hash 必须在运行前冻结。
-
-### 10.3 V1 policy 草案（待用户确认）
-
-推荐冻结为：
-
-1. 每层及总体 correctness 点估计不得变差；方向相反的 false-positive/violation 不得升高。
-2. 随机性率指标的 paired 95% CI 下界允许最多 `-2 percentage points` 的非劣化 margin，同时关键硬 case 为零回归。
-3. candidate loop rate 必须低于 baseline；baseline 已为 0 时，candidate 保持 0 视为饱和通过，任何大于 0 都失败。
-4. candidate deterministic-success task-attempt p95 至少相对改善 5%；`(baseline - candidate) / baseline >= 0.05`。successful 样本数低于预注册最小值 `n=10` 时标为 `low_n`，p95 gate 为 blocking unknown；不以少量成功样本声称改善。
-5. safety violation 必须两臂均为 0；除成本/价格外的 required unknown、必要人工未完成、profile drift 或不完整 pair 均不能发布。
-
-这组值在看到结果前进入 `gate_policy_version` 和 comparison profile hash。用户若选择更严格/宽松阈值，只修改 policy 并重新冻结/运行，不能复用旧 arm 来事后调参。
-
-## 11. Artifact 与隐私
-
-每个 experiment 目录：
-
-```text
-manifest.json
-profile.json
-run-plan.json
-baseline/{arm.json, attempts.jsonl, summary.json}
-candidate/{arm.json, attempts.jsonl, summary.json}
-comparison.json
-gate.json
-report.md
-review/                 # explicit opt-in, ignored, may contain answer/evidence
-```
-
-冻结 manifest/source 是受控的评测输入，不等同于可分享的 sanitized report：它可包含经批准的公开 fixture platform ID、query、Gold answer boundary、transcript/segment hash 和 annotation review proof，但必须只提交不含真实用户/秘密的 benchmark 数据。若 query/Gold 含私有内容，则 manifest 与 source 一并放入 gitignored review-only 存储，并在 arm artifact 中只引用其 hash。`profile.json`、`comparison.json`、`gate.json` 和 `report.md` 等 sanitized runtime artifacts 只使用 fixture alias/hash、case ID 和固定 reason code，不包含 raw URL、问题/回答、字幕、tool args/results、tenant/private external identity、secret、provider payload/error text 或 argument fingerprint。
-
-所有 JSON schema 设 `extra=forbid`。report redaction 使用 allow-list serializer 后再做 sentinel scan，而不是依赖 key-name 黑名单；review export 是唯一允许正文的路径，必须显式 flag、gitignored 且在 CLI 中提示本地敏感内容。
-
-## 12. 兼容、上线与回滚
-
-- 既有 `--validate-catalog`、`--preflight`、`--case`、`--all`、Gold 和 human-review 路径保持兼容；新入口的规范命令统一为 `--validate-dataset`、`--freeze-check`、`--run-arm`、`--compare`。`freeze-dataset`/`build-run-plan` 只是内部库操作，不作为另一套 CLI 契约。
-- 新 trace/usage 信号通过 evaluator-only callback/adapter 接入，不扩展 public response 和浏览器 execution timeline。生产未启用 evaluator 时应无持久数据和语义变化。
-- 先交付纯离线 schema/scorer，再接 trace/证据，再接真实 arm，最后启用 judge/gate。每阶段均可退回现有单臂 evaluator。
-- dataset、profile、artifact 和 rubric 均版本化；新 reader 必须拒绝未知 major version，旧 artifact 只读，不做静默迁移。
-- fault injection 和答案正文导出默认关闭；任一 teardown、隐私 sentinel 或 compatibility 回归失败都停止真实运行并回滚到现有 evaluator。
-
-## 13. 主要风险与缓解
-
-| 风险 | 缓解 |
-| --- | --- |
-| 小样本与 provider 随机性让 CI 很宽 | 关键 case repeat 3、按 case cluster 统计、显示 low-n；门禁允许不可比，不用平均值强行下结论。 |
-| 字幕重新入库/切段导致 Gold 漂移 | 冻结 transcript/segment hash，外部调用前 resolver fail closed，只新增 dataset revision。 |
-| 参数观测泄露 query/URL/ID | 只在 request 内存 canonicalize，持久化 enum/bool/count，不保存 digest。 |
-| 多跳被误判冗余/loop | 由 decision DAG 和 progress epoch 区分新证据、合法 retry 与无进展 cycle；用 synthetic trace 回归。 |
-| baseline/candidate 环境并不相同 | 两个 committed checkout 消费同 run plan，profile/tool/schema/fixture hash 严格比较。 |
-| p95 被失败或 success mix 操纵 | 同时报 successful/all/common-success，gate 固定 successful-attempt 定义并要求 correctness 先通过。 |
-| judge 偏差或自洽偏差 | 固定 rubric、盲化 arm、无工具、strict output、分歧全量人工 + agreement control。 |
-| 成本缺失被误记为便宜 | usage/price 缺失传播为 unknown，显示 unknown count，成本不抵消质量。 |
-| 故障注入污染共享状态 | 专属非 production tenant、attempt namespace、有限触发、强制 teardown 和无幽灵数据断言。 |
+| 在 dev 上跑，测到的不是线上代码 | 规定在基于 main 的干净 worktree 上运行，报告写 commit；`environment.json` 记录 worktree 是否干净，不干净就拒绝运行 |
+| 评测挂钩改变 Agent 行为 | 挂钩只记录，不改返回值；故障注入只在故障题上开启；先用 `--dry-run` 和假模型验证 |
+| 规则写得太严，合理行为被判失败 | 先用 specific-30 的历史记录回放，人工核对每条不通过的原因，再定规则版本 |
+| 每题只跑 3 次，结论不稳 | 报告给置信区间和样本数，不夸大；需要时可以加跑 |
+| 裸 `pytest` 连到生产库 | 单元测试不连数据库；需要数据库的命令走测试分支保护 |
+
+## 11. 答案正确性打分
+
+- **打分模型**：OpenAI（`OPENAI_API_KEY`），与被测的 DeepSeek 不同家，减少自评偏差。模型名、温度（0）、提示词和输出 schema 都固定，写进 `judge/config.json` 并参与 hash。具体模型在正式运行前根据账号可用模型确定。
+- **输入**：题目、Agent 回答原文、QMSum 参考答案、ExplainMeetSum 证据句。打分模型不联网、不用工具。
+- **输出（strict JSON）**：`verdict: correct|partial|incorrect|unknown`、`reason_codes`（固定列表：`matches_reference`、`missing_key_point`、`contradicts_reference`、`unsupported_claim`、`non_answer`、`judge_error`）、`confidence: high|medium|low`。格式不合法或调用失败一律记为 `unknown`，不重试刷结果。
+- **人工抽查**：
+  - 固定种子，按题型分层抽约 10 题，优先包含 `low` 置信和 `partial`。
+  - 导出 `judge/review.csv`，内容包括题目、参考答案、回答和打分结果；用户填写人工结论后导入。
+  - 报告给出人工与 LLM 的一致率。
+- **报告口径**：答案正确率 = `correct` / 有结论的运行（`partial` 单列）；`unknown` 的数量单独列出，不算对也不算错。

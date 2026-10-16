@@ -1,0 +1,29 @@
+{
+  "id": "multimodal-retrieval-rollout",
+  "name": "multimodal-retrieval-rollout",
+  "title": "混合检索、迁移与灰度验收",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-09-09",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-09-wemm-multimodal-embedding-migration",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "整合混合检索、回填、灰度、评测与回滚。",
+    "environment": "local-postgresql-only"
+  }
+}

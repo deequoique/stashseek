@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/guides/branch-and-delegation-workflow.md", "reason": "Verify work stayed on dev/worktree and nothing touches main"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Review against code standards"}
+{"file": ".trellis/spec/guides/index.md", "reason": "Shared review checklist (e.g. tautological tests)"}
+{"file": ".trellis/spec/backend/ingestion-chunking-embedding.md", "reason": "Check text_prep calls chunker/embedder with production parameters"}
+{"file": ".trellis/tasks/09-09-multimodal-retrieval-rollout/design.md", "reason": "Check fusion matches the decided three-way rank fusion"}

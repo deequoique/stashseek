@@ -1,0 +1,164 @@
+{
+  "audit_scope": {
+    "qmsum_root": "/tmp/qmsum-gold-audit-pinned/data/ALL",
+    "explainmeetsum_root": "/tmp/explainmeetsum-gold-audit-pinned/data/ExplainMeetSum",
+    "summary_evidence_root": "/tmp/explainmeetsum-gold-audit-pinned/data/SummaryEvidence",
+    "qmsum_commit": "83d7768c1f2b4dfeb091385d3dc7e239b8e5bb7e",
+    "explainmeetsum_commit": "d8459311a6578cd438a785bf19dd2fa757ade1c5",
+    "project_cli_started": false,
+    "answer_normalization": "none"
+  },
+  "source_counts": {
+    "meetings": 232,
+    "cases": 1810,
+    "by_split": {
+      "train": {"meetings": 162, "cases": 1257},
+      "val": {"meetings": 35, "cases": 272},
+      "test": {"meetings": 35, "cases": 281}
+    },
+    "meeting_counts_by_split_domain": {
+      "train/Academic(icsi)": 41,
+      "train/Committee": 23,
+      "train/Product(ami)": 97,
+      "train/unknown": 1,
+      "val/Academic(icsi)": 9,
+      "val/Committee": 6,
+      "val/Product(ami)": 20,
+      "test/Academic(icsi)": 9,
+      "test/Committee": 6,
+      "test/Product(ami)": 20
+    }
+  },
+  "state_order": ["answer_only", "partial_annotation", "citation_scorable", "quarantined"],
+  "state_totals": {
+    "ces": {"answer_only": 51, "partial_annotation": 39, "citation_scorable": 1720, "quarantined": 0},
+    "ces_pes": {"answer_only": 51, "partial_annotation": 13, "citation_scorable": 1746, "quarantined": 0}
+  },
+  "states_by_split_domain_query_kind": [
+    {"split": "train", "domain": "Academic(icsi)", "query_kind": "general", "cases": 41, "ces": {"answer_only": 5, "partial_annotation": 2, "citation_scorable": 34, "quarantined": 0}, "ces_pes": {"answer_only": 5, "partial_annotation": 0, "citation_scorable": 36, "quarantined": 0}},
+    {"split": "train", "domain": "Academic(icsi)", "query_kind": "specific", "cases": 218, "ces": {"answer_only": 20, "partial_annotation": 2, "citation_scorable": 196, "quarantined": 0}, "ces_pes": {"answer_only": 20, "partial_annotation": 0, "citation_scorable": 198, "quarantined": 0}},
+    {"split": "train", "domain": "Committee", "query_kind": "general", "cases": 23, "ces": {"answer_only": 0, "partial_annotation": 2, "citation_scorable": 21, "quarantined": 0}, "ces_pes": {"answer_only": 0, "partial_annotation": 0, "citation_scorable": 23, "quarantined": 0}},
+    {"split": "train", "domain": "Committee", "query_kind": "specific", "cases": 278, "ces": {"answer_only": 5, "partial_annotation": 7, "citation_scorable": 266, "quarantined": 0}, "ces_pes": {"answer_only": 5, "partial_annotation": 2, "citation_scorable": 271, "quarantined": 0}},
+    {"split": "train", "domain": "Product(ami)", "query_kind": "general", "cases": 97, "ces": {"answer_only": 1, "partial_annotation": 1, "citation_scorable": 95, "quarantined": 0}, "ces_pes": {"answer_only": 1, "partial_annotation": 1, "citation_scorable": 95, "quarantined": 0}},
+    {"split": "train", "domain": "Product(ami)", "query_kind": "specific", "cases": 593, "ces": {"answer_only": 2, "partial_annotation": 10, "citation_scorable": 581, "quarantined": 0}, "ces_pes": {"answer_only": 2, "partial_annotation": 3, "citation_scorable": 588, "quarantined": 0}},
+    {"split": "train", "domain": "unknown", "query_kind": "general", "cases": 1, "ces": {"answer_only": 1, "partial_annotation": 0, "citation_scorable": 0, "quarantined": 0}, "ces_pes": {"answer_only": 1, "partial_annotation": 0, "citation_scorable": 0, "quarantined": 0}},
+    {"split": "train", "domain": "unknown", "query_kind": "specific", "cases": 6, "ces": {"answer_only": 6, "partial_annotation": 0, "citation_scorable": 0, "quarantined": 0}, "ces_pes": {"answer_only": 6, "partial_annotation": 0, "citation_scorable": 0, "quarantined": 0}},
+    {"split": "val", "domain": "Academic(icsi)", "query_kind": "general", "cases": 9, "ces": {"answer_only": 2, "partial_annotation": 2, "citation_scorable": 5, "quarantined": 0}, "ces_pes": {"answer_only": 2, "partial_annotation": 2, "citation_scorable": 5, "quarantined": 0}},
+    {"split": "val", "domain": "Academic(icsi)", "query_kind": "specific", "cases": 45, "ces": {"answer_only": 4, "partial_annotation": 0, "citation_scorable": 41, "quarantined": 0}, "ces_pes": {"answer_only": 4, "partial_annotation": 0, "citation_scorable": 41, "quarantined": 0}},
+    {"split": "val", "domain": "Committee", "query_kind": "general", "cases": 6, "ces": {"answer_only": 0, "partial_annotation": 0, "citation_scorable": 6, "quarantined": 0}, "ces_pes": {"answer_only": 0, "partial_annotation": 0, "citation_scorable": 6, "quarantined": 0}},
+    {"split": "val", "domain": "Committee", "query_kind": "specific", "cases": 67, "ces": {"answer_only": 0, "partial_annotation": 2, "citation_scorable": 65, "quarantined": 0}, "ces_pes": {"answer_only": 0, "partial_annotation": 1, "citation_scorable": 66, "quarantined": 0}},
+    {"split": "val", "domain": "Product(ami)", "query_kind": "general", "cases": 20, "ces": {"answer_only": 0, "partial_annotation": 1, "citation_scorable": 19, "quarantined": 0}, "ces_pes": {"answer_only": 0, "partial_annotation": 0, "citation_scorable": 20, "quarantined": 0}},
+    {"split": "val", "domain": "Product(ami)", "query_kind": "specific", "cases": 125, "ces": {"answer_only": 0, "partial_annotation": 4, "citation_scorable": 121, "quarantined": 0}, "ces_pes": {"answer_only": 0, "partial_annotation": 1, "citation_scorable": 124, "quarantined": 0}},
+    {"split": "test", "domain": "Academic(icsi)", "query_kind": "general", "cases": 9, "ces": {"answer_only": 1, "partial_annotation": 1, "citation_scorable": 7, "quarantined": 0}, "ces_pes": {"answer_only": 1, "partial_annotation": 1, "citation_scorable": 7, "quarantined": 0}},
+    {"split": "test", "domain": "Academic(icsi)", "query_kind": "specific", "cases": 49, "ces": {"answer_only": 4, "partial_annotation": 2, "citation_scorable": 43, "quarantined": 0}, "ces_pes": {"answer_only": 4, "partial_annotation": 2, "citation_scorable": 43, "quarantined": 0}},
+    {"split": "test", "domain": "Committee", "query_kind": "general", "cases": 6, "ces": {"answer_only": 0, "partial_annotation": 0, "citation_scorable": 6, "quarantined": 0}, "ces_pes": {"answer_only": 0, "partial_annotation": 0, "citation_scorable": 6, "quarantined": 0}},
+    {"split": "test", "domain": "Committee", "query_kind": "specific", "cases": 66, "ces": {"answer_only": 0, "partial_annotation": 0, "citation_scorable": 66, "quarantined": 0}, "ces_pes": {"answer_only": 0, "partial_annotation": 0, "citation_scorable": 66, "quarantined": 0}},
+    {"split": "test", "domain": "Product(ami)", "query_kind": "general", "cases": 22, "ces": {"answer_only": 0, "partial_annotation": 0, "citation_scorable": 22, "quarantined": 0}, "ces_pes": {"answer_only": 0, "partial_annotation": 0, "citation_scorable": 22, "quarantined": 0}},
+    {"split": "test", "domain": "Product(ami)", "query_kind": "specific", "cases": 129, "ces": {"answer_only": 0, "partial_annotation": 3, "citation_scorable": 126, "quarantined": 0}, "ces_pes": {"answer_only": 0, "partial_annotation": 0, "citation_scorable": 129, "quarantined": 0}}
+  ],
+  "unmatched": {
+    "qmsum_to_explainmeetsum": {
+      "total": 51,
+      "reason_counts": {"missing_explainmeetsum_meeting": 7, "missing_explainmeetsum_query": 44},
+      "answer_mismatch_classes": {"answer_whitespace_only": 44},
+      "by_split_domain_query_kind": [
+        {"split": "train", "domain": "Academic(icsi)", "query_kind": "general", "reason": "missing_explainmeetsum_query", "count": 5},
+        {"split": "train", "domain": "Academic(icsi)", "query_kind": "specific", "reason": "missing_explainmeetsum_query", "count": 20},
+        {"split": "train", "domain": "Committee", "query_kind": "specific", "reason": "missing_explainmeetsum_query", "count": 5},
+        {"split": "train", "domain": "Product(ami)", "query_kind": "general", "reason": "missing_explainmeetsum_query", "count": 1},
+        {"split": "train", "domain": "Product(ami)", "query_kind": "specific", "reason": "missing_explainmeetsum_query", "count": 2},
+        {"split": "train", "domain": "unknown", "query_kind": "general", "reason": "missing_explainmeetsum_meeting", "count": 1},
+        {"split": "train", "domain": "unknown", "query_kind": "specific", "reason": "missing_explainmeetsum_meeting", "count": 6},
+        {"split": "val", "domain": "Academic(icsi)", "query_kind": "general", "reason": "missing_explainmeetsum_query", "count": 2},
+        {"split": "val", "domain": "Academic(icsi)", "query_kind": "specific", "reason": "missing_explainmeetsum_query", "count": 4},
+        {"split": "test", "domain": "Academic(icsi)", "query_kind": "general", "reason": "missing_explainmeetsum_query", "count": 1},
+        {"split": "test", "domain": "Academic(icsi)", "query_kind": "specific", "reason": "missing_explainmeetsum_query", "count": 4}
+      ]
+    },
+    "explainmeetsum_to_qmsum": {
+      "total": 44,
+      "reason_counts": {"missing_qmsum_query": 44},
+      "by_split": {"train": 33, "val": 6, "test": 5}
+    }
+  },
+  "validation": {
+    "audit_code_counts": {"missing_explainmeetsum_meeting": 1, "unmatched_explainable": 44, "unmatched_qmsum": 51},
+    "transcript_mismatches": 0,
+    "answer_mapping_failures": 0,
+    "cases_with_annotation": 1759,
+    "evidence_group_outer_length_mismatches": 0,
+    "evidence_group_inner_length_mismatches": 0,
+    "qmsum_relevant_span_count": 1740,
+    "qmsum_invalid_numeric_endpoint_order_or_bounds": 0,
+    "empty_query_count": 0,
+    "empty_answer_count": 0,
+    "observed_nonmonotonic_span_list_order": [{"split": "train", "meeting_id": "IS1002b", "query_kind": "specific", "query_index": 6, "spans": [[164, 171], [102, 255]]}]
+  },
+  "summary_evidence": {
+    "files_by_split": {"train": 161, "val": 35, "test": 35},
+    "cases_by_split": {"train": 1250, "val": 272, "test": 281},
+    "total_cases": 1803,
+    "answer_index_union_failures": 0,
+    "explainmeetsum_index_differences": 0,
+    "pointer_or_label_failures": 0,
+    "missing_case": "train/covid_1.json"
+  },
+  "duplicates_and_leakage": {
+    "duplicate_meeting_ids": [],
+    "identical_raw_transcript_hashes": [],
+    "answer_hash_cross_split_overlap": {
+      "train_val": {"distinct_hashes": 1, "case_occurrences": {"train": 1, "val": 1}},
+      "train_test": {"distinct_hashes": 0, "case_occurrences": {"train": 0, "test": 0}},
+      "val_test": {"distinct_hashes": 1, "case_occurrences": {"val": 1, "test": 1}}
+    },
+    "answer_hash_collisions": [
+      {
+        "answer_sha256": "23292d988ce521251029b0b1d9be9e69f75174391333a7a553aaf8e1323d6f32",
+        "cases": [
+          {"split": "train", "meeting_id": "Bed005", "query_kind": "general", "query_index": 0},
+          {"split": "val", "meeting_id": "Bed010", "query_kind": "general", "query_index": 0}
+        ]
+      },
+      {
+        "answer_sha256": "5f7377e19eaf6f9366b4b32bc22fb6bc265e3e64a6841ce1394f2e2e4c788a88",
+        "cases": [
+          {"split": "val", "meeting_id": "Bed010", "query_kind": "specific", "query_index": 2},
+          {"split": "test", "meeting_id": "Bmr023", "query_kind": "specific", "query_index": 2}
+        ]
+      }
+    ],
+    "cross_split_exact_query_kind_query_answer_overlap": {"train_val": 0, "train_test": 0, "val_test": 0},
+    "within_split_duplicate_answer_hash_groups": {"train": 1, "val": 0, "test": 0},
+    "within_split_duplicate_exact_query_kind_query_answer_groups": {"train": 0, "val": 0, "test": 0}
+  },
+  "source_answer_mapping_policy": {
+    "join_key": ["query", "answer"],
+    "join_mode": "exact_one_to_one_within_meeting_and_query_kind",
+    "query_only_fallback": false,
+    "whitespace_normalization": false,
+    "summary_evidence_answer": "space-join tokenized_answer in source order",
+    "answer_sentence_index": "each group is a non-empty consecutive integer run; flattened groups must equal 0..N-1",
+    "answer_text": "groups are consumed literally in answer order; only whitespace gaps are allowed",
+    "evidence_pointer": "label, turn_index, sent_index, speaker, and content must all validate before projecting an ID/type pair"
+  },
+  "fix_slice": {
+    "qmsum_sentence_fallback_removed": true,
+    "qmsum_turns_retained": true,
+    "transcript_mismatch_sentence_view_empty": true,
+    "evidence_id_type_pair_projection": true,
+    "raw_annotation_groups_preserved_on_quarantine": true,
+    "quarantine_state_monotonic": true,
+    "strict_span_validation": true,
+    "nonempty_query_and_answer_validation": true,
+    "unsafe_main_module_not_used": true,
+    "unsafe_main_module_reasons": [
+      "aggregate corpus is updated before join replacement, so stored corpus can retain pseudo sentences",
+      "manifest compares eligibility dict to string and reports an incorrect citation-scorable count"
+    ]
+  },
+  "verification": {
+    "focused_test_command": "python3 -m pytest tests/test_meeting_gold.py -q",
+    "focused_tests": "25 passed",
+    "project_cli_run": false
+  }
+}

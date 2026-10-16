@@ -1,223 +1,130 @@
-# Agent Evaluator Implementation Plan
+# Agent Benchmark 实施计划
 
-## Planning Gate
+> 2026-10-07 二次修订：单次 benchmark。之前的计划存档在 `research/archived-release-gate-plan-2026-10-07/implement.md`。
 
-- [ ] 用户确认 `design.md` 第 10.3 节的 V1 gate policy，或给出替代阈值。
-- [ ] 将确认后的值从 PRD `Blocking Decision` 收敛进 R9/AC9，并完成最后一次 PRD convergence pass。
-- [ ] 用户在最终规划摘要之后明确批准进入实施；批准前不运行 `task.py start`，不修改产品/evaluator 代码，不触发付费评测。
+## 开工前
 
-本任务保留为一个端到端实现任务：冻结 schema、trace、evidence、judge 和 comparator 共用同一 artifact/profile contract，拆成独立 Trellis 子任务会在接口尚未稳定前增加交叉版本风险。执行仍按以下可独立验证的里程碑推进；若某一里程碑暴露产品 Agent 缺陷，另建产品修复任务，不在 evaluator 任务内顺手改策略。
+- [x] 用户确认 Q1–Q3，全部按建议（2026-10-07）。
+- [x] 确认结果已写进 PRD"已确认"一节。
+- [x] 用户批准开始实施（2026-10-07）。真实模型调用（正式运行）仍需在第 6 步前再次确认。
 
-## 0. 建立实施基线
+## 0. 准备被测版本
 
-- [ ] 记录当前 committed base/candidate 候选 revision、Python/依赖锁、PydanticAI 版本、migration head 和现有 CLI/schema 版本；不把当前 dirty working tree 当作 arm。
-- [ ] 运行现有离线 catalog/video validation 和 evaluator 单元测试，保存基线。已知 `test_preflight_refuses_production_before_opening_database` 会被 ambient development wildcard origin 影响；通过显式 test fixture 隔离配置或修复测试构造，不能 `xfail`/忽略。
-- [ ] 确认 `.eval-results`/新 experiment 目录被 Git 忽略，现有报告 redaction、MCP grant teardown 和非 production preflight 保持有效。
-- [ ] 为新增 artifact schema 分配 major version；列出旧 reader/CLI 的兼容行为。
+- [ ] 前置条件：评测代码 `evals/meeting_gold/` 和它的测试，目前只在 dev 上、没有提交，属于任务 09-12。具体做法：
+  - 从 main 拉一个分支，只放进这些评测文件，不带 dev 上的其他改动。
+  - 在这个分支上确认 meeting_gold 的已有测试能通过。
 
-验证：
+  提交前要征得用户同意。
+- [x] 确认 `data/meeting_gold/final` 是唯一使用的题库目录（`DEFAULT_RQ1_CASES`），dataset_hash `4aeccba…`。
+- [x] 准备一个基于 `origin/main`（`7418262`）的 worktree，作为开发和运行目录。2026-10-07 已完成，位置 `.runtime/worktrees/agent-benchmark`（沿用仓库惯例），分支 `feat/agent-benchmark`：
+  - 把 `evals/meeting_gold/`、`tests/test_meeting_gold*.py`、`tests/fixtures/meeting_gold/` 从 dev 复制过去，保持 untracked，等用户同意后再提交。
+  - `data/`、`.env`、`.env.neon-test` 用软链接指向 dev 目录，这些本来就不入库。
+  - 用 dev 的 `.venv`，并确认 `import app` 解析到的是 worktree 里的代码，不是 dev 的。
+  - 在 worktree 里跑一遍 meeting_gold 的已有测试，作为 main 代码上的基线：129 passed、1 skipped；natural_language 43 passed。
+  - 依赖：dev 只比 main 多 `opencc-python-reimplemented`，所以 dev 的 `.venv` 可用；`import app` 已确认解析到 worktree。
 
-```bash
-.venv/bin/python -m evals.natural_language --validate-catalog
-.venv/bin/python -m evals.video_recognition --validate-catalog
-.venv/bin/python -m evals.video_recognition --dry-run
-.venv/bin/python -m pytest -q \
-  tests/test_natural_language_evaluator.py \
-  tests/test_natural_language_quality.py
-```
+## 1. 题集文件
 
-## 1. 冻结数据、profile 与 run-plan schema
+- [x] 写 `benchmark_spec.py`：题集 schema、校验和 hash，规则见 design §3。
+- [x] 生成 `benchmarks/agent-benchmark-v1.yaml`：
+  - [x] 具体题：specific-30 的全部 30 题。
+  - [x] 概括题：从 val 中有完整证据标注的 `general` 题里，按领域用固定种子抽 10 题。
+  - [x] 故障题：从具体题里挑 8 题，写明在第几次 `search_segments` 调用失败，以及错误类型。
+- [x] 加 `benchmark validate` 子命令，离线运行，不调用任何外部服务。
 
-- [ ] 新增 strict `extra=forbid` schema：dataset/fixture/case、decision DAG、Gold/answer contract、fault/repeat、`metric_applicability`、annotation review proof、execution profile、run plan、arm/task-attempt/stage-attempt、comparison 和 gate decision。
-- [ ] 实现 canonical model dump + SHA-256；hash 排除自身字段，稳定处理键顺序、Unicode、换行、整数/浮点和 null。分别维护 dataset、profile、tool schema、rubric 和 price table version/hash。
-- [ ] 校验四层最小数量、每层 key case、3/1 重复、至少 4 个视频、YouTube/Bilibili 覆盖、唯一 case/pair ID，以及 no-answer/tool-error 的互斥约束；为每个指标声明适用性并锁定零分母 `not_applicable`/`unknown` 语义。
-- [ ] 为 decision DAG 校验无环、可达、必需节点、允许工具和错误/recovery 分支；多跳必须有至少两个依赖 evidence/decision group。
-- [ ] 生成不可变 `run_plan.json`，固定每个 case/attempt 的 pair ID、repeat、seed 支持和 order slot；重复 attempt 必须有独立 conversation/fault namespace。
-- [ ] 新增 versioned rubric 与 price table schema。缺模型价或 token 类别时允许校验通过但成本状态必须是 `unknown`。
-- [ ] 提供纯离线 CLI，规范命令统一为 `--validate-dataset`、`--freeze-check`、`--run-arm`、`--compare`；freeze/build-run-plan 作为内部库操作，默认 external calls 为 0。
-- [ ] 从归档 20 条 Gold 中迁移可验证的标注来源；拒绝仅有数字数据库 ID、缺 fixture/platform/transcript/segment hash 的条目。
-- [ ] 建立 V1 至少 32-case 的标注清单：四层各至少 8 条、每层 key ≥2、视频/语言/证据跨度/异常类型满足 PRD；写入 reviewer role/reference、reviewed_at、review_revision、覆盖计数/digest 和 `status=approved`。标注未完成或未批准前 manifest 保持 draft，不伪造 `frozen`。
+测试：题库 hash 不对、题不在 val、没有证据标注、缺审核记录、ID 重复，以上情况都要报错；同样输入两次生成的 hash 相同。
 
-单元测试：
+## 2. 补齐轨迹记录（只在评测进程里挂钩）
 
-- canonical hash golden vectors、任一受管字段变更导致 hash 变化、自身 hash 不参与；
-- 重复/未知 ID、非法 stratum、DAG cycle/unreachable、错误 Gold/fault 组合、NaN/负/逆序时间；
-- 31 case、单层不足 8、key 不足、单平台/视频不足、repeat 非 3/1、缺 annotation approval 均 fail closed；
-- run plan 顺序与 pair key 稳定，同 seed 输入可重建相同内容。
-
-**Review Gate A：** schema/hash/run-plan 全部 network-free 测试通过，32-case 标注由人复核之前，不进入真实 fixture freeze。
-
-## 2. 只读 fixture resolver 与视频证据硬校验
-
-- [ ] 实现评测 tenant 下的只读 resolver：`platform + platform_id` 唯一 ready item、canonical base URL、duration、transcript/content hash/raw format/text source，以及 segment seq/start/end/text hash。
-- [ ] 将 stable fixture/segment key 映射为本次 numeric ID，仅保存在 arm 进程内；区分 `missing`、`duplicate`、`not_ready`、`transcript_drift`、`segment_drift`，全部在 provider 调用前中止。
-- [ ] 实现 YouTube/Bilibili 平台专用 citation parser。Bilibili 先解析唯一 `t` 再 canonicalize base URL；拒绝 host confusion、credentials、port、fragment、非法 ID/额外 query。
-- [ ] 依固定顺序实现 status/schema、item/segment 归属、video ID/URL、timestamp/deep-link、duration/segment range、transcript/text hash、excerpt 和 `[S...]` union checker。
-- [ ] no-answer 校验无 Citation/marker/来源链接，tool-error 校验 phase/status/error code；硬失败不创建 judge input。
-- [ ] checker 只导出固定 bool/enum/reason code；不把 URL、字幕、numeric ID 或 excerpt 写进 sanitized artifact。
-
-单元/集成测试：
-
-- 正确/错误 platform、ID、host/path、跨 tenant/fixture segment、deleted/not-ready item；
-- negative/NaN/infinite/out-of-duration/out-of-segment timestamp、tolerance 边界、URL `t` 与 start 不一致；
-- YouTube canonical/deep-link 与 Bilibili `?t=42` 正例，跟踪 query/fragment/host confusion 反例；
-- transcript/segment hash drift、whitespace-normalized excerpt、未知/重复/缺失 marker；
-- hard failure 时 judge spy 为零调用。
-
-**Review Gate B：** resolver 对冻结 fixture 全部通过，任何 drift 在模型调用前停止；Bilibili deep-link 回归与现有 connector tests 同时通过。
-
-## 3. 完整、安全的 trajectory 与 usage 投影
-
-- [ ] 在 eval-only model-tool event seam 捕获每次请求和完整 lifecycle 顺序，使用 PydanticAI `FunctionToolCallEvent.args_valid` 覆盖 handler 前失败；保留现有 public execution timeline 和生产 diagnostics contract，并将 trace completeness 作为 required metric 状态。
-- [ ] 在 MCP input/service boundary 投影 schema/type/range/scope/precondition 的固定 validation code，分母包含全部模型 tool request；setup/housekeeping 标为 `not_applicable`。
-- [ ] 在内存中做 server-owned canonical operation comparison；event 只保留 sequence、bool、enum/count 和 `duplicate_of_present`，不保存参数、URL、ID 或 digest。
-- [ ] 实现 decision DAG 对齐、required recall、allowed precision、forbidden rate 和 trajectory contract pass；对可达节点按 required 优先、声明顺序和 allow-list 顺序 deterministic tie-break，批量请求按 sequence 独立匹配。
-- [ ] 实现 progress epoch、合法 retry/fallback 豁免、request/backend redundancy，以及版本化 loop detector；loop 以全部 required task attempts 为分母，trace 不完整标 unknown/incomparable，budget/usage limit 单独统计。
-- [ ] 防止现有 `(call_index, tool_name)` lifecycle merge 丢失 multiplicity；旧兼容 projection 仍可生成，但新 scorer 使用 lossless event stream。
-- [ ] 在 primary、answer plan、每个 answer section 和每个 recovery owner boundary 汇总独立 `RunUsage`；标准化 token 类别，不暴露 provider raw payload。
-- [ ] 使用 price table 计算 known cost 与 unknown 状态；每个 `task_attempt_id` 下的 stage/recovery usage 只计一次，总成功成本的分子包含失败/retry，零成功为 undefined；成本 unknown 仅作非阻塞诊断。
-
-synthetic trace/usage tests：
-
-- 单跳、search→neighbors→open_at 合理多跳、不同参数、相同 operation 无进展重复、真实 query reformulation；
-- allowed exact retry、failed→retry、state/evidence progress 后重读、same-step skipped、跨 step repeated skipped、budget exhausted、长度 2–4 cycle；
-- malformed JSON/schema reject/范围/scope/precondition failure 都进入参数分母；
-- batched provider calls 保持顺序和 multiplicity；
-- primary + plan + sections + 三次 recovery usage 求和、price 算术、cache/reasoning/audio、缺 usage/价目→unknown；
-- 将敏感 sentinel 放入 args/result/provider error，确认 trajectory、diagnostics、SSE 和 sanitized serializer 均无泄露。
-
-**Review Gate C：** 指标定义的分子/分母由 synthetic golden tests 锁定，现有 Agent 行为与 public SSE 无语义 diff，隐私 sentinel 全部通过。
-
-## 4. 单臂执行、profile preflight 与 artifact
-
-- [ ] 将现有 `LiveEvaluator` 包装为 immutable arm executor，保留 migration/readiness、专属 user、真实 model、临时 grant、fixture setup/teardown 和现有 Expectation。
-- [ ] preflight 计算 comparison profile/tool-schema/runtime hash，并拒绝未提交/不匹配的 arm identity；secret 只检查 presence/target key，不写入 artifact。
-- [ ] 每个 arm 消费同一 run plan，按固定 case/attempt/order 执行；每个 attempt 单独保存 outcome、trajectory、deterministic evidence、usage、latency 和 safe reasons。
-- [ ] attempt latency 明确覆盖第一 turn dispatch 到 terminal response，排除全局 preflight/freeze；保留 turn latency、successful/all 分母和 common-success pairing 所需字段。
-- [ ] crash/timeout/skip/unscorable 都写入 attempt row；finally 保证 session/grant/fault/fixture teardown，arm artifact 可在中断后判断 incomplete，不做静默续跑。
-- [ ] 新 CLI 支持 `--run-arm --manifest --profile --run-plan --arm --solution-id --results-dir`（或等价子命令），不执行 Git switch，不默认开启 judge/review 正文导出。
-- [ ] `arm.json`/`attempts.jsonl`/`summary.json` 使用 allow-list serializer，并带 schema/profile/dataset/run-plan/tool hash 和 readiness/teardown proof。
+- [x] 记录模型发出的每个工具请求：包括被参数校验拒绝的、同一次响应里的多个请求，并保留顺序。先确认用哪种方式能做到不改 app 代码（design §5）。
+- [x] 记录写答案阶段（规划、分段、恢复）各自的 token。
+- [x] 从回答里提取 `[S…]` 标记集合，回答原文不落盘。
+- [x] 把模型请求、工具调用事件、后端检索三类记录按调用序号对齐，合成一条有序轨迹；对不上就标"不完整"。
+- [x] 故障注入：在 `RecordingServices` 同层，对指定题的指定次调用抛出 `RetrievalUnavailable` 或 `EmbeddingUnavailable`。
 
 测试：
+- 用假模型和假服务跑一遍，确认以下情况记录完整、顺序正确：批量请求、参数被拒、跳过、失败后重试。
+- 挂钩不改变 Agent 的返回结果。
+- 故障只在指定的那次调用上触发。
 
-- 两个 fake committed arm 消费相同 run plan，生成唯一 pair key；缺/重复/顺序错误/incomplete attempt 可检测；
-- model、prompt、budget、tool schema、migration/index、fixture、fault、judge、price/warm policy 任一 mismatch 被拒绝；
-- provider 不支持 seed 显示 `unsupported`，不宣称 deterministic；
-- teardown 在成功、断言失败、provider error、取消和 fault failure 下都运行；
-- 现有 `--case/--all/--human-benchmark` 路径继续通过。
+## 3. 规则检查和指标
 
-**Review Gate D：** 先用 fake/synthetic arm 完成全 artifact round-trip；真实付费调用必须另行显式批准并且 Gate A–D 全绿。
+- [x] 写 `trace_rules.py`：实现 T1–T8 和工具参数出错率（design §6），全部是纯函数。
+- [x] 写 `benchmark_report.py`：有效性指标、稳定性指标、置信区间，输出报告（design §7、§9）。
+- [x] 用假轨迹写测试，每条规则都要有正例和反例。至少覆盖以下情况：
+  - 改写查询带来新片段（不算空转）；改写查询没带来新片段
+  - 合法重试（不算重复）；同参重复
+  - 被预算拦下；扩展了没查到过的片段
+  - 引用不在检索结果里；`[S…]` 标记和引用对不上
+  - 故障后恢复；故障后如实报错；故障后假装成功
+  - 轨迹不完整时判"未知"
+- [x] **回放历史记录**：用 `data/meeting_gold/runs/2026-10-specific30/05-*` 的 30 条记录离线跑规则。缺少的字段会判"未知"，这是预期结果。人工核对每条不通过的原因是否合理，再确定规则版本 v1。
+  - 2026-10-07 回放结果（30 条，dev 代码跑的历史记录）：T1 30 过；T2 29 过 1 败（TS3009c:0 调用了管理工具 `list_saved_items`）；T3 28 过 2 败（ES2009c:0、education_0:4 对未检索到的片段 ID 调用 `get_neighbors`）；T4 27 过 3 未知；T5 30 过；T6 27 过 3 败（3 次被预算拦下）；T7 30 未知（历史记录缺少标记和 URL）；T8 不适用。失败原因已人工核对原始记录，均属实。
 
-## 5. Rubric judge 与人工 review
+## 4. 运行脚本
 
-- [ ] 定义固定六维 rubric、strict judge input/output、reason-code allow-list、confidence/unknown 规则；model/prompt/schema/rubric hash 纳入 profile。
-- [ ] judge 只接收已硬校验的 bounded evidence package，arm label 盲化，无工具/网络/历史；hard fail/no evidence-integrity failure 不调用 judge。
-- [ ] 固定 judge retry/timeout/temperature/seed；invalid JSON/provider error 不选择性重跑到 pass，所有允许 retry 均计 usage/cost。
-- [ ] 建立抽检选择器：全部 hard-vs-judge、arm-vs-arm、judge-vs-existing-human 分歧，全部 unknown/低置信/边界/judge error/tool-error recovery，以及每层至少 1 且不少于 agreement 10% 的预注册 control。
-- [ ] 扩展现有 human review export/import，保持 sample ID 稳定和 arm 盲化；`accepted/pending/disputed` 语义与 accepted-only 聚合兼容。
-- [ ] review package 显式 opt-in、gitignored，可包含 question/answer/verified subtitle/judge rationale；sanitized report 只保留聚合与 reason code。
+- [x] 写 `benchmark_run.py` 和 `benchmark run` 子命令。具体要求：
+  - 运行前检查：只连测试分支；worktree 干净；记录 commit 和模型配置
+  - 入库或复用每场会议的测试账号
+  - 每题每次运行一个独立进程、一个新对话
+  - 清掉追踪类环境变量
+  - 每次运行写一个原始记录文件
+  - 中途失败也要写记录，并且能从中断处继续，已完成的运行不重跑
+- [x] `--dry-run`：检查题集、入库检查点和环境，不调用模型。
+- [x] `benchmark report` 子命令：只读原始记录，生成 `report.json` 和 `report.md`。
 
-测试：
+## 5.（Q1 确认后）答案正确性打分
 
-- 支持/不支持/部分支持结论，正确 Citation 但语义不支持，无答案胡答，错误恢复说成成功；
-- judge invalid JSON/timeout/provider error/unknown/低 confidence；
-- hard checker 失败时 judge 零调用；
-- sampling 覆盖全量分歧、全部规定异常和 deterministic agreement control；
-- pending/disputed/missing required review 使 release comparison 不完整。
+- [x] 固定打分模型、提示词和输出格式（`benchmark_judge.py`，prompt 版本 `meeting-benchmark-judge-prompt-v1`，计入 config hash；打分模型在正式运行时用 `--judge-model` 指定）。输入是问题、Agent 的回答、QMSum 参考答案和证据句；输出"正确 / 部分正确 / 错误 / 无法判断"及原因码。
+- [ ] 抽 10 题左右人工打分，和 LLM 的打分对比，在报告里写明一致率。
+- [x] 回答原文和打分理由只放本地 `data/`（`rationales.json`、`review.csv`），`verdicts.json`/`config.json`/报告只放统计结果。
 
-**Review Gate E：** 用人工构造样本做一次 blind calibration，rubric/queue 经人工确认后冻结；不得在看到 candidate 结果后改 rubric 或抽样规则。
+## 5b. 代码审查结论（2026-10-08）
 
-## 6. Paired comparison、报告与 release gate
+- 审查代理两次因 watchdog 中断，剩余审查由主会话完成。修复：
+  - T7：`ok` 答案没有任何引用时判失败（`ok_answer_without_citations`），原先误判为不适用。
+  - `agent_smoke`：去掉 main 不支持的 `multimodal_embedding_provider` 参数；文本守卫补丁改为调用原函数。
+  - 报告：`ok` 请求的 token 为 0/0 时记为"未知"（`usage_unreported`）。
+  - judge：能读取 `run` 写的 spec 快照；被拒输出的 token 也计入用量。
+- 测试：benchmark 相关 410 passed、1 skipped。完整测试集有 10 个失败，与干净 main 上的结果完全一致，属于环境原有问题，与本任务无关。
 
-- [ ] compare 在聚合前验证 artifact major version、dataset/profile/run-plan/tool-env hash、case/attempt pair、repeat 和 required denominator。
-- [ ] 按 attempt、case、四个 stratum 和 overall 输出 task/retrieval/citation/evidence/no-answer/tool-error、tool selection/parameter/redundancy/loop、latency/usage/cost；所有值带 numerator/denominator/status。
-- [ ] nearest-rank p50/p95 使用确定性函数，报告 successful/all/common-success `n`；gate 使用冻结 policy 指定的 successful-attempt p95。
-- [ ] 率指标用 case-cluster paired bootstrap（或等价预注册方法）计算 95% CI，保留 key repeat 的 case 内相关性；关键硬 case 另做 zero-regression。
-- [ ] 实现三态 `eligible/rejected/incomparable` 和逐 gate reason：正确性方向、CI margin、关键 case、安全、loop、p95、人工完成度和 profile/pair 完整度。
-- [ ] redundancy/call count/cost 只作诊断，不能补偿正确性、loop 或 p95；成本 unknown 清楚显示但不伪造 0。
-- [ ] 输出 machine-readable `comparison.json`/`gate.json` 和同源 `report.md`；Markdown 不自行重新计算数字。
-- [ ] 为 sanitized artifacts 做 allow-list schema + sentinel scan；每个 gate 结论可回溯到 arm、case/attempt、policy/hash，但不暴露正文。
+## 5c. 试跑发现与修复（2026-10-08）
 
-gate matrix 至少覆盖：
+- 试跑两次（`data/meeting_gold/runs/benchmark-trial-20261008`、`benchmark-trial2-20261008`，各 2 题 × 1 次，不计入正式结果）：记录完整、故障按指定位置触发、引用/标记/时间对得上。
+- 发现：搜索预算（2 次）用完后，main 的 `prepare_search` 会隐藏该工具，模型仍继续调用，PydanticAI 以 `Unknown tool name` 拒绝。原记录把它当成"参数无效"。修复：记录模块单独标为 `unavailable_tool`；规则里不计入参数出错率、不参与 T3/T4，在 T6 记为 `hidden_tool_called`（`RULES_V1.hidden_tool_call_policy`）。两次试跑的两道题都出现了这种情况。
+- 打分模型：`openai:gpt-5.5-2026-04-23`（带日期的固定版本）。它是推理模型，不支持 temperature，所以配置改为固定 `openai_reasoning_effort=medium`、`max_tokens=6000`，不再写一个会被忽略的 temperature。已知限制：PydanticAI 读不到打分请求的 token 用量（记为 0），打分成本不纳入报告。
 
-- correctness 点估计下降、CI 超 margin、关键 case 回归、safety violation；
-- tool selection/parameter validity 下降；
-- loop 改善/持平/恶化，以及 baseline=0 的确认后语义；
-- p95 达标、只改善不足阈值、持平/恶化/缺失/non-finite；
-- 仅调用次数或成本下降；
-- judge/review pending、usage/cost unknown、profile drift、missing/duplicate pair；
-- 所有门满足的唯一 `eligible` 路径。
+## 6. 正式运行
 
-**Review Gate F：** comparison/gate 只用 golden synthetic artifacts 验证全部分支；用户确认 policy hash 后再冻结真实 dataset/profile。
+- [x] 先用 `--dry-run` 检查（2026-10-07 已通过：commit 7418262、app 未改动、22 场会议待入库、144 次运行），再跑 1 道题试跑，核对记录（见 5c）。
+- [ ] 用户批准后正式运行（2026-10-08 已批准并启动，输出目录 `data/meeting_gold/runs/benchmark-20261008`）。
+- [ ] 生成报告，人工抽查 5–10 条原始记录，确认报告里的数字和原始记录一致。
+- [ ] 报告里把历史参考数字放在旁边对照，并注明来源。
+- [ ] 发现的 Agent 问题，各自另建任务。
 
-## 7. 冻结、真实运行与项目报告
-
-- [ ] 对至少 32 条标注和 4+ ready 视频执行 resolver，人工复核 query、Gold evidence groups、answer boundary、fault 和 key-case 分布；写入新 revision 并冻结 hash。
-- [ ] 选定两个明确的 committed solution revision。若当时只有一个可评方案，先运行 baseline health report；不得复制 baseline 成 candidate 或声称发布资格。
-- [ ] 在同一专属非 production 环境、短时间窗口和固定 order 下运行 baseline/candidate；每 arm 至少执行 run plan 的 48 个 attempt。真实付费运行必须显式 opt-in。
-- [ ] 运行 fixed judge，导出并完成全部 required human review；保留 pending/disputed 时 gate 维持 incomparable。
-- [ ] 生成最终 sanitized project report，人工核对分母、profile/dataset hash、关键 case、failure reasons、p95/cost unknown 和 gate conclusion。
-- [ ] evaluator 发现的 Agent 缺陷单独建 Trellis task；修复后以新 candidate revision 重新跑完整冻结 plan，不能覆盖旧结果。
-
-建议命令形态（实施后以 `--help` 为准）：
-
-```bash
-.venv/bin/python -m evals.natural_language \
-  --validate-dataset evals/natural_language/datasets/agent-evaluator-v1.yaml
-
-.venv/bin/python -m evals.natural_language \
-  --freeze-check --manifest MANIFEST --profile PROFILE --run-plan RUN_PLAN
-
-.venv/bin/python -m evals.natural_language \
-  --run-arm --arm baseline --solution-id BASE_SHA \
-  --manifest MANIFEST --profile PROFILE --run-plan RUN_PLAN
-
-.venv/bin/python -m evals.natural_language \
-  --run-arm --arm candidate --solution-id CANDIDATE_SHA \
-  --manifest MANIFEST --profile PROFILE --run-plan RUN_PLAN
-
-.venv/bin/python -m evals.natural_language \
-  --compare BASELINE_ARTIFACT CANDIDATE_ARTIFACT --policy GATE_POLICY
-```
-
-## 8. Final Validation
-
-- [ ] 运行新增 evaluator 单元/集成测试、现有 natural-language tests、connector URL tests、Agent trajectory/streaming/diagnostics privacy tests 和完整 pytest。
-- [ ] 运行 dataset/profile/freeze/run-plan offline commands，确认外部调用数为 0；检查 artifact schema round-trip 和 deterministic hash。
-- [ ] 运行 Alembic single-head/current preflight；本设计预计不新增 DB migration，若实现确需 migration，必须返回规划阶段补充 database rollout/rollback。
-- [ ] 检查 package data 是否包含新增 committed YAML/schema；修改用户已有 dirty `pyproject.toml` 时只做最小增量并保留其改动。
-- [ ] 复查 README：数据标注、两个 checkout 的 arm 运行、付费边界、review 导出、比较、门禁、unknown 和不能声称的内容。
-- [ ] 对最终 report/log/SSE/review paths 做敏感 sentinel 扫描；确认 review 目录 ignored，sanitized report 无正文。
-
-预期测试命令：
+## 验证命令
 
 ```bash
-.venv/bin/python -m compileall -q evals/natural_language
-.venv/bin/python -m pytest -q \
-  tests/test_natural_language_evaluator.py \
-  tests/test_natural_language_quality.py \
-  tests/test_natural_language_experiment.py \
-  tests/test_bilibili_url.py
-.venv/bin/python -m pytest -q
+# 题库与题集（离线）
+.venv/bin/python -m evals.meeting_gold validate --output data/meeting_gold/final
+.venv/bin/python -m evals.meeting_gold benchmark validate --spec evals/meeting_gold/benchmarks/agent-benchmark-v1.yaml
+
+# 单元测试：强制测试分支，不得裸跑 pytest
+data/meeting_gold/runs/2026-10-specific30/scripts/run_tests_testdb.sh \
+  tests/test_meeting_gold*.py tests/test_meeting_gold_benchmark*.py \
+  tests/test_natural_language_evaluator.py tests/test_natural_language_quality.py
+
+# 运行（需要用户批准真实调用）
+.venv/bin/python -m evals.meeting_gold benchmark run --spec SPEC --output data/meeting_gold/runs/benchmark-<date> --dry-run
+.venv/bin/python -m evals.meeting_gold benchmark run --spec SPEC --output data/meeting_gold/runs/benchmark-<date>
+.venv/bin/python -m evals.meeting_gold benchmark report --output data/meeting_gold/runs/benchmark-<date>
 ```
 
-## 9. Risky Files and Rollback Points
+`run_tests_testdb.sh` 在不入库的 `data/` 目录下。如果不可用，等价做法是：从 `.env.neon-test` 读取连接串，断言它的 host 不是 `.env` 里的生产 host，再显式设置 `DATABASE_URL`。
 
-| 区域 | 风险 | 回滚点 |
-| --- | --- | --- |
-| `evals/natural_language/runner.py`, CLI | 破坏现有单臂/人工评测兼容 | 新 experiment 路径保持独立；每个里程碑重跑旧 CLI tests，可整体关闭新入口。 |
-| `mcp_runtime.py` / Agent event seam | 丢 lifecycle、改变执行或泄露参数 | callback 默认无操作且 eval-only；public event/diagnostics golden tests 有任何 diff 即回退。 |
-| primary/composer/recovery usage owners | 错算成本或改变 budget | 只读 snapshot/callback，不共享或重置 `RunUsage`；缺失时 unknown。 |
-| fixture resolver / fault injection | 共享状态污染或跨 tenant | 只读 resolver、专属 tenant、独立 namespace、production 禁用、finally teardown。 |
-| URL/timestamp validator | Bilibili `?t=` 合法深链误拒 | 平台专用 parser + connector regression；不修改 ingestion admission contract。 |
-| judge/review export | 答案/字幕泄露或 judge 覆盖硬错误 | 默认关闭正文 export，hard gate 在 judge 前，allow-list report + sentinel scan。 |
-| dataset/profile/policy | 结果后调参或旧数据被覆盖 | content-addressed/versioned 只读 artifact；任何变化生成新 hash/revision并重跑两臂。 |
-| `pyproject.toml` package data | 与用户现有未提交改动冲突 | 实施前 diff，最小 patch，只新增必要数据路径，不重写文件。 |
+## 完成标准
 
-## 10. Completion Checklist
-
-- [ ] PRD AC1–AC11 全部由自动化测试或可审计 artifact 证明。
-- [ ] AC12 至少完成真实 baseline health report；若有 candidate，完成全量 pair、judge、人工抽检和三态 gate。
-- [ ] 没有把 synthetic/fake/dry-run 数字写成项目真实指标。
-- [ ] 所有 evaluator 发现的产品缺陷已单独记录，没有夹带未规划的 Agent 行为改动。
-- [ ] 最终检查、spec update、commit 和 Trellis archive 按 workflow 单独执行。
+- [ ] PRD 的 AC1–AC9 全部有测试或实际产物证明。
+- [ ] 报告里没有用假数据或试跑数据冒充正式结果。
+- [ ] app 代码没有为评测而修改。
+- [ ] 最终检查、spec 更新、提交和归档，按 Trellis 流程单独执行。
