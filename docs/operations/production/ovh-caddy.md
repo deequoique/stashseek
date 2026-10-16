@@ -285,7 +285,9 @@ access log，签名只出现在这个 URL 的 query 里），转写结束后立�
   和 asr worker。队列里尚未处理的 ASR 任务由重启后的 asr worker 按原有行为收敛为
   `needs_asr`；队列排空后可停止并禁用该 unit。
   已完成的转写（`text_source=asr_whisper`、`raw_format=capture_v1`）保持可检索。
-- 公开签名路由会让音频经过应用进程转发，约每音频小时 60MB 出口流量。
+- 公开签名路由会让音频经过应用进程转发。音频下载选择适合语音的低码率流
+  （`abr` 40–72 kbps），约每音频小时 22MB 出口流量（原先 `bestaudio` 约 58MB）。
+  YouTube 音频经住宅出口（Evomi）下载，同样约每音频小时 22MB，按 GB 计费。
 
 ## 回滚
 
