@@ -1,0 +1,4 @@
+# StashSeek Chat YouTube egress: notebook-agent-youtube-egress.service passes
+# its config and filter through systemd LoadCredential.
+file r /run/credentials/notebook-agent-youtube-egress.service/tinyproxy.conf,
+file r /run/credentials/notebook-agent-youtube-egress.service/filter,

@@ -292,6 +292,7 @@ the process listening on server `127.0.0.1:18080` differs.
 deploy/youtube-egress/tinyproxy.conf.example   -> /etc/notebook-agent/youtube-egress/tinyproxy.conf (root 0600)
 deploy/youtube-egress/tinyproxy.filter         -> /etc/notebook-agent/youtube-egress/tinyproxy.filter (root 0600)
 deploy/systemd/notebook-agent-youtube-egress.service
+deploy/youtube-egress/apparmor-local-tinyproxy -> /etc/apparmor.d/local/tinyproxy (root 0644)
 YOUTUBE_PROXY_URL=http://127.0.0.1:18080       # unchanged, credential-free
 ```
 
@@ -316,6 +317,13 @@ YOUTUBE_PROXY_URL=http://127.0.0.1:18080       # unchanged, credential-free
   the password only has to exclude `@` and whitespace.
 - Home egress and residential egress are mutually exclusive on port 18080; the
   home helper's server-port preflight fails closed while the unit is active.
+- Ubuntu's apparmor package confines `/usr/bin/tinyproxy` to
+  `/etc/tinyproxy/tinyproxy.conf`. The repo's AppArmor local override adds only
+  read access to the two credentials-directory files and is installed before the
+  unit starts; the base profile stays enforcing and is reloaded with
+  `apparmor_parser -r /etc/apparmor.d/tinyproxy`.
+- The distro `tinyproxy.service` is masked before `apt install`, so no default
+  instance ever binds port 8888.
 - The release deploy script does not manage this unit; it is operator-installed
   infrastructure like `notebook-agent-asr-worker.service`.
 
@@ -326,6 +334,7 @@ YOUTUBE_PROXY_URL=http://127.0.0.1:18080       # unchanged, credential-free
 | CONNECT to a non-YouTube host, look-alike host, or port other than 443 | tinyproxy 403; nothing reaches the paid upstream. |
 | Wrong credentials or exhausted balance (upstream 407) | `youtube_proxy_authentication_failed`; no direct retry. |
 | Unit stopped | `youtube_proxy_unavailable`; no direct retry. |
+| AppArmor override missing | tinyproxy exits with `Could not open config file "/run/credentials/..."` (status 70) and a kernel `apparmor="DENIED"` record; workers see `youtube_proxy_unavailable`. |
 | Sticky exit IP flagged | `youtube_rate_limited` / `youtube_fetch_failed`; operator changes the provider session value and restarts only the egress unit. |
 
 ### 5. Good / Base / Bad Cases
@@ -345,3 +354,5 @@ YOUTUBE_PROXY_URL=http://127.0.0.1:18080       # unchanged, credential-free
 - Assert the filter matches the home helper's host patterns.
 - Assert the unit uses `DynamicUser`, `LoadCredential` for both files, runs
   tinyproxy in the foreground, and does not load the application env file.
+- Assert the AppArmor override grants read access to exactly the unit's two
+  credential paths and nothing broader (no globs, no write access).
