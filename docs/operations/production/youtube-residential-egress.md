@@ -1,16 +1,22 @@
-# 特定生产环境：YouTube 住宅代理出口
+# 特定生产环境：视频住宅代理出口（YouTube 与 Bilibili）
 
-这个方案让 StashSeek Chat 的 YouTube 元数据、字幕和 ASR 音频请求，经服务器本机的
-tinyproxy 转发到付费住宅代理。和[家庭网络出口](youtube-home-egress.md)相比，它不依赖
-Mac 开机或终端常开，可以长期运行。
+这个方案让 StashSeek Chat 所有服务端视频请求，包括 YouTube 与 Bilibili 的元数据、
+字幕和 ASR 音频，经服务器本机的 tinyproxy 转发到付费住宅代理（美国出口）。和
+[家庭网络出口](youtube-home-egress.md)相比，它不依赖 Mac 开机或终端常开，可以长期
+运行。unit、`/etc/notebook-agent/youtube-egress/` 路径和 AppArmor override 仍沿用
+`youtube-egress` 这个名字，避免改动生产路径，但它服务所有视频平台。
 
-应用侧契约不变：Worker 仍然只看到无凭据的 `YOUTUBE_PROXY_URL=http://127.0.0.1:18080`。
+应用侧契约：Worker 只看到无凭据的 `US_VIDEO_PROXY_URL=http://127.0.0.1:18080`
+（旧名 `YOUTUBE_PROXY_URL` 已改名，见文末升级章节）。
 代理商的账号密码只写在 tinyproxy 配置里，通过 systemd `LoadCredential` 交给一个临时
 系统用户，不进入 `notebook-agent.env`、数据库、日志或命令行。数据库、Redis、MinIO、
 Embedding、邮件、Web、MCP 和 Caddy 都不走这个代理。
 
-tinyproxy 只放行到 `youtube.com` / `googlevideo.com` 的 HTTPS CONNECT 443，其余目的地
-一律 403，所以服务器上其他进程即使连到这个端口，也花不到代理流量。TLS 是端到端的，
+tinyproxy 只放行 HTTPS CONNECT 443，且目的主机必须匹配过滤文件里的七条锚定规则：
+`youtube.com`、`googlevideo.com`、`bilibili.com`、`hdslb.com`、`bilivideo.com`、
+`bilivideo.cn`，以及 Bilibili 的 Akamai 镜像 `upos-*.akamaized.net`（只放行 `upos-`
+前缀，不开放整个 `akamaized.net`）。其余目的地一律 403，所以服务器上其他进程即使
+连到这个端口，也花不到代理流量。TLS 是端到端的，
 代理商只能看到目的主机名和字节数。
 
 ## 与家庭出口互斥
@@ -130,9 +136,10 @@ tinyproxy 只放行到 `youtube.com` / `googlevideo.com` 的 HTTPS CONNECT 443�
 ```bash
 curl -sS -o /dev/null -x http://127.0.0.1:18080 https://example.com
 curl -sS -o /dev/null -w '%{http_code}\n' -x http://127.0.0.1:18080 https://www.youtube.com/
+curl -sS -o /dev/null -w '%{http_code}\n' -x http://127.0.0.1:18080 https://www.bilibili.com/
 ```
 
-第一条必须失败，提示 `CONNECT tunnel failed, response 403`；第二条应返回 `200`。
+第一条必须失败，提示 `CONNECT tunnel failed, response 403`；后两条应返回 `200`。
 
 再用 Worker 同款 yt-dlp 参数，拿一个**有字幕的公开视频**确认元数据和字幕列表：
 
@@ -154,11 +161,11 @@ sudo -u notebook-agent env \
 已经有了）：
 
 ```text
-YOUTUBE_PROXY_URL=http://127.0.0.1:18080
+US_VIDEO_PROXY_URL=http://127.0.0.1:18080
 ```
 
-重启使用 YouTube connector 的 Worker。ASR 下载音频也走同一个代理，已安装 ASR worker
-时一并重启：
+重启使用视频 connector 的 Worker。YouTube 和 Bilibili 的元数据、字幕以及 ASR 下载音频
+都走同一个代理，已安装 ASR worker 时一并重启：
 
 ```bash
 sudo systemctl restart notebook-agent-worker
@@ -169,13 +176,18 @@ if systemctl is-enabled --quiet notebook-agent-asr-worker 2>/dev/null; then
 fi
 ```
 
-先提交一个公开视频，确认条目到达 `ready`、字幕非空，再到代理商后台确认产生了少量流量。
+先分别提交一个公开 YouTube 视频和一个公开 Bilibili 视频，确认条目到达 `ready`（或
+Bilibili 无匿名字幕时进入 `needs_asr` / `needs_extension`）、字幕非空，再到代理商后台
+确认产生了少量流量。
 之后才恢复正常使用。重试之前失败的条目时一次只试一个，确认成功后再继续。
 
 ## 用量与费用
 
-- 字幕：每个视频（元数据加字幕）约 0.5–2 MB。
-- ASR 音频：优先选择 40–72 kbps 的音频流（YouTube 通常为格式 139，约 49 kbps），每音频小时约 22 MB。范围内没有可用流时，才回退到 `bestaudio`（约 128 kbps，每音频小时约 58 MB）。
+- 字幕：每个视频（元数据加字幕）约 0.5–2 MB。Bilibili 匿名字幕基本不存在，元数据请求
+  约几百 KB。
+- ASR 音频：优先选择 40–72 kbps 的音频流（YouTube 通常为格式 139，约 49 kbps；Bilibili 为
+  30216，约 65 kbps），每音频小时约 22–30 MB。范围内没有可用流时，才回退到 `bestaudio`
+  （YouTube 约 128 kbps，每音频小时约 58 MB；Bilibili 约 140 MB）。
 - 粗略估算：每月 300 个有字幕视频加 20 小时无字幕视频，约 1.5 GB。
 
 定期对照代理商后台的用量。用量明显偏高时，先查 tinyproxy 日志里是否有异常的连接量：
@@ -183,6 +195,12 @@ fi
 ```bash
 sudo journalctl -u notebook-agent-youtube-egress --since today
 ```
+
+日志级别是 `Notice`：只记录启动和过滤拒绝，例如
+`Proxying refused on filtered domain "upos-sz-mirrorcos.bilivideo.com"`，不记录被放行
+的连接。出口地区不同，Bilibili 音频 CDN 主机也会不同；看到合法的 Bilibili 主机被拒绝时，
+把它补进 `deploy/youtube-egress/tinyproxy.filter`（保持锚定规则，并同步
+`scripts/youtube-home-egress` 里内嵌的同一份规则），重新安装并重启 egress 服务。
 
 ## 故障处理
 
@@ -192,6 +210,8 @@ sudo journalctl -u notebook-agent-youtube-egress --since today
 | `youtube_proxy_authentication_failed` | 上游返回 407：凭据错误、凭据含 `:`/`@`，或流量已用完 | 核对 `Upstream` 行和后台余额，改完 `systemctl restart` |
 | `youtube_proxy_timeout` | 上游网关慢或不可达 | 稍后重试；持续出现就换 session 值或联系代理商 |
 | `youtube_rate_limited` / `youtube_fetch_failed` | 当前 sticky 出口 IP 被 YouTube 标记 | 把 `Upstream` 里 `session-` 后面的值换成新的 6–10 位字母数字，重启 egress 服务 |
+| `bilibili_proxy_unavailable` / `bilibili_proxy_authentication_failed` / `bilibili_proxy_timeout` | 与上面三个 YouTube 代理错误同因。另外，目的主机不在过滤文件里时 tinyproxy 对 CONNECT 返回 403，Worker 也会把它归为 `*_proxy_unavailable` | 处理方法相同；先查 journal 有无 `Proxying refused`，有就按“用量与费用”一节补规则 |
+| `bilibili_rate_limited` | Bilibili 风控（HTTP 412、`-352`）或 429，通常是当前 sticky 出口 IP 被标记 | 换 session 值并重启 egress 服务 |
 
 换 session 值或改凭据后只需重启 egress 服务，不必重启 Worker：
 
@@ -216,7 +236,7 @@ sudo journalctl -k --since "-10 min" --no-pager | grep 'apparmor="DENIED".*tinyp
 sudo systemctl stop notebook-agent-youtube-egress
 ```
 
-然后在 Mac 上按[家庭出口手册](youtube-home-egress.md)启动助手，`YOUTUBE_PROXY_URL`
+然后在 Mac 上按[家庭出口手册](youtube-home-egress.md)启动助手，`US_VIDEO_PROXY_URL`
 不用改。切回住宅代理时，先在 Mac 上按 Ctrl-C 停掉助手，再
 `sudo systemctl start notebook-agent-youtube-egress`。
 
@@ -228,7 +248,7 @@ sudoedit /etc/notebook-agent/notebook-agent.env
 sudo systemctl restart notebook-agent-worker
 ```
 
-在 `notebook-agent.env` 里删掉 `YOUTUBE_PROXY_URL`；已安装 ASR worker 时同样重启它。
+在 `notebook-agent.env` 里删掉 `US_VIDEO_PROXY_URL`；已安装 ASR worker 时同样重启它。
 不再使用时删除凭据目录，并在代理商后台重置密码：
 
 ```bash
@@ -243,4 +263,59 @@ sudo apparmor_parser -r /etc/apparmor.d/tinyproxy
 不要删除整个文件。
 
 回滚不修改数据库、对象存储、Redis、Caddy、Web/MCP 或其他服务。去掉代理后，生产 IP
-仍会被 YouTube 拦截；回滚只恢复原路由，不保证字幕恢复。
+仍会被 YouTube 拦截、被 Bilibili 返回 412；回滚只恢复原路由，不保证字幕恢复。
+
+## 升级到 US_VIDEO_PROXY_URL 与 B 站
+
+下一次 dev→main 全量发布会同时带来三件事：环境变量改名（`YOUTUBE_PROXY_URL` →
+`US_VIDEO_PROXY_URL`）、Bilibili 与 ASR 音频走代理、tinyproxy 过滤规则新增 Bilibili 主机。
+新版 Worker 在旧变量仍存在时会拒绝启动（`YOUTUBE_PROXY_URL was renamed to
+US_VIDEO_PROXY_URL`），部署健康检查随后回滚，不会静默改成直连。按下面顺序操作：
+
+1. **审批 Production 门禁之前**，用 `sudoedit` 改 `/etc/notebook-agent/notebook-agent.env`：
+   把 `YOUTUBE_PROXY_URL=` 这一行改成 `US_VIDEO_PROXY_URL=`，值不变，不要两个都留。
+   环境文件只在进程启动时读取：改名后、新版部署前，任何旧版进程一旦重启（包括部署失败
+   后的自动回滚）都会把代理当作未配置而直连，所以改名要紧贴发布：改完立刻审批。
+2. 发布部署完成后，从新 release 重新安装过滤文件：
+
+   ```bash
+   cd /opt/notebook-agent/current
+   sudo install -o root -g root -m 0600 deploy/youtube-egress/tinyproxy.filter \
+     /etc/notebook-agent/youtube-egress/tinyproxy.filter
+   ```
+
+3. 把含凭据的配置里的日志级别改成 `Notice`，不要打印文件内容：
+
+   ```bash
+   sudo sed -i 's/^LogLevel Warning$/LogLevel Notice/' \
+     /etc/notebook-agent/youtube-egress/tinyproxy.conf
+   ```
+
+4. 重启 egress 服务，并确认仍只监听回环地址：
+
+   ```bash
+   sudo systemctl restart notebook-agent-youtube-egress
+   sudo systemctl is-active notebook-agent-youtube-egress
+   ss -ltn '( sport = :18080 )'
+   ```
+
+5. Bilibili canary：以 `notebook-agent` 用户通过 `BilibiliConnector` 取一个公开视频的
+   元数据，再查 journal 里有没有过滤拒绝：
+
+   ```bash
+   cd /opt/notebook-agent/current
+   sudo -u notebook-agent .venv/bin/python -c '
+   from app.connectors.bilibili import BilibiliConnector
+   meta = BilibiliConnector(proxy_url="http://127.0.0.1:18080").fetch_meta("BV1uv411q7Mv")
+   print(meta.title is not None, meta.duration_sec)
+   '
+   sudo journalctl -u notebook-agent-youtube-egress --since "-10 min" --no-pager \
+     | grep "Proxying refused" || echo "no refusals"
+   ```
+
+   应输出 `True` 和时长，且没有 `Proxying refused`。出现拒绝说明出口地区用了过滤文件
+   之外的 Bilibili CDN 主机，按“用量与费用”一节补规则。需要验证音频下载时，再提交一个
+   无字幕的公开 Bilibili 视频，确认 ASR 音频下载走代理并到达 `ready`。
+
+回滚：重新部署上一个 release，并把 `notebook-agent.env` 里的变量名改回
+`YOUTUBE_PROXY_URL`。过滤文件和 `LogLevel` 不必还原，旧代码不受多放行的主机影响。

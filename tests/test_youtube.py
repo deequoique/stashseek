@@ -512,7 +512,7 @@ def _config_directives(text: str) -> list[str]:
     ]
 
 
-def test_residential_egress_proxy_is_loopback_only_and_youtube_scoped():
+def test_residential_egress_proxy_is_loopback_only_and_video_scoped():
     config = (RESIDENTIAL_EGRESS_DIR / "tinyproxy.conf.example").read_text(
         encoding="utf-8"
     )
@@ -550,6 +550,11 @@ def test_residential_egress_filter_matches_home_egress_hosts():
     assert filter_rules.splitlines() == [
         r"(^|\.)youtube\.com$",
         r"(^|\.)googlevideo\.com$",
+        r"(^|\.)bilibili\.com$",
+        r"(^|\.)hdslb\.com$",
+        r"(^|\.)bilivideo\.com$",
+        r"(^|\.)bilivideo\.cn$",
+        r"^upos-[a-z0-9-]+\.akamaized\.net$",
     ]
     for rule in filter_rules.splitlines():
         assert rule in helper
