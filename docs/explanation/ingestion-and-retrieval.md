@@ -11,7 +11,7 @@ StashSeek Chat 的核心区别不是“把 URL 存下来”，而是把可获取
 | --- | --- | --- |
 | YouTube 普通视频 URL | server-side `yt-dlp` metadata + JSON3 subtitle | `needs_asr`；不会自动上传音视频 |
 | Bilibili 普通视频 URL | server-side `yt-dlp` metadata + inline official/automatic SRT | `needs_asr` 或明确登录字幕时 `needs_extension`；不保存 cookies |
-| 当前 YouTube 页面 | 可选 browser companion；在浏览器本地读取 JSON3/WebVTT/XML/官方 transcript fallback | `unavailable` → worker `needs_asr` |
+| 当前 YouTube 页面 | 可选 browser companion；在浏览器本地读取 JSON3/WebVTT/XML/官方 transcript fallback | `unavailable` → ASR 开启时同一 dispatch 转入 `asr` 队列，否则 worker `needs_asr` |
 | NTULearn/Kaltura 页面 | 可选 browser companion；读取用户当前页/授权 player frame 的 captions | `unavailable` → worker `needs_asr` |
 
 browser companion 当前只接受 `youtube` 和 `ntu_kaltura` capture。Bilibili
@@ -48,7 +48,9 @@ page-local authorized captions
 
 capture 使用 `raw_format=capture_v1`；既有 server JSON3 对象仍可读取。字幕
 不可用时，capture payload 必须是 `status=unavailable`、空 cues、无 source/
-language，worker 只将 item 标为 `needs_asr`，不上传音频或视频。
+language；浏览器不上传音频或视频。ASR 开启且为公开 YouTube 时，worker 把同一个
+dispatch 转入 `asr` 队列由后端自行下载音频转写；其余（包括 `ntu_kaltura`）只将 item
+标为 `needs_asr`。
 
 ## 原文获取和安全限制
 

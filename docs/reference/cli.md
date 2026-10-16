@@ -62,8 +62,10 @@ launcher 的 `stop` 只向当前 reservation 记录中的 supervisor 发信号�
 
 把已有的 `needs_asr` 公开 YouTube/Bilibili 条目重新派发进 ASR 链路。需要
 `ASR_ENABLED=true`，否则命令拒绝执行（含 `--dry-run`）。`--limit` 默认 `20`，
-最大 `500`；`--user-id` 只处理一个租户。命令只选择未删除、未归档、没有浏览器采集
-记录的条目，为每个条目新建一个 dispatch 并走与重试相同的 `ingest` 队列发布路径
+最大 `500`；`--user-id` 只处理一个租户。命令只选择未删除、未归档的条目：没有浏览器采集
+记录的 YouTube/Bilibili 条目，以及最新一次 `ready` 采集为字幕不可用
+（`caption_status=unavailable`）的 YouTube 采集条目；`ntu_kaltura` 和字幕可用的采集
+条目不会被选中。命令为每个条目新建一个 dispatch 并走与重试相同的 `ingest` 队列发布路径
 （已有 active dispatch 的条目会被跳过）。`--dry-run` 只列出会处理的条目。
 
 输出只有计数和内部 item ID（`selected=… queued=… skipped=… failed=…` 与
