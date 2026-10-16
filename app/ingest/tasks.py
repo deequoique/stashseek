@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import os
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ from typing import Any
 from uuid import uuid4
 
 from celery import Celery, Task
+from celery.signals import after_setup_logger
+from celery.utils.log import LoggingProxy
 from kombu import Producer, Queue
 from sqlalchemy import and_, delete, func, inspect, or_, select, text
 
@@ -34,6 +37,7 @@ from app.connectors.base import (
 from app.connectors.bilibili import BilibiliConnector
 from app.connectors.youtube import YouTubeConnector
 from app.db import get_session_factory
+from app.diagnostics import configure_runtime_logging
 from app.ingest.chunker import chunk
 from app.ingest.embed import EmbeddingProvider, ZhipuEmbedder
 from app.ingest.validate import IngestLimitExceeded, guard_ingest_limits, guard_transcript
@@ -96,6 +100,57 @@ celery_app.conf.task_routes = {
 }
 
 _COMPLETION_LOGGER = logging.getLogger("notebook_agent.runtime")
+
+
+@after_setup_logger.connect
+def _install_worker_runtime_logging(**_kwargs: Any) -> None:
+    """Install the structured runtime diagnostics in Celery worker/beat processes.
+
+    ``after_setup_logger`` fires only inside a Celery process, in the main
+    process and before Celery redirects stdout/stderr to its ``LoggingProxy``;
+    prefork children inherit the handlers. Merely importing this module (API,
+    CLI) never reaches here. Logging is observability only, so any failure is
+    swallowed and never prevents the worker from starting.
+    """
+
+    try:
+        settings = get_settings()
+        options = dict(
+            log_dir=getattr(
+                settings,
+                "stashseek_log_dir",
+                getattr(settings, "notebook_agent_log_dir", ".runtime/logs"),
+            ),
+            max_bytes=getattr(
+                settings,
+                "stashseek_log_max_bytes",
+                getattr(settings, "notebook_agent_log_max_bytes", 10 * 1024 * 1024),
+            ),
+            backup_count=getattr(
+                settings,
+                "stashseek_log_backup_count",
+                getattr(settings, "notebook_agent_log_backup_count", 5),
+            ),
+        )
+        # The console handler binds ``sys.stdout`` when it is created. If that
+        # is already Celery's proxy, every JSON line would be re-wrapped as a
+        # ``celery.redirected`` WARNING, so bind the real stdout instead.
+        proxied = sys.stdout
+        use_real_stdout = (
+            isinstance(proxied, LoggingProxy) and sys.__stdout__ is not None
+        )
+        if use_real_stdout:
+            sys.stdout = sys.__stdout__
+        try:
+            configure_runtime_logging(**options)
+        finally:
+            if use_real_stdout:
+                sys.stdout = proxied
+    except Exception as exc:
+        # Class name only: never copy exception text into a log record.
+        logging.getLogger(__name__).warning(
+            "worker runtime logging unavailable: %s", type(exc).__name__
+        )
 
 
 def _completion_diagnostic(

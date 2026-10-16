@@ -87,6 +87,7 @@ transcribe_dispatch_task (queue asr, concurrency 1, time_limit 3600 / soft 3480)
 - **YouTube audio client.** The audio download (`app/asr/audio.py`) uses yt-dlp's default client selection and passes no `--extractor-args youtube:player_client=...`. `android_vr`, which the subtitle connector keeps, lists audio formats but its media URLs return 403, and `mweb`/`tv_simply`/`web_embedded` need a GVS PO token. This requires yt-dlp >= 2026.8.19.
 - **Child processes.** YouTube children get the child-only proxy and CA environment. The yt-dlp audio child (YouTube and Bilibili) receives a copy of that environment without secret-named variables (`*API_KEY*`, `*SECRET*`, `*PASSWORD*`, `*TOKEN*`, `DATABASE_URL`, `REDIS_URL`). ffmpeg gets a minimal allow-listed environment.
 - **Temporary audio.** Delete it in `finally`. Operations add the MinIO rule `asr-tmp/` expire 1 day as a backstop.
+- **Worker diagnostics.** `asr_transcription` and the handoff/completion diagnostics are emitted on the `notebook_agent.runtime` logger as one JSON line each, on stdout (journald) and in `STASHSEEK_LOG_DIR`. Celery workers do not run the CLI startup, so `app/ingest/tasks.py` installs `configure_runtime_logging()` from an `after_setup_logger` handler. The handler binds the real stdout (`sys.__stdout__` when stdout is already Celery's `LoggingProxy`), is idempotent, and swallows any failure. Without it these records reach the worker log as a bare `diagnostic` line with no payload. Covered by `tests/test_worker_runtime_logging.py`.
 
 ## Configuration
 
