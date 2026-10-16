@@ -102,7 +102,6 @@ def download_audio(
     max_bytes = int(settings.asr_max_audio_bytes)
     timeout = float(settings.asr_download_timeout_seconds)
 
-    extra_args: list[str] = []
     proxy_environment: dict[str, str] | None = None
     proxy_url = getattr(settings, "youtube_proxy_url", None)
     youtube: YouTubeConnector | None = None
@@ -114,7 +113,11 @@ def download_audio(
         if video_id is None:
             raise AsrError("asr_audio_unavailable")
         target = f"https://www.youtube.com/watch?v={video_id}"
-        extra_args = ["--extractor-args", "youtube:player_client=android_vr"]
+        # Unlike the subtitle/metadata connector, which pins ``android_vr``
+        # (see ``youtube-connector.md``), audio download must NOT override
+        # ``player_client``: ``android_vr`` lists audio formats but its media
+        # URLs return HTTP 403 on download.  yt-dlp's default client selection
+        # (yt-dlp >= 2026.8.19) is the only combination verified to work.
         proxy_environment = youtube._child_environment()
     elif platform == "bilibili":
         bilibili = BilibiliConnector()
@@ -141,7 +144,6 @@ def download_audio(
         str(max_bytes),
         "-o",
         str(dest_dir).replace("%", "%%") + "/audio.%(ext)s",
-        *extra_args,
         target,
     ]
     run_kwargs: dict[str, Any] = {

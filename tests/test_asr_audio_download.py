@@ -69,7 +69,9 @@ def test_youtube_arguments_and_result(tmp_path):
     assert pairs["--max-filesize"] == "1000"
     assert pairs["--socket-timeout"] == "30.0"
     assert pairs["-o"] == f"{tmp_path}/audio.%(ext)s"
-    assert pairs["--extractor-args"] == "youtube:player_client=android_vr"
+    # Audio uses yt-dlp's default client selection: android_vr media URLs 403.
+    assert "--extractor-args" not in args
+    assert not any("player_client" in arg for arg in args)
     # Only the canonical URL (tracking query removed) is passed, and last.
     assert args[-1] == YOUTUBE_CANONICAL
     assert not any(arg.startswith("--cookies") for arg in args)
