@@ -693,3 +693,44 @@ Neon compute woke every 10 min (600s repair sweep vs 300s suspend), ~50% awake i
 
 - Production: verify REDIS_URL, drop TRASH_PURGE_INTERVAL_SECONDS=3600 in /etc/notebook-agent/notebook-agent.env; check idle_skipped heartbeats and Neon Last-day view
 - main has meeting-QA fixes (PR #25) not committed on dev; they sit as uncommitted WIP under WeMM work in the shared checkout -- merge main into dev once that WIP is committed
+
+
+## Session 24: Residential video egress: Evomi for YouTube, Bilibili via US_VIDEO_PROXY_URL
+
+**Date**: 2026-10-16
+**Task**: Residential video egress: Evomi for YouTube, Bilibili via US_VIDEO_PROXY_URL
+**Branch**: `dev`
+
+### Summary
+
+Production YouTube was blocked from the OVH datacenter IP. Added a server-local tinyproxy egress (loopback, YouTube/Bilibili-only filter, LoadCredential + AppArmor override) forwarding to Evomi Core Residential (sticky, US), installed and canaried it in production, then routed Bilibili (HTTP 412 from prod) and all server-side video fetches through it under the renamed US_VIDEO_PROXY_URL.
+
+### Main Changes
+
+- deploy/youtube-egress tinyproxy config, filter, AppArmor override; notebook-agent-youtube-egress.service; runbook youtube-residential-egress.md
+- Production: tinyproxy 1.11.3 installed, unit enabled, Evomi credentials entered by the user via getpass helper; YouTube canary passed
+- app/connectors/proxy_env.py shared child-proxy env; BilibiliConnector proxy + 412 classification; YOUTUBE_PROXY_URL renamed to US_VIDEO_PROXY_URL (old name is a startup error); filter adds Bilibili hosts; LogLevel Notice
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b05691d` | (see git log) |
+| `a8ca494` | (see git log) |
+| `6270972` | (see git log) |
+| `a7fe340` | (see git log) |
+| `7d069a9` | (see git log) |
+
+### Testing
+
+- [OK] Targeted 324-328 passed (worktree/shared/release); full suite failures identical to unmodified main/dev baselines
+- [OK] Local tinyproxy 18/18 runtime cases; end-to-end Bilibili fetch_meta + ASR audio through new filter; prod YouTube connector canary
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Merge PR #29; rename YOUTUBE_PROXY_URL to US_VIDEO_PROXY_URL in prod env right before approving the Production gate; reinstall filter, LogLevel Notice, restart egress, Bilibili canary
+- Buy Evomi Core Residential pay-as-you-go before the trial ends (~2026-10-17)
