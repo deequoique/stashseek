@@ -28,5 +28,7 @@ ConnectPort 443
 
 # Replace with the provider's sticky-session gateway. The username must not
 # contain ":" and the password must not contain "@" or whitespace.
-# DataImpulse example: each port in 10000-20000 is one sticky exit IP.
-Upstream http PROXY_USERNAME:PROXY_PASSWORD@gw.dataimpulse.com:10000
+# Evomi Core Residential: HTTP port 1000; the generator appends country and
+# sticky-session options to the password. Change the 6-10 character session
+# value to get a new exit IP.
+Upstream http PROXY_USERNAME:PROXY_PASSWORD_country-US_session-SESSION01@core-residential.evomi.com:1000

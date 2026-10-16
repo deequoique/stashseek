@@ -21,16 +21,32 @@ tinyproxy 只放行到 `youtube.com` / `googlevideo.com` 的 HTTPS CONNECT 443�
 
 ## 购买与准备凭据
 
-1. 购买按流量计费、流量不过期的住宅代理。
-2. 在代理商后台拿到 **sticky（固定 IP）** 网关地址、端口、用户名和密码。
-   - YouTube 返回的字幕和音频地址会绑定请求时的 IP；元数据和字幕又在两个子进程里分别
-     请求。每个连接都换 IP 的轮换模式会让后一步失败，所以必须用 sticky。
-   - DataImpulse：网关 `gw.dataimpulse.com`，端口 10000–20000 中每个端口对应一个
-     sticky 出口 IP；在后台把 rotation interval 设为 30 分钟左右（不填默认 30 分钟）。
-     其他代理商的 sticky 写法以各自后台为准，有的是在用户名里带 session 参数。
-3. 检查凭据格式：tinyproxy 要求**用户名不含 `:`，密码不含 `@` 和空白**。不符合时先在
-   代理商后台重置密码。
-4. 在代理商后台设置余额或用量提醒。
+当前使用 Evomi 的 Core Residential。
+
+1. 购买**按量付费**（pay as you go）的 Core Residential，流量不过期。不要开
+   Core Membership 月付套餐（$49.99/月含 100GB，远超我们的用量）。Core Membership
+   的免费试用只有 1 天，到期会自动转成月付，试用期内要在 Subscription 页点
+   **Stop auto-renewal**。
+2. 在 Core Residential 的 **Proxy Generator** 里按下表设置，生成一条代理串：
+
+   | 选项 | 设置 |
+   | --- | --- |
+   | Protocol | HTTP |
+   | Country | United States of America（City/Region 保持 Random） |
+   | Type | Sticky Session → Normal Session |
+   | Amount / Lifetime | 1 / 30 |
+   | Expert Settings | 全部 Disabled（每项都会把流量费乘 1.4–6 倍） |
+
+   - 必须用 sticky：YouTube 返回的字幕和音频地址会绑定请求时的 IP，而元数据和字幕在
+     两个子进程里分别请求，每个连接都换 IP 的轮换模式会让后一步失败。
+   - 不选 Hard Session：它会把同一个 IP 用尽可能久，更容易被 YouTube 标记。
+   - 选美国：避免随机落到欧盟触发 cookie 同意页，也避开个别视频的地区限制。
+3. 生成的串形如
+   `http://core-residential.evomi.com:1000:<用户名>:<密码>_country-US_session-<随机串>`。
+   国家和 sticky 参数拼在密码后面，Lifetime 为默认的 30 时不出现在串里。
+4. 检查凭据格式：tinyproxy 要求**用户名不含 `:`，密码不含 `@` 和空白**。不符合时先在
+   Evomi 后台 Reset Proxy Key。
+5. 在 Evomi 后台关注余额，必要时设置提醒。
 
 ## 一次性安装
 
@@ -60,17 +76,18 @@ tinyproxy 只放行到 `youtube.com` / `googlevideo.com` 的 HTTPS CONNECT 443�
      /etc/notebook-agent/youtube-egress/tinyproxy.conf
    ```
 
-3. 用 `sudoedit` 只修改最后一行 `Upstream`，填入 sticky 网关：
+3. 用 `sudoedit` 只修改最后一行 `Upstream`，把生成器的串改写成 tinyproxy 格式：
 
    ```bash
    sudoedit /etc/notebook-agent/youtube-egress/tinyproxy.conf
    ```
 
    ```text
-   Upstream http <用户名>:<密码>@gw.dataimpulse.com:10000
+   Upstream http <用户名>:<密码>_country-US_session-<随机串>@core-residential.evomi.com:1000
    ```
 
-   不要把凭据写在命令行、shell 历史、`notebook-agent.env` 或任何提交里。
+   密码那一段连同 `_country-US_session-...` 整段照抄。不要把凭据写在命令行、shell
+   历史、`notebook-agent.env` 或任何提交里。
 
 4. 安装、校验并启动 unit：
 
@@ -109,7 +126,7 @@ sudo -u notebook-agent env \
 ```
 
 输出里应能看到 `Available subtitles` 或 `Available automatic captions` 列表。出现 `Sign in to confirm you're not a bot`、
-429 或 403 时，先换一个 sticky 端口（见“故障处理”）再试，不要直接激活。
+429 或 403 时，先换一个 session 值（见“故障处理”）再试，不要直接激活。
 
 ## 生产 Worker 激活
 
@@ -153,10 +170,10 @@ sudo journalctl -u notebook-agent-youtube-egress --since today
 | --- | --- | --- |
 | `youtube_proxy_unavailable` | egress 服务没运行，或端口被家庭出口占用 | `systemctl status notebook-agent-youtube-egress`，查看 journal |
 | `youtube_proxy_authentication_failed` | 上游返回 407：凭据错误、凭据含 `:`/`@`，或流量已用完 | 核对 `Upstream` 行和后台余额，改完 `systemctl restart` |
-| `youtube_proxy_timeout` | 上游网关慢或不可达 | 稍后重试；持续出现就换 sticky 端口或联系代理商 |
-| `youtube_rate_limited` / `youtube_fetch_failed` | 当前 sticky 出口 IP 被 YouTube 标记 | 把 `Upstream` 换成另一个 sticky 端口，重启 egress 服务 |
+| `youtube_proxy_timeout` | 上游网关慢或不可达 | 稍后重试；持续出现就换 session 值或联系代理商 |
+| `youtube_rate_limited` / `youtube_fetch_failed` | 当前 sticky 出口 IP 被 YouTube 标记 | 把 `Upstream` 里 `session-` 后面的值换成新的 6–10 位字母数字，重启 egress 服务 |
 
-换端口或改凭据后只需重启 egress 服务，不必重启 Worker：
+换 session 值或改凭据后只需重启 egress 服务，不必重启 Worker：
 
 ```bash
 sudoedit /etc/notebook-agent/youtube-egress/tinyproxy.conf
