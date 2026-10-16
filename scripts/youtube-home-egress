@@ -165,6 +165,11 @@ pid_file=$state_dir/tinyproxy.pid
 cat >"$filter_file" <<'EOF'
 (^|\.)youtube\.com$
 (^|\.)googlevideo\.com$
+(^|\.)bilibili\.com$
+(^|\.)hdslb\.com$
+(^|\.)bilivideo\.com$
+(^|\.)bilivideo\.cn$
+^upos-[a-z0-9-]+\.akamaized\.net$
 EOF
 
 cat >"$config_file" <<EOF
@@ -172,7 +177,7 @@ Port $local_proxy_port
 Listen 127.0.0.1
 Timeout 30
 LogFile "$log_file"
-LogLevel Warning
+LogLevel Notice
 PidFile "$pid_file"
 MaxClients 8
 Allow 127.0.0.1

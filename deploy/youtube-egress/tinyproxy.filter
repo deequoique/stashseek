@@ -1,2 +1,7 @@
 (^|\.)youtube\.com$
 (^|\.)googlevideo\.com$
+(^|\.)bilibili\.com$
+(^|\.)hdslb\.com$
+(^|\.)bilivideo\.com$
+(^|\.)bilivideo\.cn$
+^upos-[a-z0-9-]+\.akamaized\.net$
