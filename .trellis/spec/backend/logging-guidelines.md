@@ -56,6 +56,10 @@ class ChannelEnvelope:
 `app.cli` and `app.channels.http_gateway` must call `configure_runtime_logging()` explicitly. Do not rely on a host
 process or test framework to install handlers or set `notebook_agent.runtime` to `INFO`.
 
+The Celery worker and Beat processes install it from `app.ingest.tasks` through the `celery.signals.after_setup_logger`
+hook (never at import time), with the same `STASHSEEK_LOG_*` settings and the console bound to the real stdout rather
+than Celery's `LoggingProxy`. A failure there is swallowed so the worker still starts.
+
 ### 3. Contracts
 
 - StashSeek Chat emits the same compact JSON event to stdout and the stable
