@@ -568,3 +568,128 @@ Added a dismissible Chinese community announcement, first-level Tencent QQ and G
 ### Status
 
 [OK] **Completed**
+
+
+## Session 21: 会议问答质量：RQ1 前置修复与检索研究
+
+**Date**: 2026-10-06
+**Task**: 会议问答质量：RQ1 前置修复与检索研究
+**Branch**: `dev`
+
+### Summary
+
+诊断 QMSum specific-30 低分根因，修复分块/回答阶段 fail-closed/embedding 重试三处生产缺陷，完成 RQ1 检索研究；端到端成功率 18/30→30/30。代码未提交（工作区混有约 230 个无关 WIP 改动，按用户决定延后提交）。
+
+### Main Changes
+
+- 分块：语义优先 + 下限 80/上限 200 词 + 窗口内最深语义落差切分 + 15% 整句重叠；中位块 12→155 词；回答器摘录上限 360→1200
+- 回答阶段：流式空白片段不再中止回答；重复/超 8 个引用由服务器按段轮转归一化（types.py/response.py 不变量相应放宽）
+- embedding：瞬时错误分类 + 每批最多 3 次有界重试；超长转录 embedding 预算不足时退化为停顿/标点切分
+- 评测：evals/meeting_gold 新增 rq1 与 agent-smoke 子命令（生产链路入库、9 种检索×多样性×两种范围、精确上限、McNemar/Wilson/bootstrap）
+- 规格：新增 ingestion-chunking-embedding.md；更新 agent-retrieval-convergence.md、browser-companion-capture.md
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 相关测试 145 通过（chunker/tasks/embed/agent_runtime/streaming/normalization）；meeting_gold 129 通过；全量失败集与改动前一致（32 个既有失败）
+- [OK] 生产链路端到端重跑：回答 30/30（修复前 18/30），严格块级 Recall@5 0.147→0.397，引用含金标准 0.56→0.89
+- [OK] RQ1：上限 Recall@5 0.953；基线 A 0.381 / B 0.139；B 内最佳 rrf-OR 关多样性 +0.111 [0.019,0.216]
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 提交本次代码（需拆分与无关 WIP 混在同一文件中的改动）
+- 修复 HNSW 租户过滤截断（全库向量检索 25/30 拿不到 10 个候选）
+- 按 RQ1 结论改检索：OR 查询 + RRF + 全库关闭多样性
+- 检索 Agent 预算问题；模糊主题问题的查询改写；清理测试库评测条目
+
+
+## Session 22: Release meeting-QA fixes to production
+
+**Date**: 2026-10-07
+**Task**: Release meeting-QA fixes to production
+**Branch**: `release/meeting-qa-fixes`
+
+### Summary
+
+Ported the completed meeting-QA fixes from dev onto origin/main in an isolated worktree (no WIP), merged them as PR #25 and deployed 74182624 to production. Post-deploy probe passed.
+
+### Main Changes
+
+- Chunking: semantic-first windows with an 80/130 lower bound, a 200/330 upper bound, the deepest-dip cut, ~15% cue overlap and the embedding budget guard
+- Answer: whitespace stream deltas allowed; citations normalized by section round-robin (cap 8)
+- Embed: classified per-batch retry for transient errors
+- Retrieval: filter the tenant first, then rank exactly by vector; migration d04fdae36884 drops ix_segment_embedding_hnsw
+- Agent: batched retrievals run within the 5/2/3 budgets; no discarded post-search text; stage_usage diagnostics; AGENT_OUTPUT_TOKEN_LIMIT=3000
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `56dd744` | (see git log) |
+| `ca32495` | (see git log) |
+| `e03ae44` | (see git log) |
+| `1c3e843` | (see git log) |
+| `4e8b404` | (see git log) |
+| `d449e9b` | (see git log) |
+| `7418262` | (see git log) |
+
+### Testing
+
+- [OK] Release worktree full suite on the Neon test branch: 10 failed (pre-existing; origin/main baseline 11) / 881 passed / 9 skipped
+- [OK] Alembic: one head; empty-database upgrade/current/check on the test branch passes
+- [OK] Production-path 30-case rerun: all succeed within one retry
+- [OK] Production R6: alembic=d04fdae36884; no HNSW; largest tenant 50/50 (was 12-39), ~100 ms; health 200
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Merge main back into dev (conflicts expected; see the PR #25 notes)
+- Follow-ups: diversify off for tenant-wide search; OR/RRF re-eval; source-block guard aborts; async-generator leak
+
+
+## Session 23: Neon idle scale-to-zero: Redis-gated notification repair
+
+**Date**: 2026-10-16
+**Task**: Neon idle scale-to-zero: Redis-gated notification repair
+**Branch**: `dev`
+
+### Summary
+
+Neon compute woke every 10 min (600s repair sweep vs 300s suspend), ~50% awake idle, ~3 CU-h/day. Gated the repair tick on a disposable Redis due-index, added a daily ungated full repair, made trash purge daily. Shipped to main via PR #28 (be6fc3b, merge fa9c57e).
+
+### Main Changes
+
+- New app/ingest/notification_repair_index.py: ZSET due index (ZADD LT, Lua compare-and-set), baseline key, repair_due_at derivation
+- Repair tick issues zero PostgreSQL statements when nothing is due (heartbeat idle_skipped=1); fails open to the old sweep if Redis is unreadable
+- Daily repair_all_ingest_notifications_task rebuilds the index; TRASH_PURGE_INTERVAL_SECONDS default 3600 -> 86400
+- Local .env INGEST_NOTIFICATION_INTERVAL_SECONDS 10 -> 600 (not committed)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `21a51f9` | (see git log) |
+| `c7e385c` | (see git log) |
+
+### Testing
+
+- [OK] 369 passed on release branch against Neon test branch; 2 pre-existing date-dependent failures in test_item_management_tools also fail on main
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Production: verify REDIS_URL, drop TRASH_PURGE_INTERVAL_SECONDS=3600 in /etc/notebook-agent/notebook-agent.env; check idle_skipped heartbeats and Neon Last-day view
+- main has meeting-QA fixes (PR #25) not committed on dev; they sit as uncommitted WIP under WeMM work in the shared checkout -- merge main into dev once that WIP is committed
