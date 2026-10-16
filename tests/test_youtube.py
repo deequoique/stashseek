@@ -536,7 +536,8 @@ def test_residential_egress_proxy_is_loopback_only_and_youtube_scoped():
     )
     upstreams = [line for line in directives if line.startswith("Upstream ")]
     assert upstreams == [
-        "Upstream http PROXY_USERNAME:PROXY_PASSWORD@gw.dataimpulse.com:10000"
+        "Upstream http PROXY_USERNAME:PROXY_PASSWORD_country-US_session-SESSION01"
+        "@core-residential.evomi.com:1000"
     ]
 
 

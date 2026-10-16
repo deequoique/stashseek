@@ -310,7 +310,10 @@ YOUTUBE_PROXY_URL=http://127.0.0.1:18080       # unchanged, credential-free
   because Ubuntu 22.04 ships tinyproxy 1.11.0 without `FilterType`.
 - The upstream must be a sticky session: signed subtitle/audio URLs are bound
   to the metadata request's exit IP, and metadata and subtitle fetches run in
-  separate children.
+  separate children. The current provider is Evomi Core Residential
+  (`core-residential.evomi.com:1000`, HTTP), whose generator appends
+  `_country-US_session-<id>` to the password; tinyproxy accepts this because
+  the password only has to exclude `@` and whitespace.
 - Home egress and residential egress are mutually exclusive on port 18080; the
   home helper's server-port preflight fails closed while the unit is active.
 - The release deploy script does not manage this unit; it is operator-installed
@@ -323,7 +326,7 @@ YOUTUBE_PROXY_URL=http://127.0.0.1:18080       # unchanged, credential-free
 | CONNECT to a non-YouTube host, look-alike host, or port other than 443 | tinyproxy 403; nothing reaches the paid upstream. |
 | Wrong credentials or exhausted balance (upstream 407) | `youtube_proxy_authentication_failed`; no direct retry. |
 | Unit stopped | `youtube_proxy_unavailable`; no direct retry. |
-| Sticky exit IP flagged | `youtube_rate_limited` / `youtube_fetch_failed`; operator switches sticky port and restarts only the egress unit. |
+| Sticky exit IP flagged | `youtube_rate_limited` / `youtube_fetch_failed`; operator changes the provider session value and restarts only the egress unit. |
 
 ### 5. Good / Base / Bad Cases
 
