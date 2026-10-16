@@ -38,13 +38,31 @@ ASR_DIAGNOSTIC = {
 
 
 @pytest.fixture(autouse=True)
-def _restore_runtime_logger():
-    level, propagate = LOGGER.level, LOGGER.propagate
-    shutdown_runtime_logging()
-    yield
-    shutdown_runtime_logging()
-    LOGGER.setLevel(level)
-    LOGGER.propagate = propagate
+def _isolated_runtime_logger():
+    """Give every test a pristine ``notebook_agent.runtime`` logger.
+
+    Earlier test modules may leave pytest ``LogCaptureHandler`` instances or
+    other handlers on this shared logger. Detach them (without closing handlers
+    this fixture did not create), start from the library defaults, and restore
+    the exact original handlers, level and propagate flag afterwards.
+    """
+
+    original_handlers = list(LOGGER.handlers)
+    original_level = LOGGER.level
+    original_propagate = LOGGER.propagate
+    for handler in original_handlers:
+        LOGGER.removeHandler(handler)
+    LOGGER.setLevel(logging.NOTSET)
+    LOGGER.propagate = True
+    try:
+        yield
+    finally:
+        # Only handlers installed by the test remain here; close and drop them.
+        shutdown_runtime_logging()
+        for handler in original_handlers:
+            LOGGER.addHandler(handler)
+        LOGGER.setLevel(original_level)
+        LOGGER.propagate = original_propagate
 
 
 def _settings(log_dir: Path) -> SimpleNamespace:
