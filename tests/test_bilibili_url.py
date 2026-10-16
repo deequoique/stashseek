@@ -14,9 +14,11 @@ from app.connectors.bilibili import (
     canonicalize_bilibili_url,
     parse_srt,
 )
+from app.connectors.youtube import YouTubeConnector
 from app.ingest.tasks import _connector
 from app.retrieval.search import _hits
 from app.ingest.submission import (
+    InvalidURL,
     ItemReference,
     UnsupportedURL,
     normalize_item_reference,
@@ -53,6 +55,149 @@ def test_bilibili_url_is_normalized_without_remote_fetch(url, platform_id, canon
     assert canonicalize_bilibili_url(url) == (platform_id, canonical)
 
 
+@pytest.mark.parametrize("value", [
+    "BV1xx411c7mD", "bv1xx411c7mD", "Bv1xx411c7mD", "bV1xx411c7mD",
+    " \tBV1xx411c7mD\r\n",
+])
+def test_complete_bare_bv_matches_full_url_identity_and_preserves_suffix_case(value):
+    assert normalize_item_reference(value) == normalize_item_reference(
+        "https://www.bilibili.com/video/BV1xx411c7mD",
+    ) == ItemReference("bilibili", "BV1xx411c7mD", "https://www.bilibili.com/video/BV1xx411c7mD")
+
+
+@pytest.mark.parametrize("value", [
+    "BV1xx411c7m", "BV1xx411c7mDD", "BV1xx411c7mD!", "(BV1xx411c7mD)",
+    "保存 BV1xx411c7mD", "BV1xx411c7mD BV1xx411c7mD", "BV1xx411c7mD/",
+    "BV1xx411c7mD?p=1", "BV1xx411c7mD#fragment", "BV1xx411c7m_", "BV1xx411c7mé",
+    "av1074402", "https://foreign.example/video/BV1xx411c7mD",
+    "https://foreign.example/?video=BV1xx411c7mD", "https://b23.tv/BV1xx411c7mD",
+])
+def test_bare_bv_recognition_never_extracts_from_malformed_or_untrusted_input(value):
+    with pytest.raises((InvalidURL, UnsupportedURL)):
+        normalize_item_reference(value)
+
+
+@pytest.mark.parametrize("separator, ending", [
+    (" ", ""), ("\n", ""), ("\r\n", "。"), ("", "，推荐看看"),
+])
+def test_copied_bilibili_share_extracts_one_actual_url_and_removes_tracking(separator, ending):
+    title = "【一个小改装作坊，如何凭一台”红猪“改写奔驰赛车历史？】"
+    value = title + separator + (
+        "https://www.bilibili.com/video/BV15pao6iEZo/?share_source=copy_web&vd_source=test"
+    ) + ending
+    assert normalize_item_reference(value) == ItemReference(
+        "bilibili", "BV15pao6iEZo", "https://www.bilibili.com/video/BV15pao6iEZo",
+    )
+
+
+@pytest.mark.parametrize("prefix", ["", "【标题】 "])
+@pytest.mark.parametrize("suffix", [
+    "?note=，&p=2", "?note=。&p=2", "?note=】&p=2",
+    "?note=，#fragment", "?note=。#fragment", "?note=】#fragment",
+    "?note=，#", "?note=。#", "?note=】#",
+    "?note=<tag>&p=2", "?note=<tag>#fragment",
+])
+def test_share_punctuation_inside_uri_cannot_hide_multipart_or_fragment(prefix, suffix):
+    with pytest.raises((InvalidURL, UnsupportedURL)):
+        normalize_item_reference(prefix + "https://www.bilibili.com/video/BV15pao6iEZo" + suffix)
+
+
+@pytest.mark.parametrize("url, platform, platform_id, canonical", [
+    (
+        "https://www.bilibili.com/video/BV15pao6iEZo?redirect=https://example.test/path",
+        "bilibili", "BV15pao6iEZo", "https://www.bilibili.com/video/BV15pao6iEZo",
+    ),
+    (
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ&redirect=https://example.test/path",
+        "youtube", "dQw4w9WgXcQ", "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    ),
+])
+def test_ordinary_urls_keep_nested_tracking_values_compatible(url, platform, platform_id, canonical):
+    assert normalize_item_reference(url) == ItemReference(platform, platform_id, canonical)
+
+
+@pytest.mark.parametrize("separator", ["，", "。", "）"])
+@pytest.mark.parametrize("second", ["https://example.test/path", "//example.test/path"])
+def test_share_separator_joined_uris_are_rejected_without_truncating_query(separator, second):
+    with pytest.raises(InvalidURL):
+        normalize_item_reference(
+            "【标题】 https://www.bilibili.com/video/BV15pao6iEZo?share=1" + separator + second,
+        )
+
+
+@pytest.mark.parametrize("url", [
+    "http://www.bilibili.com/video/BV15pao6iEZo",
+    "https://user:password@www.bilibili.com/video/BV15pao6iEZo",
+    "https://www.bilibili.com:444/video/BV15pao6iEZo",
+    "https://www.bilibili.com:443/video/BV15pao6iEZo",
+    "https://www.bilibili.com:bad/video/BV15pao6iEZo",
+    "https://[www.bilibili.com/video/BV15pao6iEZo",
+    "https://www.bilibili.com/video/BV15pao6iEZo/extra",
+    "https://www.bilibili.com/video/BV15pao6iEZo/错误路径",
+    "https://www.bilibili.com/video/BV15pao6iEZo错误后缀",
+    "https://www.bilibili.com/video/BV15pao6iEZo#fragment",
+    "https://www.bilibili.com/video/BV15pao6iEZo#",
+    "https://www.bilibili.com/video/BV15pao6iEZo?p=2",
+    "https://www.bilibili.com/video/BV15pao6iEZo?p=1&p=2",
+    "https://b23.tv/BV15pao6iEZo",
+    "https://foreign.example/https://www.bilibili.com/video/BV15pao6iEZo",
+    "https://foreign.example/?next=https://www.bilibili.com/video/BV15pao6iEZo",
+    "ftp://foreign.example/?next=https://www.bilibili.com/video/BV15pao6iEZo",
+    "ftp://foreign.example/?next=(https://www.bilibili.com/video/BV15pao6iEZo)",
+    "//foreign.example/?next=https://www.bilibili.com/video/BV15pao6iEZo",
+    "//foreign.example/?next=(https://www.bilibili.com/video/BV15pao6iEZo)",
+    "//foreign.example/?next=】https://www.bilibili.com/video/BV15pao6iEZo",
+    "https://www.bilibili.com.foreign.example/video/BV15pao6iEZo",
+    "https://youtu.be/dQw4w9WgXcQ",
+])
+def test_share_extraction_does_not_repair_or_promote_unsafe_urls(url):
+    with pytest.raises((InvalidURL, UnsupportedURL)):
+        normalize_item_reference("【标题】 " + url + "。")
+
+
+@pytest.mark.parametrize("second", [
+    "https://www.bilibili.com/video/BV1xx411c7mD",
+    "https://youtu.be/dQw4w9WgXcQ",
+    "https://foreign.example/video",
+    "http://",
+])
+@pytest.mark.parametrize("separator", [" ", "\n", "。"])
+@pytest.mark.parametrize("first_query", ["", "?share=1"])
+def test_one_backend_share_entry_rejects_multiple_urls_instead_of_selecting_first(second, separator, first_query):
+    prepared = prepare_submission([
+        "【标题】 https://www.bilibili.com/video/BV15pao6iEZo" + first_query + separator + second,
+    ])
+    assert len(prepared.items) == 1
+    assert prepared.items[0].reference is None
+    assert prepared.items[0].failure.status == "invalid_url"
+
+
+def test_bare_bv_mixed_batch_preflight_is_local_and_preserves_order(monkeypatch):
+    def forbidden_fetch(*_args, **_kwargs):
+        raise AssertionError("submission preflight must not fetch a video")
+
+    for connector in (BilibiliConnector, YouTubeConnector):
+        monkeypatch.setattr(connector, "fetch_meta", forbidden_fetch)
+        monkeypatch.setattr(connector, "fetch_text", forbidden_fetch)
+    monkeypatch.setattr(subprocess, "run", forbidden_fetch)
+    prepared = prepare_submission([
+        " bv1xx411c7mD ",
+        "https://youtu.be/dQw4w9WgXcQ?t=42",
+        "https://www.bilibili.com/video/BV1xx411c7mD?spm_id_from=333.1007",
+        "保存 BV1xx411c7mD",
+        "https://foreign.example/video/BV1xx411c7mD",
+        "【一个小改装作坊，如何凭一台”红猪“改写奔驰赛车历史？】\n"
+        "https://www.bilibili.com/video/BV15pao6iEZo/?share_source=copy_web&vd_source=test。",
+    ])
+    assert [item.input_index for item in prepared.items] == list(range(6))
+    assert [item.reference.platform for item in prepared.items[:3]] == ["bilibili", "youtube", "bilibili"]
+    assert prepared.items[0].reference == prepared.items[2].reference
+    assert prepared.items[1].reference.platform_id == "dQw4w9WgXcQ"
+    assert [item.failure.status for item in prepared.items[3:5]] == ["invalid_url", "unsupported_url"]
+    assert [item.failure.result_id for item in prepared.items[3:5]] == ["A4", "A5"]
+    assert prepared.items[5].reference.platform_id == "BV15pao6iEZo"
+
+
 @pytest.mark.parametrize(
     "url",
     [
@@ -73,6 +218,11 @@ def test_bilibili_url_rejects_unsafe_or_ambiguous_shapes(url):
     assert BilibiliConnector().match(url) is None
     with pytest.raises(UnsupportedURL):
         normalize_item_reference(url)
+
+
+def test_bilibili_submission_rejects_even_an_empty_fragment_delimiter():
+    with pytest.raises(UnsupportedURL):
+        normalize_item_reference("https://www.bilibili.com/video/BV1xx411c7mD#")
 
 
 def test_bilibili_preflight_does_not_turn_other_hosts_into_platform_urls():

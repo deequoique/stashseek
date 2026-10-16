@@ -28,6 +28,14 @@ export type PairingApproval = Schemas["PairingApprovalResponse"];
 export type BatchSubmitInput = Schemas["BatchSaveRequest"];
 export type BatchSubmitItem = Schemas["BatchItemResponse"];
 export type BatchSubmitResponse = Schemas["BatchSaveResponse"];
+export type BilibiliPartsPreviewInput = Schemas["BilibiliPartsPreviewRequest"];
+export type BilibiliPartsPreview = Schemas["BilibiliPartsPreviewResponse"];
+export type BilibiliPartPreview = Schemas["BilibiliPartPreview"];
+export type BilibiliPartsBatchInput = Schemas["BilibiliPartsBatchRequest"];
+export type BilibiliPartsBatchResponse = Schemas["BilibiliPartsBatchResponse"];
+export type BilibiliFavoritesPreviewInput = Schemas["BilibiliFavoritesPreviewRequest"];
+export type BilibiliFavoritesPreview = Schemas["BilibiliFavoritesPreviewResponse"];
+export type BilibiliFavoriteVideo = Schemas["BilibiliFavoriteVideo"];
 
 export type Chapter = Schemas["ChapterResponse"];
 export type LibraryItem = Schemas["LibraryItemResponse"];

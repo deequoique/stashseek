@@ -12,6 +12,7 @@ from app.asr.types import ASR_PLATFORMS
 from app.config import Settings, get_settings
 from app.browser_capture_submission import BrowserCaptureSubmissionService
 from app.browser_companion import BrowserCompanionService
+from app.bilibili.service import build_bilibili_service
 from app.db import get_session_factory
 from app.ingest.submission import build_ingest_submission_service
 from app.object_store import RawObjectStore
@@ -57,6 +58,7 @@ def build_api_app(
     external_auth=None,
     external_providers=None,
     channel_service=None,
+    bilibili=None,
     mount_static: bool | None = None,
 ):
     """Wire concrete services while keeping test doubles explicit and local.
@@ -151,6 +153,9 @@ def build_api_app(
         )
         expected_origin = settings.web_origin
         public_login_channels = settings.web_login_channels
+    bilibili_public_enabled = bool(
+        getattr(settings, "bilibili_public_enabled", False)
+    )
     services = WebApiServices(
         web_auth=web_auth,
         email_auth=email_auth,
@@ -168,9 +173,12 @@ def build_api_app(
             publisher,
             quota_policy=submission.quota_policy,
             save_enabled=True,
+            bilibili_public_enabled=bilibili_public_enabled,
         ),
         submission=submission,
-        transcript=TranscriptService(factory, store),
+        transcript=TranscriptService(
+            factory, store, bilibili_public_enabled=bilibili_public_enabled
+        ),
         browser_companion=browser_companion,
         browser_capture_submission=browser_capture_submission,
         extension_sessions=ExtensionSessionService(email_auth) if email_auth is not None else None,
@@ -183,6 +191,7 @@ def build_api_app(
             if getattr(settings, "asr_enabled", False)
             else ()
         ),
+        bilibili=bilibili or build_bilibili_service(settings, factory, submission),
     )
     return create_app(
         services=services,
@@ -190,6 +199,7 @@ def build_api_app(
         cookie_secure=True,
         publish_budget_seconds=settings.web_publish_budget_seconds,
         save_enabled=True,
+        bilibili_public_enabled=bilibili_public_enabled,
         web_login_channels=public_login_channels,
         static_dir=None,
     )

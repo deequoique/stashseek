@@ -157,6 +157,513 @@
         "title": "BatchSaveResponse",
         "type": "object"
       },
+      "BilibiliFavoriteVideo": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "bvid": {
+            "anyOf": [
+              {
+                "maxLength": 12,
+                "minLength": 12,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bvid"
+          },
+          "canonical_url": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Url"
+          },
+          "entry_key": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Entry Key",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "deleted",
+                  "not_video",
+                  "invalid_video"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "entry_key",
+          "available"
+        ],
+        "title": "BilibiliFavoriteVideo",
+        "type": "object"
+      },
+      "BilibiliFavoritesPreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "page": {
+            "default": 1,
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "BilibiliFavoritesPreviewRequest",
+        "type": "object"
+      },
+      "BilibiliFavoritesPreviewResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "capped": {
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "collection_id": {
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Collection Id",
+            "type": "string"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BilibiliFavoriteVideo"
+            },
+            "maxItems": 20,
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "const": 20,
+            "default": 20,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "reported_total": {
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Reported Total",
+            "type": "integer"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "collection_id",
+          "reported_total",
+          "page",
+          "has_more",
+          "capped",
+          "items"
+        ],
+        "title": "BilibiliFavoritesPreviewResponse",
+        "type": "object"
+      },
+      "BilibiliPartPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_sec": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Sec"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "has_unverified_legacy_item": {
+            "default": false,
+            "title": "Has Unverified Legacy Item",
+            "type": "boolean"
+          },
+          "page": {
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "part_key": {
+            "maxLength": 33,
+            "title": "Part Key",
+            "type": "string"
+          },
+          "part_ref": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Ref"
+          },
+          "selectable": {
+            "title": "Selectable",
+            "type": "boolean"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "const": "source_unavailable",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "part_key",
+          "page",
+          "selectable"
+        ],
+        "title": "BilibiliPartPreview",
+        "type": "object"
+      },
+      "BilibiliPartSaveResult": {
+        "additionalProperties": false,
+        "properties": {
+          "input_index": {
+            "title": "Input Index",
+            "type": "integer"
+          },
+          "item_public_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Public Id"
+          },
+          "lifecycle": {
+            "anyOf": [
+              {
+                "enum": [
+                  "archived",
+                  "ready",
+                  "needs_action",
+                  "failed",
+                  "processing",
+                  "queued"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle"
+          },
+          "result_id": {
+            "title": "Result Id",
+            "type": "string"
+          },
+          "safe_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safe Error Code"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "already_exists",
+              "unsupported_url",
+              "invalid_url",
+              "queue_unavailable",
+              "create_failed",
+              "quota_exceeded",
+              "part_ref_invalid",
+              "part_ref_expired",
+              "legacy_identity_unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result_id",
+          "input_index",
+          "status"
+        ],
+        "title": "BilibiliPartSaveResult",
+        "type": "object"
+      },
+      "BilibiliPartSelection": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_legacy_overlap": {
+            "default": false,
+            "title": "Allow Legacy Overlap",
+            "type": "boolean"
+          },
+          "part_ref": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Part Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_ref"
+        ],
+        "title": "BilibiliPartSelection",
+        "type": "object"
+      },
+      "BilibiliPartsBatchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "selections": {
+            "items": {
+              "$ref": "#/components/schemas/BilibiliPartSelection"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Selections",
+            "type": "array"
+          },
+          "why_saved": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Why Saved"
+          }
+        },
+        "required": [
+          "selections"
+        ],
+        "title": "BilibiliPartsBatchRequest",
+        "type": "object"
+      },
+      "BilibiliPartsBatchResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/BilibiliPartSaveResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "title": "BilibiliPartsBatchResponse",
+        "type": "object"
+      },
+      "BilibiliPartsPreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "page": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "BilibiliPartsPreviewRequest",
+        "type": "object"
+      },
+      "BilibiliPartsPreviewResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "bvid": {
+            "maxLength": 12,
+            "minLength": 12,
+            "title": "Bvid",
+            "type": "string"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "page": {
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "const": 20,
+            "default": 20,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/BilibiliPartPreview"
+            },
+            "maxItems": 20,
+            "title": "Parts",
+            "type": "array"
+          },
+          "requested_page": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Page"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "total_parts": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Total Parts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bvid",
+          "page",
+          "total_parts",
+          "has_more",
+          "parts"
+        ],
+        "title": "BilibiliPartsPreviewResponse",
+        "type": "object"
+      },
       "BrowserCaptureRequest": {
         "additionalProperties": false,
         "properties": {
@@ -368,6 +875,16 @@
             "title": "Archive",
             "type": "boolean"
           },
+          "bilibili_favorites_enabled": {
+            "default": false,
+            "title": "Bilibili Favorites Enabled",
+            "type": "boolean"
+          },
+          "bilibili_parts_enabled": {
+            "default": false,
+            "title": "Bilibili Parts Enabled",
+            "type": "boolean"
+          },
           "browser_companion": {
             "default": true,
             "title": "Browser Companion",
@@ -377,6 +894,19 @@
             "default": true,
             "title": "Chat",
             "type": "boolean"
+          },
+          "external_login_providers": {
+            "default": [],
+            "items": {
+              "enum": [
+                "microsoft",
+                "wechat_website",
+                "qq"
+              ],
+              "type": "string"
+            },
+            "title": "External Login Providers",
+            "type": "array"
           },
           "max_save_batch_size": {
             "default": 10,
@@ -1659,6 +2189,115 @@
         "title": "ExtensionLoginRequest",
         "type": "object"
       },
+      "ExternalLoginPendingResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "flow_invalid",
+                  "flow_expired",
+                  "flow_used",
+                  "flow_csrf_invalid",
+                  "provider_unavailable",
+                  "provider_failed",
+                  "provider_denied",
+                  "session_present",
+                  "session_changed",
+                  "binding_conflict",
+                  "verification_failed",
+                  "invalid_email",
+                  "login_rate_limited",
+                  "email_delivery_unavailable",
+                  "request_failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "enum": [
+                  "microsoft",
+                  "wechat_website",
+                  "qq"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "status": {
+            "enum": [
+              "created",
+              "exchanging",
+              "email_required",
+              "completed",
+              "failed",
+              "cancelled",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ExternalLoginPendingResponse",
+        "type": "object"
+      },
+      "ExternalLoginVerifyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 6,
+            "minLength": 6,
+            "pattern": "^\\d{6}$",
+            "title": "Code",
+            "type": "string"
+          },
+          "confirm_binding": {
+            "const": true,
+            "title": "Confirm Binding",
+            "type": "boolean"
+          },
+          "email": {
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "code",
+          "confirm_binding"
+        ],
+        "title": "ExternalLoginVerifyRequest",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2544,7 +3183,10 @@
             "enum": [
               "email",
               "telegram",
-              "wechat"
+              "wechat",
+              "microsoft",
+              "wechat_website",
+              "qq"
             ],
             "title": "Login Channel",
             "type": "string"
@@ -2693,6 +3335,281 @@
           }
         },
         "summary": "Request Challenge",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/external/pending": {
+      "delete": {
+        "operationId": "cancel_api_v1_auth_external_pending_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Cancel",
+        "tags": [
+          "authentication"
+        ]
+      },
+      "get": {
+        "operationId": "pending_api_v1_auth_external_pending_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalLoginPendingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Pending",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/external/pending/challenges": {
+      "post": {
+        "operationId": "request_challenge_api_v1_auth_external_pending_challenges_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailChallengeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Request Challenge",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/external/pending/verify": {
+      "post": {
+        "operationId": "verify_api_v1_auth_external_pending_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExternalLoginVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__auth_schemas__SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/external/{provider}/callback": {
+      "get": {
+        "operationId": "callback_api_v1_auth_external__provider__callback_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Leave protocol parameters at a fixed clean URL"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/external/{provider}/start": {
+      "post": {
+        "operationId": "start_api_v1_auth_external__provider__start_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Navigate to authorization or clean continuation"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start",
         "tags": [
           "authentication"
         ]
@@ -2889,6 +3806,203 @@
         "tags": [
           "authentication"
         ]
+      }
+    },
+    "/api/v1/bilibili/favorites:preview": {
+      "post": {
+        "operationId": "favorites_api_v1_bilibili_favorites_preview_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BilibiliFavoritesPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BilibiliFavoritesPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Favorites"
+      }
+    },
+    "/api/v1/bilibili/parts:batch": {
+      "post": {
+        "operationId": "save_api_v1_bilibili_parts_batch_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BilibiliPartsBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BilibiliPartsBatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Save"
+      }
+    },
+    "/api/v1/bilibili/parts:preview": {
+      "post": {
+        "operationId": "preview_api_v1_bilibili_parts_preview_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BilibiliPartsPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BilibiliPartsPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Preview"
       }
     },
     "/api/v1/browser-companion/devices": {
@@ -4448,6 +5562,57 @@
         "summary": "Update"
       }
     },
+    "/api/v1/library/items/{item_public_id}/source": {
+      "get": {
+        "operationId": "source_api_v1_library_items__item_public_id__source_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_public_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Item Public Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "t",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "T",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Source"
+      }
+    },
     "/api/v1/library/items/{item_public_id}/transcript": {
       "get": {
         "operationId": "transcript_page_api_v1_library_items__item_public_id__transcript_get",
@@ -5104,7 +6269,7 @@
                 }
               }
             },
-            "description": "Request Entity Too Large"
+            "description": "Content Too Large"
           },
           "422": {
             "content": {

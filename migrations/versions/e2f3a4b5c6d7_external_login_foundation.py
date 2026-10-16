@@ -1,14 +1,14 @@
 """Email-anchored website-provider proofs and session provenance.
 
 Revision ID: e2f3a4b5c6d7
-Revises: d04fdae36884
+Revises: cff884c74a1e
 """
 
 from alembic import op
 import sqlalchemy as sa
 
 revision = "e2f3a4b5c6d7"
-down_revision = "d04fdae36884"
+down_revision = "cff884c74a1e"
 branch_labels = None
 depends_on = None
 

@@ -326,6 +326,28 @@ def test_cross_tenant_public_id_is_indistinguishable_from_missing():
     assert "content_item.deleted_at IS NULL" in sql
 
 
+def test_bilibili_item_url_follows_the_public_feature_switch():
+    content = item(
+        platform="bilibili",
+        url="https://www.bilibili.com/video/BV1xx411c7mD?p=2",
+        bilibili_bvid="BV1xx411c7mD",
+        bilibili_cid="123",
+        bilibili_page=2,
+    )
+    disabled = ContentLibraryService(
+        lambda: ScalarSession([content, None]),
+        lambda _value: "task",
+        bilibili_public_enabled=False,
+    ).get_item(SimpleNamespace(app_user_id=7), "item-public")
+    assert disabled.url == "https://www.bilibili.com/video/BV1xx411c7mD?p=2"
+    enabled = ContentLibraryService(
+        lambda: ScalarSession([content, None]),
+        lambda _value: "task",
+        bilibili_public_enabled=True,
+    ).get_item(SimpleNamespace(app_user_id=7), "item-public")
+    assert enabled.url == "/api/v1/library/items/item-public/source?t=0"
+
+
 def test_latest_dispatch_lookup_repeats_the_tenant_predicate():
     content = item(
         platform="youtube",

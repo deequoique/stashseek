@@ -28,9 +28,10 @@ def test_web_and_ingest_completion_branches_converge_on_one_merge_head():
     )
     assert script.get_revision("e5f6a7b8c9d0").down_revision == "d4e5f6a7b8c9"
     assert script.get_revision("f6a7b8c9d0e1").down_revision == "e5f6a7b8c9d0"
-    # External login follows the stage-table head, so a single head remains
-    # after the dev lineage (HNSW drop -> WeMM media assets -> ingest stages).
-    assert script.get_heads() == ["e2f3a4b5c6d7"]
+    # External login follows the stage-table head; stable part sources follow
+    # external login, so exactly one head remains after the dev lineage.
+    assert script.get_heads() == ["f8a9b0c1d2e3"]
+    assert script.get_revision("f8a9b0c1d2e3").down_revision == "e2f3a4b5c6d7"
     assert script.get_revision("e2f3a4b5c6d7").down_revision == "cff884c74a1e"
     assert script.get_revision("cff884c74a1e").down_revision == "c9d0e1f2a3b4"
     assert script.get_revision("c9d0e1f2a3b4").down_revision == "d04fdae36884"

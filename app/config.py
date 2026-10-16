@@ -443,6 +443,12 @@ class Settings:
     bilibili_fetch_timeout_seconds: float = field(
         default_factory=lambda: _env_float("BILIBILI_FETCH_TIMEOUT_SECONDS", 30.0)
     )
+    # Public-favorites and multipart access requires server egress to
+    # api.bilibili.com, which datacenter IPs cannot rely on. Off unless a
+    # deployment has a working egress path.
+    bilibili_public_enabled: bool = field(
+        default_factory=lambda: _env_bool("BILIBILI_PUBLIC_ENABLED", False)
+    )
 
     # --- Hosted ASR for subtitle-less public videos ---
     # Disabled by default. Required values and ranges are validated only when

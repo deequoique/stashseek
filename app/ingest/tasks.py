@@ -31,11 +31,14 @@ from app.connectors.base import (
     Connector,
     NeedsASR,
     NeedsExtension,
+    SourceChangedError,
+    SourceUnavailableError,
     TextResult,
     TransientFetchError,
 )
 from app.connectors.bilibili import BilibiliConnector
 from app.connectors.youtube import YouTubeConnector
+from app.bilibili.public import BilibiliPublicError, build_public_client
 from app.db import get_session_factory
 from app.diagnostics import configure_runtime_logging
 from app.ingest.chunker import chunk
@@ -193,6 +196,8 @@ def _completion_diagnostic(
         "completion_publish_failed",
         "notification_enqueue_failed",
         "broker_unavailable",
+        "source_changed",
+        "source_unavailable",
     }
     if error_code in safe_error_codes or error_code in ASR_ERROR_CODES:
         payload["error_code"] = error_code
@@ -368,7 +373,53 @@ def _needs_asr_reason(settings: Any, item: Any, platforms: frozenset[str]) -> st
     return "asr_unavailable"
 
 
-def process_item(item_id: int, *, connector: Any | None = None, embedder: EmbeddingProvider | None = None, object_store: Any | None = None, session_factory=None, asr_handoff: bool = False) -> str:
+def _part_pin(item: Any) -> tuple[str, str] | None:
+    bvid = getattr(item, "bilibili_bvid", None)
+    cid = getattr(item, "bilibili_cid", None)
+    if bvid is None and cid is None:
+        return None
+    if (item.platform != "bilibili" or not bvid or not cid
+        or item.platform_id not in {bvid, f"{bvid}_cid{cid}"}):
+        raise SourceUnavailableError()
+    return bvid, cid
+
+
+def _lock_part_item(db, item, pin, *, user_id, dispatch_id, dispatch_task_id) -> bool:
+    """Recheck deletion, dispatch ownership and unchanged pin before any write."""
+
+    if dispatch_id is not None:
+        dispatch = db.scalar(select(IngestDispatch).where(IngestDispatch.id == dispatch_id).with_for_update())
+        if (dispatch is None or dispatch.item_id != item.id or dispatch.state != "running"
+            or (dispatch_task_id is not None and dispatch.task_id not in {None, dispatch_task_id})):
+            raise SourceUnavailableError()
+    locked = db.scalar(select(ContentItem).where(ContentItem.id == item.id).with_for_update().execution_options(populate_existing=True))
+    if locked is None or locked.user_id != user_id or _part_pin(locked) != pin:
+        raise SourceChangedError()
+    if locked.deleted_at is not None or locked.purge_claimed_at is not None:
+        _mark_item_deleted(db, locked)
+        return False
+    return True
+
+
+def _apply_meta(item: Any, meta: Any) -> None:
+    if meta is None:
+        return
+    for name in ("url", "title", "author", "published_at", "duration_sec", "lang", "description", "tags", "chapters", "cover_url"):
+        setattr(item, name, getattr(meta, name))
+
+
+def process_item(
+    item_id: int,
+    *,
+    connector: Any | None = None,
+    embedder: EmbeddingProvider | None = None,
+    object_store: Any | None = None,
+    session_factory=None,
+    asr_handoff: bool = False,
+    public_client=None,
+    dispatch_id: int | None = None,
+    dispatch_task_id: str | None = None,
+) -> str:
     factory = session_factory or get_session_factory()
     with factory() as db:
         item = db.get(ContentItem, item_id)
@@ -379,10 +430,11 @@ def process_item(item_id: int, *, connector: Any | None = None, embedder: Embedd
             return "deleted"
 
         settings = get_settings()
+        pin = _part_pin(item)
         store = object_store
         capture = None
         item_user_id = getattr(item, "user_id", None)
-        if connector is None and item_user_id is not None:
+        if pin is None and connector is None and item_user_id is not None:
             capture = db.scalar(
                 select(BrowserCapture)
                 .where(
@@ -438,24 +490,70 @@ def process_item(item_id: int, *, connector: Any | None = None, embedder: Embedd
                 language=capture.language,
             )
             key = capture.raw_object_key
+        elif pin is not None:
+            # HTTP admission signed the stable CID. Resolve its *current* page,
+            # but do not write even metadata until actual extraction attests it.
+            public_client = public_client or build_public_client()
+            try:
+                before = public_client.get_parts(pin[0])
+                part = before.resolve_part(pin[1])
+            except BilibiliPublicError:
+                raise SourceUnavailableError() from None
+            if connector is None:
+                configure_trusted_ca(settings.tls_ca_bundle)
+                connector = BilibiliConnector(
+                    max_transcript_bytes=settings.ingest_max_raw_transcript_bytes,
+                    fetch_timeout_seconds=settings.bilibili_fetch_timeout_seconds,
+                )
+            fetch_part = getattr(connector, "fetch_part", None)
+            if fetch_part is None:
+                raise SourceUnavailableError()
+            meta, result = fetch_part(pin[0], pin[1], part.page, video_title=before.title, part_title=part.title)
+            if (meta.bilibili_bvid, meta.bilibili_cid, meta.bilibili_page) != (*pin, part.page):
+                raise SourceChangedError()
+            # Proven legacy records can retain their original BV key/public
+            # identity. Extraction always attests the stable CID-qualified key;
+            # never rename the old row or infer a missing historical pin.
+            if (meta.platform_id != f"{pin[0]}_cid{pin[1]}"
+                or meta.url != f"https://www.bilibili.com/video/{pin[0]}?p={part.page}"):
+                raise SourceChangedError()
+            try:
+                after = public_client.get_parts(pin[0]).resolve_part(pin[1])
+            except BilibiliPublicError:
+                raise SourceUnavailableError() from None
+            if after.page != part.page:
+                raise SourceChangedError()
+            if not _lock_part_item(db, item, pin, user_id=item_user_id, dispatch_id=dispatch_id, dispatch_task_id=dispatch_task_id):
+                return "deleted"
+            _apply_meta(item, meta)
+            item.bilibili_page = part.page
+            item.state = "fetching"
+            db.commit()
         else:
             connector = connector or _connector(item.url)
             meta = connector.fetch_meta(item.platform_id)
-            if meta is not None:
-                item.url = meta.url
-                item.title = meta.title
-                item.author = meta.author
-                item.published_at = meta.published_at
-                item.duration_sec = meta.duration_sec
-                item.lang = meta.lang
-                item.description = meta.description
-                item.tags = meta.tags
-                item.chapters = meta.chapters
-                item.cover_url = meta.cover_url
+            _apply_meta(item, meta)
             item.state = "fetching"
             db.commit()
             result = connector.fetch_text(item.platform_id)
 
+        if pin is not None and isinstance(result, (NeedsExtension, NeedsASR)):
+            # An explicit part has no browser capture fallback, and the ASR
+            # downloader addresses a BV URL rather than a pinned CID. When a
+            # transcription hand-off would be attempted, or the provider asks
+            # for a logged-in caption, fail closed with a terminal reason
+            # instead of looping forever or transcribing another part.
+            attempts_asr = (
+                isinstance(result, NeedsASR)
+                and asr_handoff
+                and settings.asr_enabled
+                and item.platform in _ASR_PLATFORMS
+            )
+            if isinstance(result, NeedsExtension) or attempts_asr:
+                item.state = "needs_action"
+                item.fail_reason = "part_transcription_unsupported"
+                db.commit()
+                return item.state
         if isinstance(result, NeedsExtension):
             item.state = "needs_extension"
             item.fail_reason = result.code
@@ -505,6 +603,8 @@ def process_item(item_id: int, *, connector: Any | None = None, embedder: Embedd
                 raise ValueError("unsupported connector transcript format")
             key = f"{item.user_id}/{item.platform}/{item.platform_id}/{hashlib.sha256(result.raw_body).hexdigest()}.{suffix}"
         db.refresh(item)
+        if pin is not None and not _lock_part_item(db, item, pin, user_id=item_user_id, dispatch_id=dispatch_id, dispatch_task_id=dispatch_task_id):
+            return "deleted"
         if getattr(item, "deleted_at", None) is not None or getattr(item, "purge_claimed_at", None) is not None:
             _mark_item_deleted(db, item)
             return "deleted"
@@ -525,6 +625,9 @@ def process_item(item_id: int, *, connector: Any | None = None, embedder: Embedd
             }
             store.put(key, result.raw_body, content_types[result.format])
         db.refresh(item)
+        if pin is not None and not _lock_part_item(db, item, pin, user_id=item_user_id, dispatch_id=dispatch_id, dispatch_task_id=dispatch_task_id):
+            _delete_object_best_effort(store, key)
+            return "deleted"
         if getattr(item, "deleted_at", None) is not None or getattr(item, "purge_claimed_at", None) is not None:
             _delete_object_best_effort(store, key)
             _mark_item_deleted(db, item)
@@ -567,6 +670,9 @@ def process_item(item_id: int, *, connector: Any | None = None, embedder: Embedd
                 f"embedding count mismatch: expected {len(chunks)}, got {len(vectors)}"
             )
         db.refresh(item)
+        if pin is not None and not _lock_part_item(db, item, pin, user_id=item_user_id, dispatch_id=dispatch_id, dispatch_task_id=dispatch_task_id):
+            _delete_object_best_effort(store, key)
+            return "deleted"
         if getattr(item, "deleted_at", None) is not None or getattr(item, "purge_claimed_at", None) is not None:
             _delete_object_best_effort(store, key)
             _mark_item_deleted(db, item)
@@ -1251,7 +1357,18 @@ def process_dispatch(
     if item_id is None:
         return "duplicate"
     try:
-        state = (processor or _dispatch_item_processor)(item_id)
+        state = (
+            processor(item_id) if processor is not None
+            else process_item(
+                item_id,
+                asr_handoff=True,
+                dispatch_id=dispatch_id,
+                dispatch_task_id=task_id,
+            )
+        )
+    except (SourceChangedError, SourceUnavailableError) as exc:
+        _mark_dispatch_failed(dispatch_id, exc, task_id=task_id, session_factory=factory)
+        raise RuntimeError(str(exc)) from None
     except TransientFetchError:
         _release_dispatch_for_retry(
             dispatch_id, task_id, session_factory=factory
@@ -1945,6 +2062,8 @@ def _mark_dispatch_failed(
     factory = session_factory or get_session_factory()
     error_code = (
         exc.error_code if isinstance(exc, AsrError)
+        else "source_changed" if isinstance(exc, SourceChangedError)
+        else "source_unavailable" if isinstance(exc, SourceUnavailableError)
         else "transient_fetch_failed" if isinstance(exc, TransientFetchError)
         else "ingest_too_large" if isinstance(exc, IngestLimitExceeded)
         else "ingestion_failed"

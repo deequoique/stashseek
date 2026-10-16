@@ -24,6 +24,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    String,
     Text,
     UniqueConstraint,
     func,
@@ -573,6 +574,11 @@ class ContentItem(Base):
     )
     platform: Mapped[str] = mapped_column(platform_enum, nullable=False)
     platform_id: Mapped[str] = mapped_column(Text, nullable=False)  # video_id / bvid / sn
+    # NULL means historical/unverified source identity; never infer it from
+    # today's P1 mapping. CID is the immutable content pin, page is navigation.
+    bilibili_bvid: Mapped[str | None] = mapped_column(String(12))
+    bilibili_cid: Mapped[str | None] = mapped_column(String(20))
+    bilibili_page: Mapped[int | None] = mapped_column(Integer)
     kind: Mapped[str] = mapped_column(item_kind_enum, nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str | None] = mapped_column(Text)
@@ -622,6 +628,17 @@ class ContentItem(Base):
     delete_claim_token: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
+        CheckConstraint(
+            "(bilibili_bvid IS NULL AND bilibili_cid IS NULL AND bilibili_page IS NULL) OR "
+            "(bilibili_bvid IS NOT NULL AND bilibili_cid IS NOT NULL AND bilibili_page IS NOT NULL "
+            "AND platform = 'bilibili' AND bilibili_bvid ~ '^BV[0-9A-Za-z]{10}$' "
+            "AND bilibili_cid ~ '^[1-9][0-9]{0,19}$' AND bilibili_page BETWEEN 1 AND 1000)",
+            name="ck_content_item_bilibili_source",
+        ),
+        Index(
+            "uq_content_item_user_bilibili_cid", "user_id", "bilibili_bvid", "bilibili_cid",
+            unique=True, postgresql_where=text("bilibili_cid IS NOT NULL"),
+        ),
         UniqueConstraint(
             "user_id", "platform", "platform_id",
             name="uq_content_item_user_platform_platform_id",

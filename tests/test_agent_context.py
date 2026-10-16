@@ -16,6 +16,7 @@ _CONTENT_DDL = """
 CREATE TABLE content_item (
   id INTEGER PRIMARY KEY, public_id TEXT NOT NULL DEFAULT 'pub', user_id INTEGER NOT NULL,
   platform TEXT NOT NULL, platform_id TEXT NOT NULL, kind TEXT NOT NULL,
+  bilibili_bvid TEXT, bilibili_cid TEXT, bilibili_page INTEGER,
   url TEXT NOT NULL, title TEXT,
   author TEXT, published_at DATETIME, duration_sec INTEGER, char_count INTEGER,
   lang TEXT, description TEXT, tags TEXT, chapters TEXT, cover_url TEXT,

@@ -98,7 +98,8 @@ def test_deferred_anchor_fk_allows_explicit_atomic_owner_migration(model_engine)
         assert db.scalar(select(ExternalLoginIdentity)).app_user_id == 2
 
 
-def test_additive_external_login_migration_is_the_single_head():
+def test_additive_external_login_migration_remains_in_single_head_chain():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["e2f3a4b5c6d7"]
+    assert script.get_heads() == ["f8a9b0c1d2e3"]
+    assert script.get_revision("f8a9b0c1d2e3").down_revision == "e2f3a4b5c6d7"
     assert script.get_revision("e2f3a4b5c6d7").down_revision == "cff884c74a1e"

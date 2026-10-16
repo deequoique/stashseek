@@ -11,6 +11,20 @@ class TransientFetchError(RuntimeError):
     """A platform failure which is safe to retry for one item."""
 
 
+class SourceChangedError(RuntimeError):
+    """The actual extracted source differs from the immutable selected source."""
+
+    def __init__(self) -> None:
+        super().__init__("source_changed")
+
+
+class SourceUnavailableError(RuntimeError):
+    """The selected source cannot currently be verified safely."""
+
+    def __init__(self) -> None:
+        super().__init__("source_unavailable")
+
+
 @dataclass(frozen=True)
 class Cue:
     start: float
@@ -31,6 +45,10 @@ class ItemMeta:
     tags: list[str] = field(default_factory=list)
     chapters: list[dict] = field(default_factory=list)
     cover_url: str | None = None
+    # Internal extraction evidence, never inferred from an ordinal or URL.
+    bilibili_bvid: str | None = None
+    bilibili_cid: str | None = None
+    bilibili_page: int | None = None
 
 
 @dataclass(frozen=True)

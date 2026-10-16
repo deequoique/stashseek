@@ -35,6 +35,7 @@ def rendered_schema() -> str:
             browser_companion=placeholder,
             browser_capture_submission=placeholder,
             extension_sessions=placeholder,
+            bilibili=placeholder,
         ),
         expected_origin="https://contract.invalid",
         cookie_secure=True,

@@ -1879,3 +1879,30 @@ html:has(.chat-page), body:has(.chat-page), #root:has(.chat-page) { height: 100d
   .showcase-footer p { grid-column: 1 / -1; grid-row: 2; justify-items: start; }
   .showcase-footer__links { flex-wrap: wrap; justify-content: flex-end; }
 }
+
+/* Public Bilibili part selection shares the native add dialog. */
+.add-mode-options { display: flex; flex-wrap: wrap; gap: .65rem; }
+.add-mode-options [aria-pressed="true"] { background: var(--ink, #25251e); color: var(--paper, #f6f3e9); }
+.parts-picker { display: grid; gap: .8rem; min-width: 0; }
+.part-list, .parts-selection-summary { margin: 0; padding: 0; list-style: none; }
+.part-list { max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; }
+.part-list > li { padding: .65rem 0; border-bottom: 1px solid var(--line, #ddd9cd); }
+.part-choice { display: flex; align-items: flex-start; gap: .65rem; min-height: 44px; cursor: pointer; overflow-wrap: anywhere; }
+.part-choice input { width: 20px; height: 20px; flex: 0 0 auto; margin-top: .2rem; }
+.part-legacy-warning { padding: .65rem; background: rgba(166, 75, 40, .08); font-size: .9rem; }
+.part-legacy-warning p { margin-top: 0; }
+.parts-selection-count { margin: 0; padding: .6rem; font-weight: 700; }
+.part-selection-toolbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: .4rem; padding: .4rem 0; border-block-end: 1px solid var(--line); background: var(--paper); }
+.part-selection-toolbar .parts-selection-count { padding-inline: 0; }
+.part-selection-toolbar .button { flex: 0 0 auto; padding: .55rem .7rem; font-size: .76rem; }
+.parts-confirmation-target { scroll-margin-block-start: 5rem; min-width: 0; }
+.parts-selection-summary li { display: flex; align-items: center; justify-content: space-between; gap: .65rem; overflow-wrap: anywhere; }
+.parts-selection-summary button { flex: 0 0 auto; min-height: 44px; }
+
+.favorites-picker { display: grid; gap: .8rem; min-width: 0; }
+.favorite-video-list { list-style: none; margin: 0; padding: 0; max-height: 55vh; overflow-y: auto; overscroll-behavior: contain; }
+.favorite-video-list > li { border-block-end: 1px solid var(--line, #ddd9cd); padding: .5rem; overflow-wrap: anywhere; }
+.favorite-video-list summary { cursor: pointer; min-height: 44px; padding-block: .5rem; font-weight: 700; }
+.favorite-video-list summary small { display: block; font-weight: 400; }
+.favorite-parts { padding: .4rem .2rem; }
+.favorite-parts .part-list { max-height: none; overflow: visible; }

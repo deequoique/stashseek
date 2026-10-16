@@ -383,6 +383,7 @@ LangBot 4.10.6 部署还需要 patched runtime 的 required plugin readiness；
 | `YOUTUBE_FETCH_TIMEOUT_SECONDS` | `30` | yt-dlp metadata/subtitle bounded timeout |
 | `US_VIDEO_PROXY_URL` | 未设置 | 可选；服务端所有视频抓取（YouTube 与 Bilibili 的 metadata、字幕和 ASR 音频）共用的美国住宅出口。只允许无凭据 loopback HTTP URL 且必须有显式端口，例如 `http://127.0.0.1:18080`。取代旧的 `YOUTUBE_PROXY_URL`：旧变量仍存在（即使为空）时启动直接失败，不做别名或静默回退 |
 | `BILIBILI_FETCH_TIMEOUT_SECONDS` | `30` | Bilibili yt-dlp timeout |
+| `BILIBILI_PUBLIC_ENABLED` | `false` | 公开收藏夹预览/导入与分 P 选择；需要服务器能直连 `api.bilibili.com`。关闭时 capability 为 false，四个相关路由统一返回 `503 bilibili_disabled`，资料库/字幕/引用里的 B 站链接回退为 `bilibili.com` 原地址（不经服务器跳转） |
 | `TRASH_RETENTION_DAYS` | `30` | 回收站保留时长 |
 | `TRASH_PURGE_INTERVAL_SECONDS` | `86400` | purge 周期（每天一次，让空闲的 Neon compute 归零） |
 | `TRASH_PURGE_BATCH_SIZE` | `20` | 一次 purge 数量，最大 100 |

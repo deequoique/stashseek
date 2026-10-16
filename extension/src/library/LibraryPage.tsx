@@ -335,6 +335,9 @@ export function LibraryPage({
         onClose={() => setDialogOpen(false)}
         submitBatch={submitBatch}
         suggestedCollections={collectionOptions}
+        partsEnabled={capabilities.data?.bilibili_parts_enabled === true}
+        favoritesEnabled={capabilities.data?.bilibili_parts_enabled === true && capabilities.data?.bilibili_favorites_enabled === true}
+        onPartsSubmitted={() => void queryClient.invalidateQueries({ queryKey: ["library"] })}
         onSubmitted={() => void queryClient.invalidateQueries({ queryKey: ["library"] })}
       />
     </>

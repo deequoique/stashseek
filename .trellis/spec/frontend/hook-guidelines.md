@@ -45,6 +45,12 @@ Pure logic should remain a pure function. `shouldPollLibrary()` is a function, n
 - After resource creation returns enough canonical IDs, seed its exact detail
   cache with a safe empty projection before background list convergence; do not
   block the composer on an avoidable initial detail GET.
+- Public Bilibili preview reads use private, abortable resource keys
+  `bilibili-favorites-preview`, `bilibili-favorites-parts` and
+  `bilibili-parts-preview`, with no automatic retry or eager page traversal.
+  Their short-lived proof data is removed on view disposal. Explicit import
+  freezes one payload/key and never schedules an automatic follow-up batch;
+  see [Bilibili Import](./bilibili-import.md).
 
 ---
 

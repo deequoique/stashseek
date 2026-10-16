@@ -8,7 +8,8 @@ const capabilities: Capabilities = {
   supported_platforms: ["youtube"], browser_companion: true, web_login_channels: ["email"],
   external_login_providers: [],
   save_enabled: true, max_save_batch_size: 10,
-transcript_pagination: true,
+  bilibili_parts_enabled: false,
+  bilibili_favorites_enabled: false, transcript_pagination: true,
   archive: true, summary_generation: false, chat: true,
 };
 const session: SessionInfo = { authenticated: true, login_channel: "email", expires_at: "2027-01-01T00:00:00Z" };
