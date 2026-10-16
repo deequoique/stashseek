@@ -276,3 +276,69 @@ if result.returncode:
 The real implementation also supplies lowercase proxy variables, preserves
 both trusted CA variables, removes ambient `ALL_PROXY`, and gives an equivalent
 environment copy to the bounded subtitle child.
+
+## Scenario: Server-local residential egress
+
+### 1. Scope / Trigger
+
+Trigger: the production IP stays blocked and the home egress cannot run
+unattended. A paid sticky residential proxy replaces the Mac tunnel behind the
+same server loopback port. The application contract above is unchanged; only
+the process listening on server `127.0.0.1:18080` differs.
+
+### 2. Signatures
+
+```text
+deploy/youtube-egress/tinyproxy.conf.example   -> /etc/notebook-agent/youtube-egress/tinyproxy.conf (root 0600)
+deploy/youtube-egress/tinyproxy.filter         -> /etc/notebook-agent/youtube-egress/tinyproxy.filter (root 0600)
+deploy/systemd/notebook-agent-youtube-egress.service
+YOUTUBE_PROXY_URL=http://127.0.0.1:18080       # unchanged, credential-free
+```
+
+### 3. Contracts
+
+- Provider credentials exist only in the tinyproxy `Upstream http user:pass@host:port`
+  line. They never enter `notebook-agent.env`, `YOUTUBE_PROXY_URL`, PostgreSQL,
+  logs, or command lines; the loopback/credential-free `Settings` validation is
+  not relaxed.
+- The unit runs tinyproxy in the foreground as `DynamicUser=yes` and receives
+  both files through `LoadCredential`; the config's `Filter` path is the fixed
+  `/run/credentials/notebook-agent-youtube-egress.service/filter`.
+- tinyproxy listens and allows only `127.0.0.1:18080`, permits only CONNECT 443,
+  and default-denies every host except `youtube.com` / `googlevideo.com`
+  (anchored ERE, same patterns as the home helper). `FilterExtended Yes` is used
+  because Ubuntu 22.04 ships tinyproxy 1.11.0 without `FilterType`.
+- The upstream must be a sticky session: signed subtitle/audio URLs are bound
+  to the metadata request's exit IP, and metadata and subtitle fetches run in
+  separate children.
+- Home egress and residential egress are mutually exclusive on port 18080; the
+  home helper's server-port preflight fails closed while the unit is active.
+- The release deploy script does not manage this unit; it is operator-installed
+  infrastructure like `notebook-agent-asr-worker.service`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required outcome |
+| --- | --- |
+| CONNECT to a non-YouTube host, look-alike host, or port other than 443 | tinyproxy 403; nothing reaches the paid upstream. |
+| Wrong credentials or exhausted balance (upstream 407) | `youtube_proxy_authentication_failed`; no direct retry. |
+| Unit stopped | `youtube_proxy_unavailable`; no direct retry. |
+| Sticky exit IP flagged | `youtube_rate_limited` / `youtube_fetch_failed`; operator switches sticky port and restarts only the egress unit. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: unit active, `ss` shows only `127.0.0.1:18080`, `example.com` via the
+  proxy returns 403, a public video yields metadata and non-empty subtitles.
+- Base: unit absent or stopped and `YOUTUBE_PROXY_URL` unset; direct behavior.
+- Bad: credentials in `YOUTUBE_PROXY_URL` or the worker env file, tinyproxy on
+  `0.0.0.0`, the distro `tinyproxy.service` left running, or a per-request
+  rotating upstream.
+
+### 6. Tests Required
+
+- Statically assert the example config is loopback-only, CONNECT-443-only,
+  default-deny, uses the credentials-directory filter path, and carries only a
+  placeholder `Upstream` credential.
+- Assert the filter matches the home helper's host patterns.
+- Assert the unit uses `DynamicUser`, `LoadCredential` for both files, runs
+  tinyproxy in the foreground, and does not load the application env file.
