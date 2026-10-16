@@ -18,6 +18,25 @@ function streamRecord(event: Record<string, unknown>): string {
 }
 
 describe("same-origin API client", () => {
+  it("ignores a cancelled old-session 401 after its response body arrives", async () => {
+    const onUnauthorized = vi.fn();
+    setUnauthorizedHandler(onUnauthorized);
+    const controller = new AbortController();
+    let releaseBody: (value: { code: string; message: string }) => void = () => undefined;
+    const response = new Response(null, { status: 401 });
+    vi.spyOn(response, "json").mockImplementation(() => new Promise((resolve) => { releaseBody = resolve; }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+
+    const result = requestJson("/api/v1/conversations?limit=30", { signal: controller.signal });
+    const rejection = expect(result).rejects.toEqual(expect.objectContaining({ name: "AbortError" }));
+    await vi.waitFor(() => expect(response.json).toHaveBeenCalledOnce());
+    controller.abort();
+    releaseBody({ code: "session_invalid", message: "登录已失效" });
+
+    await rejection;
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
   it("copies the readable CSRF cookie to unsafe requests", async () => {
     document.cookie = "__Host-kb_csrf=csrf-value; Path=/; Secure";
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(

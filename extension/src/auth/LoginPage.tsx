@@ -6,7 +6,6 @@ import { useLocation } from "react-router";
 import {
   createLoginChallenge,
   exchangeChallenge,
-  getCapabilities,
   getChallengeStatus,
   requestEmailChallenge,
   verifyEmailChallenge,
@@ -22,6 +21,7 @@ import type {
 import { BrandLogo } from "../app/BrandLogo";
 import { BROWSER_COMPANION_DOWNLOAD_URL } from "../app/browserCompanion";
 import { useRouteNavigate } from "../app/RouteTransition";
+import { capabilitiesQueryOptions } from "../chat/conversationQueries";
 import { EmailLoginFlow, type EmailStep } from "./EmailLoginFlow";
 
 type ChannelAvailability = "checking" | "available" | "disabled" | "unavailable";
@@ -57,7 +57,7 @@ interface LoginPageProps {
 }
 
 export function LoginPage({
-  loadCapabilities = getCapabilities,
+  loadCapabilities,
   createChallenge = createLoginChallenge,
   getStatus = getChallengeStatus,
   exchangeSession = exchangeChallenge,
@@ -73,12 +73,7 @@ export function LoginPage({
   const [code, setCode] = useState("");
   const [emailStep, setEmailStep] = useState<EmailStep>("email");
   const [emailError, setEmailError] = useState<string | null>(null);
-  const capabilities = useQuery({
-    queryKey: ["capabilities"],
-    queryFn: loadCapabilities,
-    retry: false,
-    staleTime: 5 * 60_000,
-  });
+  const capabilities = useQuery(capabilitiesQueryOptions(loadCapabilities));
   const mutation = useMutation({
     mutationFn: (channel: LegacyLoginChannel) => createChallenge(channel),
     onSuccess: setChallenge,

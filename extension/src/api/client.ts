@@ -95,9 +95,11 @@ export async function requestJson<T>(
     headers,
     credentials: "same-origin",
   });
+  init.signal?.throwIfAborted();
   if (!response.ok) {
     const fallback = { code: "request_failed", message: "请求无法完成" };
     const payload = await response.json().catch(() => fallback) as Partial<typeof fallback>;
+    init.signal?.throwIfAborted();
     const error = new ApiError(
       response.status,
       payload.code ?? fallback.code,
@@ -182,8 +184,8 @@ export async function verifyEmailChallenge(
   return { authenticated: true as const, login_channel: "email" as const, expires_at: session.expires_at };
 }
 
-export function getSession(): Promise<SessionInfo> {
-  return requestJson<{ expires_at?: string }>("/api/v1/extension/auth/session").then((session) => ({
+export function getSession(signal?: AbortSignal): Promise<SessionInfo> {
+  return requestJson<{ expires_at?: string }>("/api/v1/extension/auth/session", { signal }).then((session) => ({
     authenticated: true as const, login_channel: "email" as const, expires_at: session.expires_at ?? "",
   }));
 }
@@ -238,18 +240,18 @@ export function revokeBrowserCompanionDevice(deviceId: string): Promise<void> {
   );
 }
 
-export function getCapabilities(): Promise<Capabilities> {
-  return requestJson("/api/v1/capabilities");
+export function getCapabilities(signal?: AbortSignal): Promise<Capabilities> {
+  return requestJson("/api/v1/capabilities", { signal });
 }
 
-export function listConversations(cursor?: string | null): Promise<ConversationHistoryPage> {
+export function listConversations(cursor?: string | null, signal?: AbortSignal): Promise<ConversationHistoryPage> {
   const params = new URLSearchParams({ limit: "30" });
   if (cursor) params.set("cursor", cursor);
-  return requestJson(`/api/v1/conversations?${params.toString()}`);
+  return requestJson(`/api/v1/conversations?${params.toString()}`, { signal });
 }
 
-export function getConversationTurns(threadId: string): Promise<ConversationTurns> {
-  return requestJson(`/api/v1/conversations/${encodeURIComponent(threadId)}/turns`);
+export function getConversationTurns(threadId: string, signal?: AbortSignal): Promise<ConversationTurns> {
+  return requestJson(`/api/v1/conversations/${encodeURIComponent(threadId)}/turns`, { signal });
 }
 
 export function deleteConversation(threadId: string): Promise<void> {

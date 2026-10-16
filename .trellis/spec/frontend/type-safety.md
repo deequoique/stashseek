@@ -77,3 +77,52 @@ export type LibraryLifecycle = LibraryItem["lifecycle"];
 - Declaring a second handwritten `LibraryItem` or lifecycle union.
 - Using ORM/model types in React.
 - Assuming optional summary data exists when the schema says null is valid.
+
+## Scenario: Reproducible validation descriptions
+
+### 1. Scope / Trigger
+
+Use when exporting browser contracts on supported Python versions. CI uses
+Python 3.11 while local development may use 3.13; their standard HTTP 422 phrase
+can differ even with the same FastAPI and Starlette versions.
+
+### 2. Signatures
+
+`scripts.export_web_openapi.rendered_schema() -> str` is the deterministic,
+inert exporter consumed by `generate:api` and `check:api`.
+
+### 3. Contracts
+
+Normalize only a 422 response description equal to `Unprocessable Entity` or
+`Unprocessable Content` to the existing contract's `Unprocessable Entity`.
+Retain custom descriptions, schema contents and every other status. Always
+regenerate both tracked files using the exporter, never edit generated text.
+This is documentation normalization, not a runtime response/error change.
+
+### 4. Validation & Error Matrix
+
+| Input | Export result |
+| --- | --- |
+| Either standard 422 phrase | Same canonical description and identical contract |
+| Custom 422 description | Preserve verbatim |
+| Other response/status/schema | Preserve |
+
+### 5. Good / Base / Bad Cases
+
+- Good: Python 3.11 and 3.13 export the same interface.
+- Base: custom safe-error documentation is unchanged.
+- Bad: blame every phrase change on Starlette or hand-edit generated types.
+
+### 6. Tests Required
+
+`tests/test_web_openapi_export.py` changes the standard-library phrase and
+compares real exports, then checks an explicitly documented custom response.
+Run `check:api` after generation; package compatibility alone does not establish
+an exact lock-file match.
+
+### 7. Wrong vs Correct
+
+Wrong: patch 19 descriptions in tracked JSON to match one machine.
+
+Correct: normalize the two standard defaults in the exporter, preserve custom
+text, test both standard phrases, and regenerate from the canonical app.

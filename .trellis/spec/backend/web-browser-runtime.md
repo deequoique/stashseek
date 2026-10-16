@@ -153,6 +153,10 @@ cache.put(token_digest, session, generation=observed_generation)
   - An extension session Bearer, which a `chrome-extension://` page holds and
     which cannot read the CSRF cookie, needs no header.
   - A required route-level header turns every Bearer mutation into a 422.
+- Browser transcript reads select only the public answer, citations, action
+  results, status and time fields after a tenant-owned thread lookup. Never
+  fetch or JSON-decode internal `model_messages` for history display; projection
+  must not introduce lazy-loading queries and must retain completed-only order.
 
 ## Conversation streaming contract
 

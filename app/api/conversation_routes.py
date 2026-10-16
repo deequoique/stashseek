@@ -885,8 +885,18 @@ def build_conversation_router(
             if thread is None:
                 raise HTTPException(status_code=404, detail="not_found")
             turns = list(
-                db.scalars(
-                    select(ConversationTurn)
+                db.execute(
+                    # Provider message history can be much larger than the
+                    # public transcript and is not browser response data.
+                    select(
+                        ConversationTurn.user_text,
+                        ConversationTurn.assistant_text,
+                        ConversationTurn.answer_status,
+                        ConversationTurn.error_code,
+                        ConversationTurn.sources,
+                        ConversationTurn.action_results,
+                        ConversationTurn.created_at,
+                    )
                     .where(
                         ConversationTurn.thread_id == thread.id,
                         ConversationTurn.status == "completed",
