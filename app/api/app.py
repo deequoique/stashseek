@@ -41,9 +41,6 @@ from app.web_auth import InvalidSession
 
 logger = logging.getLogger(__name__)
 _CHROME_EXTENSION_ORIGIN_RE = re.compile(r"^chrome-extension://[a-p]{32}$")
-_BROWSER_COMPANION_STATUS_PATH_RE = re.compile(
-    r"^/api/v1/browser-companion/extension/pairings/[a-f0-9]{32}$"
-)
 MAX_WEB_REQUEST_BODY_BYTES = 64 * 1024
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _SAFE_HTTP_CODES = frozenset(
@@ -389,11 +386,14 @@ def create_app(
                 (),
             )
         )
-        origin_optional_status_read = (
-            request.method == "GET"
-            and not extension_origin
-            and _BROWSER_COMPANION_STATUS_PATH_RE.fullmatch(request.url.path)
-            is not None
+        # Chrome MV3 extension pages and service workers send cross-origin
+        # GET/HEAD requests to a host-permitted API without an Origin header.
+        # These routes authenticate only with explicit Bearer credentials (never
+        # cookies), GET/HEAD are read-only, and no CORS allow-origin header is
+        # emitted for a missing Origin, so a web page cannot read the response.
+        # A present-but-disallowed Origin and every unsafe method stay rejected.
+        origin_optional_read = (
+            request.method in {"GET", "HEAD"} and not extension_origin
         )
         try:
             # Resolve explicit extension sessions for all API methods so read
@@ -410,7 +410,7 @@ def create_app(
                 request.state.authenticated_session = current
                 request.state.extension_user_id = user_id
             if extension_request:
-                if not origin_optional_status_read and not _extension_origin_allowed(
+                if not origin_optional_read and not _extension_origin_allowed(
                     extension_origin, allowed_extension_origins
                 ):
                     logger.warning(
