@@ -22,6 +22,10 @@ from app.ingest.validate import IngestLimitExceeded
 
 ROOT = Path(__file__).resolve().parents[1]
 HOME_EGRESS_HELPER = ROOT / "scripts" / "youtube-home-egress"
+RESIDENTIAL_EGRESS_DIR = ROOT / "deploy" / "youtube-egress"
+RESIDENTIAL_EGRESS_UNIT = (
+    ROOT / "deploy" / "systemd" / "notebook-agent-youtube-egress.service"
+)
 
 
 def test_parse_json3_normalizes_timestamps_and_text():
@@ -498,3 +502,76 @@ def test_home_egress_helper_does_not_install_missing_tinyproxy(tmp_path):
         "youtube-home-egress: tinyproxy is required; install it separately with: "
         "brew install tinyproxy\n"
     )
+
+
+def _config_directives(text: str) -> list[str]:
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def test_residential_egress_proxy_is_loopback_only_and_youtube_scoped():
+    config = (RESIDENTIAL_EGRESS_DIR / "tinyproxy.conf.example").read_text(
+        encoding="utf-8"
+    )
+    directives = _config_directives(config)
+
+    for expected in (
+        "Port 18080",
+        "Listen 127.0.0.1",
+        "Allow 127.0.0.1",
+        "ConnectPort 443",
+        "FilterURLs No",
+        "FilterExtended Yes",
+        "FilterDefaultDeny Yes",
+        'Filter "/run/credentials/notebook-agent-youtube-egress.service/filter"',
+    ):
+        assert expected in directives
+    assert "0.0.0.0" not in config
+    assert not any(
+        line.startswith(("BasicAuth", "LogFile", "User ", "Group "))
+        for line in directives
+    )
+    upstreams = [line for line in directives if line.startswith("Upstream ")]
+    assert upstreams == [
+        "Upstream http PROXY_USERNAME:PROXY_PASSWORD@gw.dataimpulse.com:10000"
+    ]
+
+
+def test_residential_egress_filter_matches_home_egress_hosts():
+    filter_rules = (RESIDENTIAL_EGRESS_DIR / "tinyproxy.filter").read_text(
+        encoding="utf-8"
+    )
+    helper = HOME_EGRESS_HELPER.read_text(encoding="utf-8")
+
+    assert filter_rules.splitlines() == [
+        r"(^|\.)youtube\.com$",
+        r"(^|\.)googlevideo\.com$",
+    ]
+    for rule in filter_rules.splitlines():
+        assert rule in helper
+
+
+def test_residential_egress_unit_isolates_provider_credentials():
+    unit = RESIDENTIAL_EGRESS_UNIT.read_text(encoding="utf-8")
+
+    assert "DynamicUser=yes" in unit
+    assert (
+        "LoadCredential=tinyproxy.conf:/etc/notebook-agent/youtube-egress/tinyproxy.conf"
+        in unit
+    )
+    assert (
+        "LoadCredential=filter:/etc/notebook-agent/youtube-egress/tinyproxy.filter"
+        in unit
+    )
+    assert (
+        "ExecStart=/usr/bin/tinyproxy -d -c ${CREDENTIALS_DIRECTORY}/tinyproxy.conf"
+        in unit
+    )
+    assert "EnvironmentFile" not in unit
+    assert "notebook-agent.env" not in unit
+    assert "NoNewPrivileges=true" in unit
+    assert "CapabilityBoundingSet=\n" in unit
+    assert "ProtectSystem=strict" in unit
