@@ -1,5 +1,19 @@
 # Combined implementation verification — 2026-10-16
 
+## Final local commit outcome
+
+User-approved work commits are complete: `b4d60fe` (chat/history), `2bb6dbc`
+(external login) and `788b2ae` (public favorites/multipart). All three actual
+indexes passed independent path/blob/exclusion checks before committing. C had
+147 explicit files, byte-identical to its frozen reviewed workspace manifest.
+The eight copied pytest logs also had trailing whitespace stripped; XML results
+and failure identities are unchanged, with final hashes in log-redactions.json.
+
+Current completion evidence is this section and the commit-preparation follow-up.
+The later delivery/review wording about pending commits describes the earlier
+checkpoint. No push, production migration, real collection import or deployment
+was performed. Product code is committed; task archive/journal bookkeeping follows.
+
 ## Commit-preparation follow-up
 
 The user replied “继续” to the presented three-group local commit plan. Chat and
@@ -46,7 +60,8 @@ Ordinary BV/share input, prior SSO and chat/history changes remain in the worktr
 Public discovery is read-only, bounded and credential-free. Parts import requires
 explicit selection, signed tenant-bound references and normal admission. Legacy
 unknown P1 provenance stays unknown, with default-off per-entry overlap consent.
-No real sample import, production/shared migration, deployment or Git commit ran.
+At the pre-commit checkpoint, no real sample import, production/shared migration,
+deployment or Git commit had run. Local commits are now recorded above.
 
 ## Automated and independent evidence
 
@@ -130,6 +145,6 @@ to the child review's cross-child evidence table and the native findings above.
 The initial temporary baseline snapshot no longer exists. No restore/reset was
 used; review used actual diffs, ownership and regression evidence. Bytewise
 baseline preservation is not claimed. Existing shared files contain earlier
-SSO/chat/BV work, and the new migration follows the uncommitted SSO predecessor.
-No blanket staging is safe. The proposed scoped commit plan requires one human
-confirmation under the repository workflow before staging or committing.
+SSO/chat/BV work, and the new migration follows the SSO predecessor, now committed as 2bb6dbc.
+No blanket staging is safe. The scoped commit plan received the required human confirmation (“继续”);
+all three local work commits and independent index checks are recorded above.

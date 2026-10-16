@@ -1,9 +1,9 @@
 # Independent local commit split review
 
 Date: 2026-10-16. Reviewer: `trellis-check` (`/root/multipart_check`).
-Status: prepared A/B/C source, dependency boundary and canonical contract gates
-passed. Final index inspection remains pending; this does not approve an
-uninspected or unexpectedly populated index.
+Status: PASS for the approved three local work commits. Prepared sources,
+dependency boundaries, canonical contracts and each actual staged index passed
+independent review. This does not authorize additional files or external actions.
 
 ## Scope and authorization
 
@@ -156,6 +156,11 @@ remain outside the work commits.
 The later `artifacts/commit-backend.txt`/`.xml` and
 `research/commit-environment.json` were also independently scanned: no personal
 home-directory path or Mac `.local` hostname remained.
+Before C was frozen, root stripped trailing whitespace from all eight copied
+pytest logs and refreshed their redaction hashes. Independent C index review
+confirmed all eight hashes matched; all four XML documents remained parseable
+with unchanged result counts and the same two failure names. Raw originals stay
+outside Git. This is formatting of evidence, not altering test results.
 
 ## Exclusions and finish-work
 
@@ -201,5 +206,18 @@ runtime path was staged; its generated contract and migration boundaries are the
 previously checked B stage. The largest file was the ordinary 429,664-byte uv.lock.
 Root then created B as `2bb6dbc`.
 
-Pending: C actual index comparison against the final reviewed workspace and
-protected exclusions before its commit.
+C passed independent index review while HEAD was
+`2bb6dbce183a3ec201657a6024876026b430fae2`: exactly 147 paths matched
+`bilibili-stage-manifest.json`; every staged blob's SHA-256 matched the manifest
+and every staged byte sequence matched the frozen real workspace. There were no
+extra/missing/mismatched paths and no protected/excluded runtime path. Cached
+whitespace checks passed. The largest staged file was the sanitized 216,571-byte
+final backend XML. Canonical source/generated files were the same versions just
+checked independently above; graph inspection still found only f8 following e2.
+The root was notified that C could be committed under the already approved title.
+Root then created C as `788b2aeae43b2a736e58db31bef231a62e79ec2c`.
+
+No unresolved implementation/split finding remains. The two baseline date-dependent
+test failures, opt-in-service skips, real provider credential/login readiness and
+absence of production rollout remain explicit limits. Archive/journal bookkeeping
+and final remaining-status checks are root-owned and follow the sequence above.

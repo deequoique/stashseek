@@ -3,11 +3,12 @@
 Execution update: final approval was received with “开发” on 2026-10-16.
 Both children were implemented and independently reviewed in dependency order;
 parent integration/evidence is in verification.md. Root IAB acceptance followed
-earlier unavailable-device attempts. Work remains uncommitted pending the single
-commit-plan confirmation, so archive/journal wrap-up has not run.
+earlier unavailable-device attempts. The later commit-plan approval (“继续”)
+produced b4d60fe, 2bb6dbc and 788b2ae after independent actual-index gates.
+Product work is committed; archive/journal bookkeeping is the remaining step.
 
-Planning only; final artifact review plus subsequent explicit approval precede
-any task.py start, product edits or implementation dispatch.
+The sections below preserve the original execution plan; its planning gate was
+fulfilled before implementation. Completion evidence is in verification.md.
 
 ## Ordered Work
 

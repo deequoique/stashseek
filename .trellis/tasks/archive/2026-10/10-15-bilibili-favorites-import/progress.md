@@ -108,3 +108,17 @@ Proceed with the dependent favorites implementation using these verified
 contracts; native browser verification remains explicitly pending and moves to
 the combined parent gate because the user device is locked/unavailable. This
 changes verification timing only, not scope, acceptance or authorization.
+
+## Final delivery and commit wrap-up — 2026-10-16
+
+The native browser gate was subsequently completed with RAM-only fixtures; see
+verification.md and research/browser-acceptance.md for exact scope and storage
+inspection limits. Product code and canonical contracts passed independent review.
+The approved local work commits are b4d60fe, 2bb6dbc and 788b2ae. Frontend 256
+tests and all frontend gates passed; final backend 1194 passed/104 skipped, with
+the same two existing date-dependent recycle-bin failures. PostgreSQL/Redis live
+checks are separate documented runs. Temporary QA/test services are stopped.
+Only this parent and its two current children are being archived; other task
+records remain as they were. No real sample import, push, production migration
+or deployment. The two explicitly excluded unrecognized task directories are
+preserved outside these commits.
