@@ -1,0 +1,11 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend spec index and conventions"}
+{"file": ".trellis/spec/backend/youtube-connector.md", "reason": "Existing proxy contract (home/residential egress, child-only env, fail-closed, classifications) being generalized"}
+{"file": ".trellis/spec/backend/bilibili-connector.md", "reason": "Bilibili connector contract that gains proxy support"}
+{"file": ".trellis/spec/backend/asr-transcription.md", "reason": "ASR audio download contract; drops 'Bilibili never uses a proxy'"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Stable, redacted error classification rules"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Code quality and testing expectations"}
+{"file": ".trellis/spec/guides/branch-and-delegation-workflow.md", "reason": "Work in a worktree from dev; commit only this task's hunks"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Extracting the shared proxy-env helper instead of duplicating"}
+{"file": ".trellis/tasks/10-16-video-egress-proxy/research/bilibili-egress-hosts.md", "reason": "Measured Bilibili hosts, filter rules, LogLevel Notice evidence"}
+{"file": ".trellis/tasks/10-16-video-egress-proxy/research/release-path.md", "reason": "Shared-checkout hazard and dev landing procedure"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "No raw stderr/proxy values/URLs in logs or exception text"}
