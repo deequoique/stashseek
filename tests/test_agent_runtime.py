@@ -446,6 +446,25 @@ def test_model_tool_schemas_never_expose_trusted_identifiers():
         }.isdisjoint(properties)
 
 
+def test_bounded_autonomy_instructions_never_name_an_unregistered_tool():
+    """The system prompt must not steer the model toward a tool that isn't
+
+    registered. A prior release-port draft left a stale ``search_media``
+    mention in the retrieval-tool list (that tool belongs to the in-progress
+    multimodal feature and is not wired up by ``register_retrieval_tools``
+    in this build), which would prompt the model to attempt calling a
+    nonexistent tool.
+    """
+
+    from app.agent.agent_builder import BOUNDED_AUTONOMY_INSTRUCTIONS
+
+    agent = build_agent(TestModel())
+    registered_tools = set(agent._function_toolset.tools)
+    for candidate in ("search_media", "inspect_media"):
+        assert candidate not in registered_tools
+        assert candidate not in BOUNDED_AUTONOMY_INSTRUCTIONS
+
+
 def test_runtime_facade_exports_supported_surface():
     import app.agent.runtime as runtime
 

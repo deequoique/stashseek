@@ -390,6 +390,19 @@ async def test_no_search_capability_answer_is_unchanged_by_the_post_search_rule(
 
 @pytest.mark.asyncio
 async def test_flag_on_explicit_url_question_cannot_finish_without_search():
+    """A content question (even with an explicit URL) must search first.
+
+    Release-port adaptation (not in the original fix's own test diff): the
+    10-07-retrieval-agent-budget orchestrator gate (``no_search_allowed`` /
+    ``_is_no_search_social_or_capability``) now requires retrieval, a
+    management read, or a narrow greeting/capability/clarification match
+    before a no-search natural answer is accepted. A URL-plus-content
+    question matches none of those, so it now fails closed with
+    ``search_required`` instead of silently returning the model's own text,
+    consistent with ``test_management_tools_are_hidden_for_explicit_url_questions``
+    in ``tests/test_exact_video_reference_routing.py``.
+    """
+
     services = Services()
     result = await KnowledgeAgent(
         TestModel(call_tools=[], custom_output_text="这是一个回答。"),
@@ -397,9 +410,8 @@ async def test_flag_on_explicit_url_question_cannot_finish_without_search():
         lambda _: services,
     ).run(request("https://youtu.be/dQw4w9WgXcQ 讲了什么"))
 
-    assert result.answer.status == "ok"
-    assert result.answer.error_code is None
-    assert result.answer.text == "这是一个回答。"
+    assert result.answer.status == "failed"
+    assert result.answer.error_code == "search_required"
     assert services.calls == []
 
 
