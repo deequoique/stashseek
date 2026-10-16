@@ -5,9 +5,11 @@ the shared schema and the outbound client is not exercised, so a live database
 is the only external dependency.
 """
 
+import math
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+import time
 from uuid import uuid4
 
 import pytest
@@ -16,8 +18,11 @@ from sqlalchemy.orm import Session
 
 from app.channels.types import TenantContext
 from app.db import get_engine
+from app.ingest.notification_repair_index import InMemoryNotificationRepairIndex
 from app.ingest.notifications import (
     IngestNotificationPoller,
+    NotificationSweepResult,
+    NotificationTransportError,
 )
 from app.ingest.submission import IngestSubmissionService
 from app.models import (
@@ -474,3 +479,443 @@ def test_notification_migration_and_model_contracts_are_declared():
         '"ix_ingest_completion_delivery_claim"',
     ):
         assert needle in migration
+
+
+# --------------------------------------------------------------------------
+# Redis-gated repair against the real ledger (Neon scale-to-zero)
+# --------------------------------------------------------------------------
+
+
+class _CountingFactory:
+    """Counts PostgreSQL sessions opened through the isolated-schema factory."""
+
+    def __init__(self, factory):
+        self._factory = factory
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        return self._factory()
+
+
+class _RecordingClient:
+    def __init__(self, error=None):
+        self.error = error
+        self.sent = []
+
+    def send_message(self, **kwargs):
+        if self.error is not None:
+            raise self.error
+        self.sent.append(kwargs)
+
+
+def _repair_settings(**overrides):
+    values = {
+        "ingest_notification_max_duration_seconds": 8.0,
+        "langbot_outbound_timeout_seconds": 3.0,
+    }
+    values.update(overrides)
+    return _notification_settings(**values)
+
+
+def _seed_deliverable_event(factory):
+    """A completed event whose source thread resolves to a sendable target."""
+
+    suffix = uuid4().hex
+    _, thread_id, _, user_id = _source_context(
+        factory, channel="telegram", suffix=suffix
+    )
+    with factory() as db:
+        item = ContentItem(
+            user_id=user_id,
+            platform="youtube",
+            platform_id=f"repair-{suffix}",
+            kind="video",
+            url=f"https://youtu.be/{suffix[:11]}",
+            title="repair target",
+            state="ready",
+        )
+        db.add(item)
+        db.flush()
+        dispatch = IngestDispatch(
+            public_id=uuid4().hex,
+            item_id=item.id,
+            request_key=f"repair-{suffix}",
+            attempt=1,
+            state="completed",
+            source_thread_id=thread_id,
+        )
+        db.add(dispatch)
+        db.flush()
+        event = IngestCompletionEvent(
+            public_id=uuid4().hex,
+            dispatch_id=dispatch.id,
+            item_id=item.id,
+            outcome="completed",
+            item_state="ready",
+            publish_state="pending",
+        )
+        db.add(event)
+        db.commit()
+        return event.id
+
+
+def _baselined_index(*due):
+    index = InMemoryNotificationRepairIndex()
+    index.set_baseline()
+    for event_id, at in due:
+        index.mark_due(event_id, at)
+    return index
+
+
+def _ledger(factory, event_id, **values):
+    now = datetime.now(UTC)
+    row = {
+        "event_id": event_id,
+        "handler_key": "source-channel.notification.v1",
+        "attempts": 1,
+        "created_at": now,
+        "updated_at": now,
+    }
+    row.update(values)
+    with factory() as db:
+        db.add(IngestCompletionDelivery(**row))
+        db.commit()
+
+
+def test_postgres_lost_targeted_task_is_repaired_after_claim_timeout_then_idle(
+    notification_factory,
+):
+    event_id = _seed_deliverable_event(notification_factory)
+    base = 1_800_000_000.0
+    clock = [base]
+    # What the post-commit hook records before enqueueing the targeted task.
+    index = _baselined_index((event_id, int(base) + 300))
+    counting = _CountingFactory(notification_factory)
+    client = _RecordingClient()
+    poller = IngestNotificationPoller(
+        counting,
+        client,
+        settings=_repair_settings(),
+        repair_index=index,
+        epoch_clock=lambda: clock[0],
+    )
+
+    # The targeted task never ran, but the claim timeout has not elapsed yet.
+    clock[0] = base + 299
+    assert poller.repair_tick().as_dict()["claimed"] == 0
+    assert counting.calls == 0 and client.sent == []
+
+    clock[0] = base + 301
+    result = poller.repair_tick()
+    assert (result.claimed, result.succeeded) == (1, 1)
+    assert len(client.sent) == 1
+    assert index.score(event_id) is None  # terminal: removed from the index
+    with notification_factory() as db:
+        assert db.scalar(select(IngestCompletionDelivery.status)) == "succeeded"
+
+    # Terminal state reached: later ticks never reach PostgreSQL again.
+    counting.calls = 0
+    clock[0] = base + 10_000
+    for _ in range(3):
+        poller.repair_tick()
+    assert counting.calls == 0
+    assert len(client.sent) == 1
+
+
+def test_postgres_crash_after_claim_is_recovered_once_the_claim_is_stale(
+    notification_factory,
+):
+    event_id = _seed_deliverable_event(notification_factory)
+    base = 1_800_000_000.0
+    clock = [base]
+    index = _baselined_index((event_id, int(base) + 300))
+    settings = _repair_settings()
+    # The targeted worker claims the event, then dies before it can ACK.
+    claim = IngestNotificationPoller(
+        notification_factory, settings=settings, repair_index=index
+    )._claim_event(event_id, now=datetime.now(UTC), settings=settings)
+    assert claim is not None
+    assert index.score(event_id) == int(base) + 300  # a crash never edits it
+    with notification_factory() as db:
+        claimed_at = db.scalar(select(IngestCompletionDelivery.claimed_at))
+    client = _RecordingClient()
+    poller = IngestNotificationPoller(
+        notification_factory,
+        client,
+        settings=settings,
+        repair_index=index,
+        epoch_clock=lambda: clock[0],
+    )
+
+    # The index says due, but the (fresh) claim is not stale yet: nothing is
+    # sent and the member is rescheduled to the stale-claim time.
+    clock[0] = base + 301
+    assert poller.repair_tick().claimed == 0
+    assert client.sent == []
+    assert index.score(event_id) == math.ceil(
+        (claimed_at + timedelta(seconds=300)).timestamp()
+    )
+
+    # The claim goes stale in PostgreSQL time and the tick passes that point.
+    with notification_factory() as db:
+        delivery = db.scalar(select(IngestCompletionDelivery))
+        delivery.claimed_at = datetime.now(UTC) - timedelta(seconds=301)
+        db.commit()
+    clock[0] = index.score(event_id) + 1
+    result = poller.repair_tick()
+
+    assert (result.claimed, result.succeeded) == (1, 1)
+    assert len(client.sent) == 1
+    assert index.score(event_id) is None
+
+
+def test_postgres_retryable_failure_is_indexed_at_next_attempt_and_gates_the_tick(
+    notification_factory,
+):
+    event_id = _seed_deliverable_event(notification_factory)
+    index = _baselined_index((event_id, int(time.time()) + 300))
+    counting = _CountingFactory(notification_factory)
+    failing = IngestNotificationPoller(
+        counting,
+        _RecordingClient(
+            NotificationTransportError("outbound_server_error", retryable=True)
+        ),
+        settings=_repair_settings(),
+        repair_index=index,
+    )
+
+    assert failing.deliver_event(event_id).failed == 1
+
+    with notification_factory() as db:
+        delivery = db.scalar(select(IngestCompletionDelivery))
+        assert (delivery.status, delivery.disposition) == ("failed", None)
+        next_attempt = delivery.next_attempt_at
+    due_at = index.score(event_id)
+    assert due_at == math.ceil(next_attempt.timestamp())
+
+    # Strictly before the retry time: zero database access.
+    counting.calls = 0
+    client = _RecordingClient()
+    retrying = IngestNotificationPoller(
+        counting,
+        client,
+        settings=_repair_settings(),
+        repair_index=index,
+        epoch_clock=lambda: due_at - 1,
+    )
+    retrying.repair_tick()
+    assert counting.calls == 0
+
+    # Time passes: the ledger and the index both say "eligible now".
+    past = datetime.now(UTC) - timedelta(seconds=2)
+    with notification_factory() as db:
+        delivery = db.scalar(select(IngestCompletionDelivery))
+        delivery.next_attempt_at = past
+        db.commit()
+    assert index.reconcile(event_id, due_at, int(past.timestamp())) is True
+    ticking = IngestNotificationPoller(
+        counting,
+        client,
+        settings=_repair_settings(),
+        repair_index=index,
+    )
+    result = ticking.repair_tick()
+
+    assert counting.calls > 0
+    assert (result.claimed, result.succeeded) == (1, 1)
+    assert len(client.sent) == 1
+    assert index.score(event_id) is None
+
+
+def test_postgres_terminal_failure_removes_the_member_and_ticks_stay_idle(
+    notification_factory,
+):
+    event_id = _seed_deliverable_event(notification_factory)
+    index = _baselined_index((event_id, int(time.time()) + 300))
+    counting = _CountingFactory(notification_factory)
+    poller = IngestNotificationPoller(
+        counting,
+        _RecordingClient(
+            NotificationTransportError("outbound_auth_rejected", retryable=False)
+        ),
+        settings=_repair_settings(),
+        repair_index=index,
+    )
+
+    poller.deliver_event(event_id)
+
+    with notification_factory() as db:
+        delivery = db.scalar(select(IngestCompletionDelivery))
+        assert (delivery.status, delivery.disposition) == (
+            "failed",
+            "terminal_failure",
+        )
+    assert index.score(event_id) is None
+    counting.calls = 0
+    poller.repair_tick()
+    assert counting.calls == 0
+
+
+def test_postgres_redis_failures_never_change_the_delivery_result(
+    notification_factory,
+):
+    event_id = _seed_deliverable_event(notification_factory)
+
+    class _BrokenIndex(InMemoryNotificationRepairIndex):
+        def score(self, event_id):
+            raise ConnectionError("redis down")
+
+        def reconcile(self, *_args):
+            raise ConnectionError("redis down")
+
+        def mark_due(self, *_args):
+            raise ConnectionError("redis down")
+
+    client = _RecordingClient()
+    poller = IngestNotificationPoller(
+        notification_factory,
+        client,
+        settings=_repair_settings(),
+        repair_index=_BrokenIndex(),
+    )
+
+    result = poller.deliver_event(event_id)
+
+    assert (result.claimed, result.succeeded, result.failed) == (1, 1, 0)
+    assert len(client.sent) == 1
+    with notification_factory() as db:
+        assert db.scalar(select(IngestCompletionDelivery.status)) == "succeeded"
+
+
+def test_postgres_missing_baseline_runs_one_full_sweep_then_goes_idle(
+    notification_factory,
+):
+    # Fresh/lost Redis: no baseline and no member for the pending event.
+    event_id = _seed_deliverable_event(notification_factory)
+    index = InMemoryNotificationRepairIndex()
+    counting = _CountingFactory(notification_factory)
+    client = _RecordingClient()
+    poller = IngestNotificationPoller(
+        counting, client, settings=_repair_settings(), repair_index=index
+    )
+
+    result = poller.repair_tick()
+
+    assert (result.claimed, result.succeeded) == (1, 1)  # ungated, found anyway
+    assert len(client.sent) == 1
+    assert index.has_baseline() is True
+    assert index.members(10) == []
+
+    counting.calls = 0
+    poller.repair_tick()
+    assert counting.calls == 0
+    assert event_id  # the event existed and was delivered exactly once
+    assert len(client.sent) == 1
+
+
+def test_postgres_full_repair_rebuilds_the_index_from_ledger_state(
+    notification_factory,
+):
+    pending = _seed_deliverable_event(notification_factory)  # no ledger row
+    claimed = _seed_deliverable_event(notification_factory)
+    retryable = _seed_deliverable_event(notification_factory)
+    terminal = _seed_deliverable_event(notification_factory)
+    succeeded = _seed_deliverable_event(notification_factory)
+    now = datetime.now(UTC)
+    claimed_at = now - timedelta(seconds=30)
+    retry_at = now + timedelta(seconds=120)
+    _ledger(
+        notification_factory, claimed, status="claimed", claim_token="t",
+        claimed_at=claimed_at,
+    )
+    _ledger(
+        notification_factory, retryable, status="failed",
+        last_error_code="outbound_server_error", next_attempt_at=retry_at,
+    )
+    _ledger(
+        notification_factory, terminal, status="failed",
+        disposition="terminal_failure", last_error_code="outbound_auth_rejected",
+    )
+    _ledger(
+        notification_factory, succeeded, status="succeeded", disposition="sent",
+        completed_at=now,
+    )
+    ghost = 999_999_999
+    # Stale members: terminal/succeeded rows and an event that no longer exists.
+    index = InMemoryNotificationRepairIndex()
+    for stale in (terminal, succeeded, ghost):
+        index.mark_due(stale, 1)
+    poller = IngestNotificationPoller(
+        notification_factory,
+        _RecordingClient(),
+        settings=_repair_settings(),
+        repair_index=index,
+    )
+    # Isolate the rebuild from the (separately tested) claim/send sweep.
+    poller.sweep_once = lambda **_kwargs: NotificationSweepResult()
+
+    poller.full_repair()
+
+    members = dict(index.members(50))
+    assert set(members) == {pending, claimed, retryable}
+    assert abs(members[pending] - int(now.timestamp())) <= 5
+    assert members[claimed] == math.ceil((claimed_at + timedelta(seconds=300)).timestamp())
+    assert members[retryable] == math.ceil(retry_at.timestamp())
+    assert index.has_baseline() is True
+
+
+def test_postgres_full_repair_withholds_the_baseline_when_the_backlog_is_truncated(
+    notification_factory, monkeypatch
+):
+    for _ in range(3):
+        _seed_deliverable_event(notification_factory)
+    monkeypatch.setattr("app.ingest.notifications._MAX_REBUILD_EVENTS", 2)
+    index = InMemoryNotificationRepairIndex()
+    poller = IngestNotificationPoller(
+        notification_factory,
+        _RecordingClient(),
+        settings=_repair_settings(),
+        repair_index=index,
+    )
+    poller.sweep_once = lambda **_kwargs: NotificationSweepResult()
+
+    poller.full_repair()
+
+    assert len(index.members(10)) == 2
+    assert index.has_baseline() is False  # next tick runs another full repair
+
+    # A baseline written earlier must not keep gating a backlog the index
+    # cannot describe: the truncated rebuild clears it.
+    index.set_baseline()
+    poller.full_repair()
+    assert index.has_baseline() is False
+
+
+def test_postgres_redrive_marks_the_event_due_for_the_gated_tick(
+    notification_factory,
+):
+    event_id = _seed_deliverable_event(notification_factory)
+    _ledger(
+        notification_factory, event_id, status="failed",
+        disposition="retry_exhausted", last_error_code="retry_exhausted",
+    )
+    index = _baselined_index()
+    poller = IngestNotificationPoller(
+        notification_factory,
+        settings=_repair_settings(),
+        repair_index=index,
+        epoch_clock=lambda: 1_800_000_123.0,
+    )
+
+    assert poller.redrive_failed(event_id) is True
+    assert index.score(event_id) == 1_800_000_123
+
+    class _BrokenIndex(InMemoryNotificationRepairIndex):
+        def mark_due(self, *_args):
+            raise ConnectionError("redis down")
+
+    resilient = IngestNotificationPoller(
+        notification_factory, settings=_repair_settings(), repair_index=_BrokenIndex()
+    )
+    assert resilient.redrive_failed(event_id) is True

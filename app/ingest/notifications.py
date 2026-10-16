@@ -25,6 +25,11 @@ from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.config import Settings, _validate_langbot_outbound_url
+from app.ingest.notification_repair_index import (
+    NotificationRepairIndex,
+    redis_repair_index,
+    repair_due_at,
+)
 from app.models import (
     AppUser,
     ChannelIdentity,
@@ -74,6 +79,9 @@ _NOTIFICATION_DIAGNOSTIC_EVENTS = frozenset(
         "notification_sweep",
         "notification_event_delivery",
         "notification_poller_heartbeat",
+        "notification_repair_gate",
+        "notification_repair_index_write_failed",
+        "notification_full_repair",
     }
 )
 _NOTIFICATION_DIAGNOSTIC_FIELDS = frozenset(
@@ -87,9 +95,25 @@ _NOTIFICATION_DIAGNOSTIC_FIELDS = frozenset(
         "deferred",
         "duration_ms",
         "oldest_eligible_backlog_age_seconds",
+        # Repair-index gating: numeric flags/counters and one internal ID only.
+        "idle_skipped",
+        "repair_gate_unavailable",
+        "baseline_missing",
+        "index_failed",
+        "event_id",
+        "rebuilt",
+        "removed",
+        "truncated",
     }
 )
 _MAX_DIAGNOSTIC_INTEGER = 2_147_483_647
+# One gated tick reconciles at most this many due members (the sweep itself
+# claims at most ``ingest_notification_batch_size`` per tick).
+_MAX_RECONCILE_MEMBERS = 200
+# A full repair indexes at most this many non-terminal events.  Exceeding it
+# means the database has a genuine backlog; the baseline is then withheld so
+# the next tick keeps running ungated full repairs until the backlog drains.
+_MAX_REBUILD_EVENTS = 1000
 
 _LOGGER = logging.getLogger("notebook_agent.runtime")
 
@@ -348,8 +372,69 @@ def _set_notification_statement_timeout(
         )
 
 
+def _repair_due_map(
+    db: Session,
+    event_ids: Iterable[int],
+    *,
+    db_now: datetime,
+    settings: Any,
+) -> dict[int, int | None]:
+    """Derive each event's repair due time from the PostgreSQL ledger.
+
+    An event that no longer exists maps to ``None`` (it leaves the index).
+    """
+
+    ids = sorted({int(event_id) for event_id in event_ids})
+    due: dict[int, int | None] = {event_id: None for event_id in ids}
+    if not ids:
+        return due
+    delivery = IngestCompletionDelivery
+    rows = db.execute(
+        select(IngestCompletionEvent.id, delivery)
+        .outerjoin(
+            delivery,
+            and_(
+                delivery.event_id == IngestCompletionEvent.id,
+                delivery.handler_key == HANDLER_KEY,
+            ),
+        )
+        .where(IngestCompletionEvent.id.in_(ids))
+    ).all()
+    for event_id, row in rows:
+        due[int(event_id)] = repair_due_at(
+            event_exists=True, delivery=row, db_now=db_now, settings=settings
+        )
+    return due
+
+
+def mark_repair_due_best_effort(
+    index: NotificationRepairIndex | None, event_id: int, at: int
+) -> bool:
+    """Index one event for the repair sweep without ever raising.
+
+    A Redis failure emits a privacy-safe diagnostic only; it never changes the
+    ingestion or delivery result.  The daily full repair is the safety net for
+    a write that was lost here.
+    """
+
+    if index is None:
+        return False
+    try:
+        index.mark_due(int(event_id), int(at))
+        return True
+    except Exception:
+        _notification_diagnostic(
+            "notification_repair_index_write_failed", event_id=int(event_id)
+        )
+        return False
+
+
 class IngestNotificationPoller:
-    """Bounded claim/send/ACK service used by the maintenance Celery task."""
+    """Bounded claim/send/ACK service used by the maintenance Celery task.
+
+    With a ``repair_index`` the periodic repair tick is Redis-gated (see
+    ``repair_tick``); without one every tick is the original ungated sweep.
+    """
 
     def __init__(
         self,
@@ -359,12 +444,16 @@ class IngestNotificationPoller:
         settings: Settings | None = None,
         clock: Callable[[], float] = time.monotonic,
         token_factory: Callable[[], str] | None = None,
+        repair_index: NotificationRepairIndex | None = None,
+        epoch_clock: Callable[[], float] = time.time,
     ) -> None:
         self._session_factory = session_factory
         self._settings = settings
         self._client = client
         self._clock = clock
         self._token_factory = token_factory or self._new_token
+        self._repair_index = repair_index
+        self._epoch_clock = epoch_clock
 
     @staticmethod
     def _new_token() -> str:
@@ -1049,6 +1138,9 @@ class IngestNotificationPoller:
             1.0, settings.ingest_notification_max_duration_seconds * 0.25
         )
         work_deadline = deadline - release_reserve
+        # Observe the repair-index score before touching the ledger so the
+        # final compare-and-set cannot overwrite a concurrent ``mark_due``.
+        observed_score = self._observe_index_score(int(event_id))
         try:
             client = self._client_or_default(settings)
             claim_budget = work_deadline - self._clock()
@@ -1068,6 +1160,14 @@ class IngestNotificationPoller:
             return NotificationSweepResult(failed=1, duration_ms=duration)
 
         if claim is None:
+            # Another worker holds the claim or the event is already terminal:
+            # either way the index entry should now match the ledger.
+            if observed_score is not None:
+                self._reconcile_index(
+                    {int(event_id): observed_score[0]},
+                    settings=settings,
+                    budget_seconds=deadline - self._clock(),
+                )
             duration = max(0, int((self._clock() - started) * 1000))
             return NotificationSweepResult(duration_ms=duration)
 
@@ -1088,6 +1188,14 @@ class IngestNotificationPoller:
                 except Exception:
                     # The stale-claim path remains the crash-safe fallback.
                     pass
+        if observed_score is not None:
+            # The database is awake for this delivery anyway: drop the member
+            # on a terminal ledger state or schedule it at its retry time.
+            self._reconcile_index(
+                {int(event_id): observed_score[0]},
+                settings=settings,
+                budget_seconds=deadline - self._clock(),
+            )
         duration = max(0, int((self._clock() - started) * 1000))
         result = NotificationSweepResult(
             claimed=1,
@@ -1154,7 +1262,16 @@ class IngestNotificationPoller:
             values["oldest_eligible_backlog_age_seconds"] = backlog_age
         _notification_diagnostic("notification_poller_heartbeat", **values)
 
-    def sweep_once(self) -> NotificationSweepResult:
+    def sweep_once(
+        self, *, claimed_event_ids: list[int] | None = None
+    ) -> NotificationSweepResult:
+        """Run one ungated claim/send/ACK sweep.
+
+        ``claimed_event_ids`` (optional) receives the internal IDs claimed by
+        this sweep so the repair tick can reconcile exactly those index
+        members afterwards.
+        """
+
         settings = self._settings_or_default()
         started = self._clock()
         deadline = started + settings.ingest_notification_max_duration_seconds
@@ -1199,6 +1316,8 @@ class IngestNotificationPoller:
             _notification_diagnostic("notification_sweep", failed=1, duration_ms=duration)
             return NotificationSweepResult(failed=1, duration_ms=duration)
         claimed = len(claims)
+        if claimed_event_ids is not None:
+            claimed_event_ids.extend(claim.event_id for claim in claims)
 
         def defer_unsent(start_index: int) -> None:
             nonlocal deferred
@@ -1356,6 +1475,242 @@ class IngestNotificationPoller:
             duration_ms=duration,
         ))
 
+    # ------------------------------------------------------------------
+    # Redis-gated repair (Neon scale-to-zero)
+    # ------------------------------------------------------------------
+
+    def _observe_index_score(self, event_id: int) -> tuple[int | None] | None:
+        """Read one member's score; ``None`` means "do not maintain the index".
+
+        Returns a one-element tuple so an absent member (``(None,)``) stays
+        distinguishable from "no index configured / Redis unreadable" (``None``).
+        """
+
+        index = self._repair_index
+        if index is None:
+            return None
+        try:
+            return (index.score(int(event_id)),)
+        except Exception:
+            _notification_diagnostic(
+                "notification_repair_gate",
+                repair_gate_unavailable=1,
+                event_id=int(event_id),
+            )
+            return None
+
+    def _reconcile_index(
+        self,
+        expected: dict[int, int | None],
+        *,
+        settings: Any,
+        budget_seconds: float | None = None,
+    ) -> bool:
+        """Re-derive each event's due time from PostgreSQL, then compare-and-set.
+
+        ``expected`` maps event ID to the score the caller observed (``None``
+        when it was absent).  A member whose ledger row is terminal (or whose
+        event is gone) is removed; otherwise it is moved to its derived due
+        time.  A concurrent ``mark_due`` changes the score first, so the stale
+        derivation loses instead of hiding a newer request.  Best effort: any
+        failure only emits a diagnostic and leaves members due, which costs at
+        most one extra database visit.  ``budget_seconds`` bounds the SQL by the
+        caller's remaining deadline; an exhausted budget skips the reconcile and
+        leaves the members due.
+        """
+
+        index = self._repair_index
+        if index is None or not expected:
+            return True
+        budget = (
+            settings.ingest_notification_max_duration_seconds
+            if budget_seconds is None
+            else budget_seconds
+        )
+        if budget <= 0:
+            return False
+        try:
+            with self._session_factory() as db:
+                _set_notification_statement_timeout(db, budget)
+                due_map = _repair_due_map(
+                    db, expected, db_now=_db_now(db), settings=settings
+                )
+            for event_id, expected_score in expected.items():
+                index.reconcile(event_id, expected_score, due_map.get(event_id))
+        except Exception:
+            # Fixed diagnostic only: never serialize Redis/driver exception text.
+            _notification_diagnostic("notification_repair_index_write_failed")
+            return False
+        return True
+
+    def repair_tick(self) -> NotificationSweepResult:
+        """Beat entry point: look at PostgreSQL only when something may be due.
+
+        * no ``repair_index`` configured: the original ungated sweep;
+        * Redis unreadable: fail open to the ungated sweep;
+        * baseline missing (fresh/lost Redis): one full repair, which also
+          rebuilds the index;
+        * nothing due: zero PostgreSQL statements, only a numeric heartbeat
+          (``idle_skipped=1``);
+        * something due: one sweep, then reconcile the swept and due members.
+        """
+
+        index = self._repair_index
+        if index is None:
+            return self.sweep_once()
+        started = self._clock()
+        try:
+            baseline = index.has_baseline()
+            due = (
+                index.due_members(
+                    int(self._epoch_clock()), _MAX_RECONCILE_MEMBERS
+                )
+                if baseline
+                else []
+            )
+        except Exception:
+            _notification_diagnostic(
+                "notification_repair_gate", repair_gate_unavailable=1
+            )
+            return self.sweep_once()
+        if not baseline:
+            _notification_diagnostic("notification_repair_gate", baseline_missing=1)
+            return self.full_repair()
+        if not due:
+            duration = max(0, int((self._clock() - started) * 1000))
+            _notification_diagnostic(
+                "notification_poller_heartbeat",
+                heartbeat=1,
+                claimed=0,
+                succeeded=0,
+                skipped=0,
+                failed=0,
+                deferred=0,
+                duration_ms=duration,
+                observability_failed=0,
+                idle_skipped=1,
+            )
+            return NotificationSweepResult(duration_ms=duration)
+
+        settings = self._settings_or_default()
+        claimed_ids: list[int] = []
+        result = self.sweep_once(claimed_event_ids=claimed_ids)
+        expected: dict[int, int | None] = dict(due)
+        try:
+            for event_id in claimed_ids:
+                if event_id not in expected:
+                    expected[event_id] = index.score(event_id)
+        except Exception:
+            _notification_diagnostic("notification_repair_index_write_failed")
+        self._reconcile_index(expected, settings=settings)
+        return result
+
+    def full_repair(self) -> NotificationSweepResult:
+        """Ungated sweep, then rebuild the repair index from PostgreSQL.
+
+        This is the safety net for everything Redis can lose: it never trusts
+        the index for candidate discovery, derives every non-terminal event's
+        due time from the ledger, drops members that are terminal or gone, and
+        only then (re)writes the baseline marker.  When the non-terminal set
+        exceeds ``_MAX_REBUILD_EVENTS`` the baseline is withheld (and any
+        earlier one cleared) so the next tick runs another ungated full repair
+        until the backlog drains.
+        """
+
+        result = self.sweep_once()
+        if self._repair_index is None:
+            return result
+        started = self._clock()
+        try:
+            rebuilt, removed, truncated = self._rebuild_index(
+                self._settings_or_default()
+            )
+        except Exception:
+            _notification_diagnostic("notification_full_repair", index_failed=1)
+            return result
+        _notification_diagnostic(
+            "notification_full_repair",
+            rebuilt=rebuilt,
+            removed=removed,
+            truncated=1 if truncated else 0,
+            duration_ms=max(0, int((self._clock() - started) * 1000)),
+        )
+        return result
+
+    def _rebuild_index(self, settings: Any) -> tuple[int, int, bool]:
+        """Reconcile the whole index with PostgreSQL; return (rebuilt, removed, truncated)."""
+
+        index = self._repair_index
+        if index is None:
+            return 0, 0, False
+        current = dict(index.members(_MAX_REBUILD_EVENTS + 1))
+        delivery = IngestCompletionDelivery
+        with self._session_factory() as db:
+            _set_notification_statement_timeout(
+                db, settings.ingest_notification_max_duration_seconds
+            )
+            db_now = _db_now(db)
+            rows = db.execute(
+                select(IngestCompletionEvent.id, delivery)
+                .outerjoin(
+                    delivery,
+                    and_(
+                        delivery.event_id == IngestCompletionEvent.id,
+                        delivery.handler_key == HANDLER_KEY,
+                    ),
+                )
+                .where(
+                    or_(
+                        delivery.id.is_(None),
+                        delivery.status == "claimed",
+                        and_(
+                            delivery.status == "failed",
+                            delivery.disposition.is_(None),
+                        ),
+                    )
+                )
+                .order_by(IngestCompletionEvent.created_at, IngestCompletionEvent.id)
+                .limit(_MAX_REBUILD_EVENTS + 1)
+            ).all()
+            truncated = len(rows) > _MAX_REBUILD_EVENTS
+            rows = rows[:_MAX_REBUILD_EVENTS]
+            desired: dict[int, int | None] = {
+                int(event_id): repair_due_at(
+                    event_exists=True,
+                    delivery=row,
+                    db_now=db_now,
+                    settings=settings,
+                )
+                for event_id, row in rows
+            }
+            # Members outside the non-terminal page may be terminal, gone, or
+            # (when truncated) still pending; the ledger decides for each.
+            desired.update(
+                _repair_due_map(
+                    db,
+                    [event_id for event_id in current if event_id not in desired],
+                    db_now=db_now,
+                    settings=settings,
+                )
+            )
+        rebuilt = removed = 0
+        for event_id, due_at in desired.items():
+            if due_at is None and event_id not in current:
+                continue
+            if index.reconcile(event_id, current.get(event_id), due_at):
+                if due_at is None:
+                    removed += 1
+                else:
+                    rebuilt += 1
+        if truncated:
+            # The index cannot describe the whole backlog.  Drop any earlier
+            # baseline so ticks keep running ungated full repairs (the sweep
+            # claims events regardless of the index) until the backlog fits.
+            index.clear_baseline()
+        else:
+            index.set_baseline()
+        return rebuilt, removed, truncated
+
     def redrive_failed(self, event_id: int) -> bool:
         """Make one failed ledger row eligible after an operator fix."""
 
@@ -1380,7 +1735,11 @@ class IngestNotificationPoller:
             row.last_error_code = "manual_redrive"
             row.updated_at = now
             db.commit()
-            return True
+        # The row is now eligible; make the gated repair tick look at it.
+        mark_repair_due_best_effort(
+            self._repair_index, int(event_id), int(self._epoch_clock())
+        )
+        return True
 
 
 def _notification_diagnostic(event: str, **values: Any) -> None:
@@ -1406,4 +1765,14 @@ def redrive_failed_ingest_notification(
         from app.db import get_session_factory
 
         session_factory = get_session_factory()
-    return IngestNotificationPoller(session_factory).redrive_failed(event_id)
+    repair_index = None
+    try:
+        from app.config import get_settings
+
+        repair_index = redis_repair_index(get_settings().redis_url)
+    except Exception:
+        # Index maintenance is optional; the daily full repair still covers it.
+        repair_index = None
+    return IngestNotificationPoller(
+        session_factory, repair_index=repair_index
+    ).redrive_failed(event_id)

@@ -52,7 +52,14 @@ from app.models import (
 from app.limits import normalize_why_saved
 from app.agent.management import RecycleBinPurgeService
 from app.object_store import RawObjectStore
-from app.ingest.notifications import IngestNotificationPoller
+from app.ingest.notification_repair_index import (
+    NotificationRepairIndex,
+    redis_repair_index,
+)
+from app.ingest.notifications import (
+    IngestNotificationPoller,
+    mark_repair_due_best_effort,
+)
 from app.tls import configure_trusted_ca
 
 
@@ -93,6 +100,9 @@ celery_app.conf.task_routes = {
         "queue": "maintenance"
     },
     "app.ingest.tasks.deliver_pending_ingest_notifications_task": {
+        "queue": "maintenance"
+    },
+    "app.ingest.tasks.repair_all_ingest_notifications_task": {
         "queue": "maintenance"
     },
     NOTIFICATION_TASK_NAME: {"queue": NOTIFICATION_QUEUE},
@@ -990,19 +1000,72 @@ def publish_pending_ingest_completion_events_task() -> dict[str, int]:
     return service.sweep_once().as_dict()
 
 
+def _notification_repair_index(
+    settings: Settings | None = None,
+) -> NotificationRepairIndex | None:
+    """Process-cached Redis repair index, or ``None`` for the ungated sweep.
+
+    Construction never connects.  An unusable ``REDIS_URL`` returns ``None`` so
+    the repair tick degrades to the original every-tick PostgreSQL sweep rather
+    than silently skipping notifications.
+    """
+
+    try:
+        return redis_repair_index((settings or get_settings()).redis_url)
+    except Exception:
+        return None
+
+
+def _mark_notification_repair_due(
+    event_id: int, *, delay_seconds: float = 0.0
+) -> None:
+    """Best-effort: the repair sweep must look at this event by ``now + delay``.
+
+    ``mark_due`` keeps the earliest time, so an immediate mark after a failed
+    enqueue wins over the earlier claim-timeout mark.  A Redis failure is only a
+    privacy-safe diagnostic; the daily full repair rebuilds the index.
+    """
+
+    try:
+        index = _notification_repair_index()
+        if index is None:
+            return
+        due_at = int(math.ceil(time.time() + max(0.0, float(delay_seconds))))
+    except Exception:
+        return
+    mark_repair_due_best_effort(index, event_id, due_at)
+
+
 @celery_app.task(name="app.ingest.tasks.deliver_pending_ingest_notifications_task")
 def deliver_pending_ingest_notifications_task() -> dict[str, int]:
-    """Deliver source-channel completion notifications on maintenance.
+    """Redis-gated repair tick for source-channel completion notifications.
 
     The task has no event/target arguments.  PostgreSQL is the durable source
     and the delivery ledger owns claims; Celery retries are intentionally not
     used so one slow or failed outbound event cannot replay an entire batch.
+    While the Redis repair index has nothing due the tick issues no PostgreSQL
+    statement at all, so an idle Neon compute can scale to zero.
     """
 
     settings = get_settings()
     result = IngestNotificationPoller(
-        get_session_factory(), settings=settings
-    ).sweep_once()
+        get_session_factory(),
+        settings=settings,
+        repair_index=_notification_repair_index(settings),
+    ).repair_tick()
+    return result.as_dict()
+
+
+@celery_app.task(name="app.ingest.tasks.repair_all_ingest_notifications_task")
+def repair_all_ingest_notifications_task() -> dict[str, int]:
+    """Daily ungated full repair that also rebuilds the Redis repair index."""
+
+    settings = get_settings()
+    result = IngestNotificationPoller(
+        get_session_factory(),
+        settings=settings,
+        repair_index=_notification_repair_index(settings),
+    ).full_repair()
     return result.as_dict()
 
 
@@ -1012,7 +1075,9 @@ def deliver_ingest_notification_task(event_id: int) -> dict[str, int]:
 
     settings = get_settings()
     result = IngestNotificationPoller(
-        get_session_factory(), settings=settings
+        get_session_factory(),
+        settings=settings,
+        repair_index=_notification_repair_index(settings),
     ).deliver_event(int(event_id))
     return result.as_dict()
 
@@ -1039,10 +1104,12 @@ def purge_expired_items_task() -> dict[str, int]:
     }
 
 
+# Recycle-bin purge is a once-a-day database visit by default so an idle Neon
+# compute can scale to zero (see database-guidelines.md).
 try:
-    _purge_interval = max(1, int(os.getenv("TRASH_PURGE_INTERVAL_SECONDS", "3600")))
+    _purge_interval = max(1, int(os.getenv("TRASH_PURGE_INTERVAL_SECONDS", "86400")))
 except (TypeError, ValueError):
-    _purge_interval = 3600
+    _purge_interval = 86400
 
 def _completion_interval_from_env() -> int:
     """Fail closed when beat's completion schedule is misconfigured."""
@@ -1081,12 +1148,35 @@ def _notification_interval_from_env() -> int:
     return value
 
 
+def _notification_full_sweep_interval_from_env() -> int:
+    """Fail closed for the daily ungated notification full repair schedule."""
+
+    raw_value = os.getenv("INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS", "86400")
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS must be a positive integer"
+        ) from exc
+    if value <= 0:
+        raise ValueError(
+            "INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS must be a positive integer"
+        )
+    return value
+
+
 _notification_interval = _notification_interval_from_env()
+_notification_full_sweep_interval = _notification_full_sweep_interval_from_env()
 
 celery_app.conf.beat_schedule = {
     "deliver-pending-ingest-notifications": {
         "task": "app.ingest.tasks.deliver_pending_ingest_notifications_task",
         "schedule": float(_notification_interval),
+        "options": {"queue": "maintenance"},
+    },
+    "repair-all-ingest-notifications": {
+        "task": "app.ingest.tasks.repair_all_ingest_notifications_task",
+        "schedule": float(_notification_full_sweep_interval),
         "options": {"queue": "maintenance"},
     },
     "purge-expired-items": {
@@ -1291,9 +1381,11 @@ def _claim_dispatch(
                 item_state="failed",
                 error_code="item_deleted",
             )
-        # Source-channel notifications are owned by the periodic PostgreSQL
-        # poller.  Keep the durable event row; do not publish the retired
-        # completion Redis envelope from a request/worker terminal hook.
+        # Source-channel notifications are owned by the periodic repair tick.
+        # Keep the durable event row; do not publish the retired completion
+        # Redis envelope from a request/worker terminal hook.  No targeted
+        # task is enqueued here, so index the event for the next gated tick.
+        _mark_notification_repair_due(deleted_event_id)
     return None
 
 
@@ -1774,13 +1866,26 @@ def _enqueue_ingest_notification_best_effort(
     outcome: str | None = None,
     item_state: str | None = None,
 ) -> str | None:
-    """Best-effort post-commit enqueue with a fixed safe diagnostic."""
+    """Best-effort post-commit enqueue with a fixed safe diagnostic.
 
+    The repair index is written first: if the targeted task is lost or its
+    worker dies after claiming, the gated repair tick finds the event once the
+    claim timeout has elapsed.  A successful targeted delivery removes the
+    member again, so the normal path never wakes the database for repair.
+    """
+
+    try:
+        claim_timeout = float(get_settings().ingest_notification_claim_timeout_seconds)
+    except Exception:
+        claim_timeout = 300.0
+    _mark_notification_repair_due(event_id, delay_seconds=claim_timeout)
     try:
         return enqueue_ingest_notification(event_id)
     except Exception:
         # The committed completion event remains the repair source of truth;
         # never serialize broker exception text, URLs, or credentials here.
+        # Repair must look at it on the very next tick (earliest time wins).
+        _mark_notification_repair_due(event_id, delay_seconds=0.0)
         _completion_diagnostic(
             "completion_notification_enqueue_failed",
             event_id=event_id,

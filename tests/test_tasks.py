@@ -1185,3 +1185,98 @@ def test_worker_embedder_receives_verified_ca(monkeypatch):
 
     assert captured["api_key"] == "worker-key"
     assert captured["ssl_context"] is context
+
+
+def _repair_hook_fixture(monkeypatch, *, event_id=99):
+    """Real post-commit hooks over a fake session with a stubbed outbox row."""
+
+    from app.ingest.notification_repair_index import InMemoryNotificationRepairIndex
+
+    index = InMemoryNotificationRepairIndex()
+    enqueued = []
+    monkeypatch.setattr(
+        "app.ingest.tasks._ensure_completion_event",
+        lambda *_args, **_kwargs: (event_id, True),
+    )
+    monkeypatch.setattr(
+        "app.ingest.tasks._notification_repair_index",
+        lambda settings=None: index,
+    )
+    monkeypatch.setattr(
+        "app.ingest.tasks.get_settings",
+        lambda: SimpleNamespace(ingest_notification_claim_timeout_seconds=300),
+    )
+    monkeypatch.setattr(
+        "app.ingest.tasks.enqueue_ingest_notification",
+        lambda found_id: enqueued.append(found_id) or "task-id",
+    )
+    dispatch = IngestDispatch(
+        id=71, public_id="dispatch", item_id=41, request_key="request",
+        attempt=1, state="running",
+    )
+    item = ContentItem(
+        id=41, user_id=57, platform="youtube", platform_id="dQw4w9WgXcQ",
+        kind="video", url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        state="ready",
+    )
+    return index, enqueued, dispatch, item, (lambda: DispatchDB(dispatch, item))
+
+
+def test_complete_dispatch_indexes_the_event_for_repair_then_enqueues(monkeypatch):
+    import math
+    import time
+
+    index, enqueued, _dispatch, _item, factory = _repair_hook_fixture(monkeypatch)
+
+    before = time.time()
+    assert _complete_dispatch(
+        71, "task-1", process_state="ready", session_factory=factory
+    ) == 99
+    after = time.time()
+
+    assert enqueued == [99]
+    assert before + 300 <= index.score(99) <= math.ceil(after + 300)
+
+
+def test_mark_dispatch_failed_indexes_the_event_for_repair_then_enqueues(
+    monkeypatch,
+):
+    import math
+    import time
+
+    index, enqueued, _dispatch, item, factory = _repair_hook_fixture(monkeypatch)
+    item.state = "fetching"
+
+    before = time.time()
+    assert _mark_dispatch_failed(
+        71, RuntimeError("boom"), session_factory=factory
+    ) == 99
+    after = time.time()
+
+    assert enqueued == [99]
+    assert before + 300 <= index.score(99) <= math.ceil(after + 300)
+
+
+def test_deleted_item_claim_indexes_the_event_without_a_targeted_enqueue(
+    monkeypatch,
+):
+    import math
+    import time
+
+    index, enqueued, _dispatch, item, factory = _repair_hook_fixture(monkeypatch)
+    dispatch = IngestDispatch(
+        id=71, public_id="dispatch", item_id=41, request_key="request",
+        attempt=1, state="pending",
+    )
+    item.state = "pending"
+    item.deleted_at = datetime.now(UTC)
+
+    before = time.time()
+    assert _claim_dispatch(
+        71, "task-1", session_factory=lambda: DispatchDB(dispatch, item)
+    ) is None
+    after = time.time()
+
+    assert enqueued == []  # historical contract: no targeted task from here
+    # Nothing else will look at it, so the next gated tick must.
+    assert before <= index.score(99) <= math.ceil(after)
