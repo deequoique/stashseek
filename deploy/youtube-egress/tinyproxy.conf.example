@@ -1,0 +1,34 @@
+# StashSeek Chat YouTube residential egress (server-local, loopback only).
+#
+# Install as /etc/notebook-agent/youtube-egress/tinyproxy.conf, root:root 0600.
+# notebook-agent-youtube-egress.service hands it to tinyproxy through
+# LoadCredential, so it never needs to be readable by any other account.
+# The worker keeps YOUTUBE_PROXY_URL=http://127.0.0.1:18080; provider
+# credentials live only in the Upstream line below.
+#
+# tinyproxy reads comments only on their own lines.
+
+Port 18080
+Listen 127.0.0.1
+Allow 127.0.0.1
+Timeout 60
+MaxClients 8
+LogLevel Warning
+DisableViaHeader Yes
+
+# Only HTTPS CONNECT to YouTube / Googlevideo hosts may leave through the
+# paid upstream. FilterExtended is the 1.11.0 spelling of FilterType ere;
+# 1.11.1+ still accepts it with a deprecation warning.
+Filter "/run/credentials/notebook-agent-youtube-egress.service/filter"
+FilterURLs No
+FilterExtended Yes
+FilterCaseSensitive No
+FilterDefaultDeny Yes
+ConnectPort 443
+
+# Replace with the provider's sticky-session gateway. The username must not
+# contain ":" and the password must not contain "@" or whitespace.
+# Evomi Core Residential: HTTP port 1000; the generator appends country and
+# sticky-session options to the password. Change the 6-10 character session
+# value to get a new exit IP.
+Upstream http PROXY_USERNAME:PROXY_PASSWORD_country-US_session-SESSION01@core-residential.evomi.com:1000
