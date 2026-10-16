@@ -1,5 +1,10 @@
 # Multipart foundation execution plan
 
+Execution complete: product code and independent review passed, followed by native
+parent browser acceptance. Work commit: `788b2ae`, dependent on SSO `2bb6dbc`.
+The checklist below is the original plan, not the current task status. Exact
+test counts and remaining pre-existing failures are in the parent verification.md.
+
 ## Start gate
 
 - [x] User confirmed favorites plus independent multipart support; ten cap and
