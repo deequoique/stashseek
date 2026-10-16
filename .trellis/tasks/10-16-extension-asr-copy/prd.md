@@ -4,7 +4,7 @@
 
 后端已经支持 ASR（任务 `10-15-asr-transcription-pipeline`，默认关闭）。2026-10-16 起，插件页面采集到的无字幕公开 YouTube 视频也会进入 ASR。但插件里与 ASR 相关的提示仍然沿用旧的假设：
 
-- **弹窗。** `extension/src/popup.ts:95` 在 lifecycle 为 `needs_asr` 时显示“视频没有可用字幕，已标记为需要语音转写。”
+- **保存结果提示（原弹窗）。** 原来是 `extension/src/popup.ts:95`，在 lifecycle 为 `needs_asr` 时显示“视频没有可用字幕，已标记为需要语音转写。”。分支 `feat/side-panel-page-qa`（任务 `10-15-side-panel-page-qa`）已经删除弹窗，这段文案移到了 `extension/src/sidepanel/copy.ts`。
   - ASR 开启时，这个视频其实正在转写；
   - ASR 关闭，或者是 NTULearn/Kaltura 视频时，这个视频不会被转写。
 - **资料库状态。** `extension/src/library/lifecycle.ts`：
@@ -14,7 +14,7 @@
 
 ## 需求
 
-1. **弹窗文案按真实情况区分。**
+1. **侧边栏保存结果的文案按真实情况区分（原弹窗）。**
    - 正在转写：例如“视频没有可用字幕，正在进行语音转写”。
    - 不会转写（ASR 未开启或私有视频）：例如“暂时无法自动转写”。
 
@@ -35,12 +35,14 @@
 
 ## 约束
 
+- **开工顺序依赖：** 必须等 `feat/side-panel-page-qa` 合入 `dev` 之后再动手。改的是 `sidepanel/copy.ts`，不是 `popup.ts`，否则会出现一边删除、一边修改的冲突。（2026-10-16 由 page-qa 会话告知）
+
 - 插件同时有其他任务在开发（`10-15-extension-page-qa` 及其子任务）。动手前先确认对方的进度，避免改同一批文件时互相冲突。
 - 在 `dev` 分支开发，具体代码由 Sonnet 子 agent 编写。
 
 ## 验收标准
 
-- [ ] 弹窗在“正在转写”和“不会转写”两种情况下显示不同的文案，并有对应测试。
+- [ ] 侧边栏保存结果在“正在转写”和“不会转写”两种情况下显示不同的文案，并有对应测试。
 - [ ] 资料库能显示语音转写中的状态（如果设计阶段决定提供），或者明确记录不做的理由。
 - [ ] 每个 `asr_*` 错误码都有中文提示，并有对应测试。
 - [ ] 后端如果新增只读字段，要同时更新 OpenAPI 和 `extension/src/api/schema.d.ts`。
