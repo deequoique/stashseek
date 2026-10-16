@@ -198,3 +198,67 @@ async def test_conversation_cursor_page_adds_only_one_ownership_query():
     assert second.status_code == 200
     assert second.json()["items"][0]["thread_id"] == "thread-2"
     assert len(statements) == 2
+
+
+@pytest.mark.asyncio
+async def test_public_transcript_omits_provider_history_without_extra_queries():
+    app, engine = _runtime(1)
+    with engine.begin() as connection:
+        # This internal column must not be transferred or JSON-decoded while
+        # rendering the public transcript, even when it contains huge data.
+        connection.exec_driver_sql(
+            "UPDATE conversation_turn SET model_messages = ? WHERE id = 1",
+            ("private provider history " * 100_000,),
+        )
+    statements: list[str] = []
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _record(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://app.example.test",
+    ) as client:
+        response = await client.get("/api/v1/conversations/thread-1/turns")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["thread_id"] == "thread-1"
+    assert body["conversation_id"] == "conversation-1"
+    assert len(body["turns"]) == 1
+    assert body["turns"][0]["user_text"] == "保留的问题"
+    assert body["turns"][0]["assistant_text"] == "保留的答案"
+    assert body["turns"][0]["status"] == "ok"
+    assert body["turns"][0]["citations"] == []
+    assert "model_messages" not in response.text
+    assert len(statements) == 2
+    assert all("model_messages" not in statement for statement in statements)
+
+
+@pytest.mark.asyncio
+async def test_public_transcript_keeps_completed_order_and_rejects_foreign_threads():
+    app, engine = _runtime(1)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            """INSERT INTO conversation_turn
+            (id, thread_id, message_id, user_text, assistant_text, sources,
+             model_messages, answer_status, status, created_at)
+            VALUES (3, 1, 'later-completed', '第二个问题', '第二个答案', '[]',
+                    '[]', 'ok', 'completed', '2026-08-22 12:00:01')"""
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="https://app.example.test",
+    ) as client:
+        own = await client.get("/api/v1/conversations/thread-1/turns")
+        foreign = await client.get("/api/v1/conversations/other-tenant-thread/turns")
+        missing = await client.get("/api/v1/conversations/missing/turns")
+
+    assert own.status_code == 200
+    assert [turn["user_text"] for turn in own.json()["turns"]] == [
+        "保留的问题", "第二个问题",
+    ]
+    assert foreign.status_code == missing.status_code == 404

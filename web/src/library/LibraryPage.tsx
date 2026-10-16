@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   ApiError,
-  getCapabilities,
   listLibraryItems,
   submitVideoBatch,
   type LibraryQuery,
@@ -16,6 +15,7 @@ import { estimateWorkItemProgress, isLibraryWorkItem, shouldPollLibrary } from "
 import { collectSearchSuggestions } from "./searchSuggestions";
 import { VideoCard } from "./VideoCard";
 import { RouteLink } from "../app/RouteTransition";
+import { capabilitiesQueryOptions } from "../chat/conversationQueries";
 
 interface LibraryPageProps {
   fetchItems?: (query: LibraryQuery) => Promise<LibraryPageResponse>;
@@ -33,7 +33,7 @@ function libraryErrorDescription(error: unknown): string {
 
 export function LibraryPage({
   fetchItems = listLibraryItems,
-  loadCapabilities = getCapabilities,
+  loadCapabilities,
   submitBatch = submitVideoBatch,
 }: LibraryPageProps) {
   const queryClient = useQueryClient();
@@ -62,12 +62,7 @@ export function LibraryPage({
     retry: 1,
     refetchInterval: (state) => shouldPollLibrary(state.state.data?.items ?? []) ? 4_000 : false,
   });
-  const capabilities = useQuery({
-    queryKey: ["capabilities"],
-    queryFn: loadCapabilities,
-    retry: false,
-    staleTime: 5 * 60_000,
-  });
+  const capabilities = useQuery(capabilitiesQueryOptions(loadCapabilities));
   const saveDisabled = capabilities.data?.save_enabled !== true;
   const saveNoticeId = capabilities.isError || capabilities.data?.save_enabled === false
     ? "library-save-notice"

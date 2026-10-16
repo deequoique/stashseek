@@ -1,0 +1,6 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file":".trellis/spec/backend/web-browser-runtime.md","reason":"Single-query auth, cache privacy and history contract"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Tenant projection and database query boundaries"}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Nonblocking queries and mutation handoff"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Private cache rotation and ephemeral state"}
+{"file":".trellis/tasks/10-14-history-loading-performance/research/bottlenecks.md","reason":"Specific reproduced performance defects"}

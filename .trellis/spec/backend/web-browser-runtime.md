@@ -127,6 +127,10 @@ cache.put(token_digest, session, generation=observed_generation)
 - Production composition must forward the configured channel service into the
   canonical browser app; retained conversation routes must not become a
   permanent 503 surface through omitted wiring.
+- Browser transcript reads select only the public answer, citations, action
+  results, status and time fields after a tenant-owned thread lookup. Never
+  fetch or JSON-decode internal `model_messages` for history display; projection
+  must not introduce lazy-loading queries and must retain completed-only order.
 
 ## Conversation streaming contract
 

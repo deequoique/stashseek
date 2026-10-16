@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Capabilities, ConversationHistoryPage, ConversationResponse, ConversationTurns } from "../api/contracts";
 import { ApiError, StreamingUnavailableError } from "../api/client";
@@ -39,20 +39,29 @@ const turns: ConversationTurns = {
   }],
 };
 
+const multipleTurns: ConversationTurns = {
+  ...turns,
+  turns: [
+    ...turns.turns!,
+    { user_text: "最后一个问题", assistant_text: "最后一个回答", status: "not_found", error_code: null, citations: [], action_results: [], created_at: "2026-10-15T08:00:00Z" },
+  ],
+};
+
 const capabilities: Capabilities = {
   supported_platforms: ["youtube"],
   browser_companion: true,
   web_login_channels: ["email"],
-  save_enabled: false,
+save_enabled: false,
   max_save_batch_size: 10,
+
   transcript_pagination: true,
   archive: false,
   summary_generation: false,
   chat: true,
 };
 
-function renderPage(props: Partial<Parameters<typeof ChatPage>[0]> = {}) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderPage(props: Partial<Parameters<typeof ChatPage>[0]> = {}, providedClient?: QueryClient) {
+  const client = providedClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <MemoryRouter>
       <QueryClientProvider client={client}>
@@ -71,6 +80,34 @@ function renderPage(props: Partial<Parameters<typeof ChatPage>[0]> = {}) {
 }
 
 describe("AI search chat page", () => {
+  const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, writable: true, value: vi.fn() });
+  });
+  afterEach(() => {
+    if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScrollIntoView);
+    else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    vi.unstubAllGlobals();
+  });
+
+  it("renders freshly preloaded history and transcript without another blocking request", async () => {
+    const client = new QueryClient();
+    client.setQueryData(["capabilities"], capabilities);
+    client.setQueryData(["conversations"], history);
+    client.setQueryData(["conversation", "thread-1"], turns);
+    const loadCapabilities = vi.fn();
+    const fetchHistory = vi.fn();
+    const fetchTurns = vi.fn();
+    renderPage({ loadCapabilities, fetchHistory, fetchTurns }, client);
+
+    expect(await screen.findByRole("link", { name: /访谈方法/ })).toBeInTheDocument();
+    expect(screen.queryByText("正在加载历史对话…")).not.toBeInTheDocument();
+    expect(screen.queryByText("正在准备检索工作区…")).not.toBeInTheDocument();
+    expect(loadCapabilities).not.toHaveBeenCalled();
+    expect(fetchHistory).not.toHaveBeenCalled();
+    expect(fetchTurns).not.toHaveBeenCalled();
+  });
+
   it("bootstraps an empty history into an enabled composer without showing a history error", async () => {
     const user = userEvent.setup();
     const emptyHistory: ConversationHistoryPage = { items: [], next_cursor: null };
@@ -108,6 +145,146 @@ describe("AI search chat page", () => {
     expect(await screen.findByText("历史对话加载失败。", {}, { timeout: 2_500 })).toBeInTheDocument();
     expect(screen.getAllByRole("alert")).toHaveLength(1);
     await waitFor(() => expect(view.container.querySelector(".chat-conversation")).toHaveAttribute("aria-busy", "false"));
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+    expect(within(screen.getByRole("region", { name: "历史检索列表" })).getByRole("button", { name: "重试" })).toBeInTheDocument();
+  });
+
+  it("offers keyboard access to separate history and conversation regions with a reachable composer", async () => {
+    const user = userEvent.setup();
+    const view = renderPage({ fetchTurns: vi.fn().mockResolvedValue(multipleTurns) });
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    const historyRegion = screen.getByRole("region", { name: "历史检索列表" });
+    const transcriptRegion = screen.getByRole("region", { name: "对话内容滚动区域" });
+    const composer = screen.getByRole("form", { name: "向资料库提问" });
+    expect(screen.getByRole("link", { name: "← 返回资料库" })).toHaveAttribute("href", "/library");
+    expect(historyRegion).toHaveAttribute("tabindex", "0");
+    expect(transcriptRegion).toHaveAttribute("tabindex", "0");
+    expect(historyRegion).not.toContainElement(screen.getByRole("button", { name: "新建检索" }));
+    expect(transcriptRegion).not.toContainElement(composer);
+    expect(composer).toContainElement(input);
+    expect(within(composer).getByRole("button", { name: /发送问题/ })).toBeInTheDocument();
+    historyRegion.focus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: /^用户访谈应该怎样做？/ })).toHaveFocus();
+    const scrollIntoView = vi.mocked(HTMLElement.prototype.scrollIntoView);
+    scrollIntoView.mockClear();
+    await user.keyboard("{Enter}");
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(view.container.querySelector(".chat-turn:last-child .chat-message--user"));
+    transcriptRegion.focus();
+    expect(transcriptRegion).toHaveFocus();
+  });
+
+  it.each(["cached", "async"])("opens %s history at its last question and retains every earlier turn", async (source) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let releaseTurns: (value: ConversationTurns) => void = () => undefined;
+    const fetchTurns = vi.fn().mockImplementation(() => new Promise<ConversationTurns>((resolve) => { releaseTurns = resolve; }));
+    if (source === "cached") {
+      client.setQueryData(["capabilities"], capabilities);
+      client.setQueryData(["conversations"], history);
+      client.setQueryData(["conversation", "thread-1"], multipleTurns);
+    }
+    const view = renderPage({ fetchTurns }, client);
+    const scrollIntoView = vi.mocked(HTMLElement.prototype.scrollIntoView);
+    if (source === "async") {
+      await waitFor(() => expect(fetchTurns).toHaveBeenCalledOnce());
+      expect(scrollIntoView).not.toHaveBeenCalled();
+      act(() => releaseTurns(multipleTurns));
+    }
+
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledOnce());
+    const questions = view.container.querySelectorAll(".chat-question-text");
+    expect([...questions].map((question) => question.textContent)).toEqual(multipleTurns.turns!.map((turn) => turn.user_text));
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(questions[1].closest("article"));
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "instant", block: "start", inline: "nearest" });
+    expect(questions[1].closest("li")).toHaveClass("chat-turn--current");
+  });
+
+  it("reopens A → B → A and the selected row without pulling back on background refetch", async () => {
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const bTurns = { ...multipleTurns, thread_id: "thread-2", conversation_id: "conversation-2", turns: [{ ...multipleTurns.turns![1], user_text: "B 的最后一个问题" }] };
+    const fetchTurns = vi.fn().mockImplementation((threadId: string) => Promise.resolve(threadId === "thread-1" ? multipleTurns : bTurns));
+    const view = renderPage({
+      fetchTurns,
+      fetchHistory: vi.fn().mockResolvedValue({ ...history, items: [...history.items!, { ...history.items![0], thread_id: "thread-2", conversation_id: "conversation-2", title: "对话 B" }] }),
+    }, client);
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    const scrollIntoView = vi.mocked(HTMLElement.prototype.scrollIntoView);
+    const transcript = view.container.querySelector<HTMLElement>(".chat-transcript")!;
+    for (const title of [/^对话 B/, /^用户访谈应该怎样做？/, /^用户访谈应该怎样做？/]) {
+      scrollIntoView.mockClear();
+      await user.click(screen.getByRole("button", { name: title }));
+      await waitFor(() => expect(input).toBeEnabled());
+      expect(scrollIntoView).toHaveBeenCalledOnce();
+      expect(scrollIntoView.mock.contexts.at(-1)).toBe(transcript.querySelector(".chat-turn:last-child .chat-message--user"));
+    }
+    scrollIntoView.mockClear();
+    const refreshedTurns = { ...multipleTurns, turns: [...multipleTurns.turns!, { ...multipleTurns.turns![1], user_text: "后台新增的问题", created_at: "2026-10-15T09:00:00Z" }] };
+    fetchTurns.mockResolvedValueOnce(refreshedTurns);
+    await act(async () => { await client.refetchQueries({ queryKey: ["conversation", "thread-1"], exact: true }); });
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    transcript.scrollTop = 100;
+    fireEvent.scroll(transcript);
+    fetchTurns.mockResolvedValueOnce(refreshedTurns);
+    await act(async () => { await client.refetchQueries({ queryKey: ["conversation", "thread-1"], exact: true }); });
+    await waitFor(() => expect([...transcript.querySelectorAll(".chat-question-text")].map((question) => question.textContent)).toEqual(refreshedTurns.turns!.map((turn) => turn.user_text)));
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it.each(["empty", "error"])("does not position an %s transcript", async (status) => {
+    const fetchTurns = status === "empty"
+      ? vi.fn().mockResolvedValue({ ...turns, turns: [] })
+      : vi.fn().mockRejectedValue(new Error("unavailable"));
+    renderPage({ fetchTurns });
+    if (status === "empty") expect(await screen.findByText("你想从这些视频里找回什么？")).toBeInTheDocument();
+    else expect(await screen.findByText("无法加载这段对话。", {}, { timeout: 2_500 })).toBeInTheDocument();
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("does not reopen old history while a new conversation is being created", async () => {
+    const user = userEvent.setup();
+    renderPage({ reset: vi.fn().mockImplementation(() => new Promise<ConversationResponse>(() => undefined)) });
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    const scrollIntoView = vi.mocked(HTMLElement.prototype.scrollIntoView);
+    scrollIntoView.mockClear();
+    await user.click(screen.getByRole("button", { name: "新建检索" }));
+    expect(input).toBeDisabled();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it.each(["success", "failure"])("preserves selected B when pending send A ends in %s", async (outcome) => {
+    const user = userEvent.setup();
+    let finish: (value: ConversationResponse) => void = () => undefined;
+    let fail: (reason: Error) => void = () => undefined;
+    const send = vi.fn().mockImplementation(() => new Promise<ConversationResponse>((resolve, reject) => { finish = resolve; fail = reject; }));
+    const completedA = { ...turns, turns: [...turns.turns!, { ...turns.turns![0], user_text: "A 的新问题", assistant_text: "A 的新回答", created_at: "2026-10-15T08:00:00Z" }] };
+    const bTurns = { ...turns, thread_id: "thread-2", conversation_id: "conversation-2", turns: [{ ...turns.turns![0], user_text: "B 的最后一个问题" }] };
+    const fetchTurns = vi.fn().mockImplementation((threadId: string) => Promise.resolve(threadId === "thread-2" ? bTurns : send.mock.calls.length ? completedA : turns));
+    const view = renderPage({
+      send, fetchTurns,
+      fetchHistory: vi.fn().mockResolvedValue({ ...history, items: [...history.items!, { ...history.items![0], thread_id: "thread-2", conversation_id: "conversation-2", title: "对话 B" }] }),
+    });
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.type(input, "A 的新问题{Enter}");
+    await user.click(screen.getByRole("button", { name: /^对话 B/ }));
+    await screen.findByText("B 的最后一个问题");
+    const scrollIntoView = vi.mocked(HTMLElement.prototype.scrollIntoView);
+    const bQuestion = view.container.querySelector(".chat-turn--current .chat-message--user");
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(bQuestion);
+    expect(within(screen.getByRole("list", { name: "对话内容" })).queryByText("A 的新问题")).not.toBeInTheDocument();
+    const minHeight = bQuestion!.parentElement!.style.minHeight;
+    scrollIntoView.mockClear();
+    if (outcome === "success") finish({ status: "ok", text: "A 的新回答", thread_id: "thread-1", citations: turns.turns![0].citations, action_results: [], error_code: null });
+    else fail(new Error("send failed"));
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(view.container.querySelector(".chat-turn--current .chat-message--user")).toBe(bQuestion);
+    expect(bQuestion!.parentElement).toHaveStyle({ minHeight });
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
   it("selects the latest persisted conversation and renders its safe citations", async () => {
@@ -160,6 +337,237 @@ describe("AI search chat page", () => {
     expect(send).toHaveBeenCalledOnce();
     resolveSend!({ status: "ok", text: "", citations: [], action_results: [], thread_id: "thread-1", error_code: null });
     await waitFor(() => expect(input).toHaveValue(""));
+  });
+
+  it("sends on Enter and blocks empty or busy keyboard and form submissions", async () => {
+    const user = userEvent.setup();
+    let resolveSend: (value: ConversationResponse) => void;
+    const send = vi.fn().mockImplementation(() => new Promise<ConversationResponse>((resolve) => { resolveSend = resolve; }));
+    renderPage({ send });
+    const scrollIntoView = vi.mocked(HTMLElement.prototype.scrollIntoView);
+
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    scrollIntoView.mockClear();
+    expect(input).toHaveAccessibleDescription("Enter 发送，Shift+Enter 换行 · 回答附原文依据");
+    await user.type(input, "   {Enter}");
+    expect(send).not.toHaveBeenCalled();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(input).toHaveValue("   ");
+
+    await user.type(input, "怎样做有效访谈？{Enter}");
+    expect(send).toHaveBeenCalledWith("conversation-1", {
+      message_id: "new-id",
+      text: "怎样做有效访谈？",
+    });
+    expect(input).toBeDisabled();
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "instant", block: "start", inline: "nearest" });
+    const scrollCount = scrollIntoView.mock.calls.length;
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.submit(input.closest("form")!);
+    expect(send).toHaveBeenCalledOnce();
+    expect(scrollIntoView).toHaveBeenCalledTimes(scrollCount);
+    resolveSend!({ status: "ok", text: "", citations: [], action_results: [], thread_id: "thread-1", error_code: null });
+    await waitFor(() => expect(input).toHaveValue(""));
+  });
+
+  it("inserts a newline on Shift+Enter before sending the multiline question", async () => {
+    const user = userEvent.setup();
+    const send = vi.fn().mockResolvedValue({ status: "ok", text: "", citations: [], action_results: [], thread_id: "thread-1", error_code: null });
+    renderPage({ send });
+
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    vi.mocked(HTMLElement.prototype.scrollIntoView).mockClear();
+    await user.type(input, "访谈如何开场？{Shift>}{Enter}{/Shift}如何追问？");
+    expect(input).toHaveValue("访谈如何开场？\n如何追问？");
+    expect(send).not.toHaveBeenCalled();
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+    await user.keyboard("{Enter}");
+    expect(send).toHaveBeenCalledWith("conversation-1", {
+      message_id: "new-id",
+      text: "访谈如何开场？\n如何追问？",
+    });
+  });
+
+  it.each([
+    { isComposing: true },
+    { keyCode: 229 },
+  ])("keeps IME confirmation Enter from sending (%j)", async (compositionEvent) => {
+    const user = userEvent.setup();
+    const send = vi.fn().mockResolvedValue({ status: "ok", text: "", citations: [], action_results: [], thread_id: "thread-1", error_code: null });
+    renderPage({ send });
+
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    vi.mocked(HTMLElement.prototype.scrollIntoView).mockClear();
+    await user.type(input, "用户访谈");
+    fireEvent.keyDown(input, { key: "Enter", ...compositionEvent });
+    expect(send).not.toHaveBeenCalled();
+    expect(input).toHaveValue("用户访谈");
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+    await user.keyboard("{Enter}");
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("ignores repeated Enter keydowns", async () => {
+    const user = userEvent.setup();
+    const send = vi.fn();
+    renderPage({ send });
+
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    vi.mocked(HTMLElement.prototype.scrollIntoView).mockClear();
+    await user.type(input, "用户访谈");
+    fireEvent.keyDown(input, { key: "Enter", repeat: true });
+    expect(send).not.toHaveBeenCalled();
+    expect(input).toHaveValue("用户访谈");
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it.each(["transcript", "new conversation"])("blocks direct form submission while loading the %s", async (loading) => {
+    const send = vi.fn();
+    const fetchTurns = vi.fn().mockImplementation(() => new Promise<ConversationTurns>(() => undefined));
+    const reset = vi.fn().mockImplementation(() => new Promise<ConversationResponse>(() => undefined));
+    renderPage({
+      send,
+      fetchTurns,
+      reset,
+      fetchHistory: vi.fn().mockResolvedValue(loading === "transcript" ? history : { items: [], next_cursor: null }),
+    });
+
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(loading === "transcript" ? fetchTurns : reset).toHaveBeenCalledOnce());
+    expect(input).toBeDisabled();
+    fireEvent.change(input, { target: { value: "资料库有哪些访谈方法？" } });
+    fireEvent.submit(input.closest("form")!);
+    expect(send).not.toHaveBeenCalled();
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { width: 1280, transcriptHeight: 420, expectedHeight: 380 },
+    { width: 390, transcriptHeight: 240, expectedHeight: 200 },
+  ])("uses the bounded transcript for question spacing at $width px", async ({ width, transcriptHeight, expectedHeight }) => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.mocked(HTMLElement.prototype.scrollIntoView);
+    vi.stubGlobal("innerWidth", width);
+    vi.stubGlobal("innerHeight", 800);
+    const view = renderPage({
+      fetchHistory: vi.fn().mockResolvedValue({
+        ...history,
+        items: [...history.items!, { ...history.items![0], thread_id: "thread-2", conversation_id: "conversation-2", title: "更早的问题" }],
+      }),
+      send: vi.fn().mockImplementation(() => new Promise<ConversationResponse>(() => undefined)),
+    });
+
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    const transcript = view.container.querySelector<HTMLElement>(".chat-transcript")!;
+    Object.defineProperty(transcript, "clientHeight", { configurable: true, value: transcriptHeight });
+    transcript.style.paddingTop = "20px";
+    transcript.style.paddingBottom = "20px";
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    scrollIntoView.mockClear();
+    await user.click(screen.getByRole("button", { name: /^更早的问题/ }));
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    scrollIntoView.mockClear();
+
+    scrollIntoView.mockImplementation(function (this: HTMLElement) {
+      expect(this).toHaveClass("chat-message--user");
+      expect(this).toHaveTextContent("最新的提问");
+      expect(this.parentElement).toHaveClass("chat-turn--current");
+      expect(this.parentElement).toHaveStyle({ minHeight: `${expectedHeight}px` });
+    });
+    await user.type(input, "最新的提问{Enter}");
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "instant", block: "start", inline: "nearest" });
+  });
+
+  it("keeps a repeated question at the top while its answer streams and hands off to history", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.mocked(HTMLElement.prototype.scrollIntoView);
+    let emit: (event: ConversationStreamEvent) => void = () => undefined;
+    let finish: (response: ConversationResponse) => void = () => undefined;
+    let releaseTranscript: (value: ConversationTurns) => void = () => undefined;
+    const response: ConversationResponse = { status: "ok", text: "最终回答", citations: [], action_results: [], thread_id: "thread-1", error_code: null };
+    const fetchTurns = vi.fn().mockResolvedValueOnce(turns).mockImplementation(() => new Promise<ConversationTurns>((resolve) => { releaseTranscript = resolve; }));
+    const sendStream = vi.fn((_conversationId: string, _input: { message_id: string; text: string }, onEvent: (event: ConversationStreamEvent) => void) => {
+      emit = onEvent;
+      return new Promise<ConversationResponse>((resolve) => { finish = resolve; });
+    });
+    const view = renderPage({ fetchTurns, sendStream });
+
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    const question = turns.turns![0].user_text;
+    await user.type(input, `${question}{Enter}`);
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(view.container.querySelector(".chat-turn--current .chat-message--user"));
+    const minHeight = view.container.querySelector<HTMLElement>(".chat-turn--current")!.style.minHeight;
+    scrollIntoView.mockClear();
+    await user.click(screen.getByRole("button", { name: /^用户访谈应该怎样做？/ }));
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(view.container.querySelector(".chat-turn--current .chat-message--user"));
+    scrollIntoView.mockClear();
+
+    act(() => emit({ type: "text_delta", request_id: "stream", message_id: "new-id", sequence: 1, text: "正在生成的回答" }));
+    expect(screen.getByText("正在生成的回答")).toBeInTheDocument();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    act(() => emit({ type: "completed", request_id: "stream", message_id: "new-id", sequence: 2, response }));
+    expect(screen.getByText("最终回答")).toBeInTheDocument();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    finish(response);
+    await waitFor(() => expect(fetchTurns).toHaveBeenCalledTimes(2));
+    scrollIntoView.mockClear();
+
+    act(() => releaseTranscript({
+      ...turns,
+      turns: [...turns.turns!, { user_text: question, assistant_text: "最终回答", citations: [], action_results: [], status: "ok", error_code: null, created_at: "2026-10-15T08:00:00Z" }],
+    }));
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(screen.getAllByText("最终回答")).toHaveLength(1);
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    const durableTurn = view.container.querySelectorAll(".chat-turn")[1];
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(durableTurn.querySelector(".chat-message--user"));
+    expect(durableTurn).toHaveStyle({ minHeight });
+  });
+
+  it.each(["transcript", "page"])("leaves manual scrolling free during the final handoff in the %s", async (surface) => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.mocked(HTMLElement.prototype.scrollIntoView);
+    let finish: (response: ConversationResponse) => void = () => undefined;
+    const send = vi.fn().mockImplementation(() => new Promise<ConversationResponse>((resolve) => { finish = resolve; }));
+    const fetchTurns = vi.fn().mockResolvedValueOnce(turns).mockResolvedValue({
+      ...turns,
+      turns: [...turns.turns!, { user_text: "最新的提问", assistant_text: "最终回答", citations: [], action_results: [], status: "ok", error_code: null, created_at: "2026-10-15T08:00:00Z" }],
+    });
+    const view = renderPage({ send, fetchTurns });
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    const transcript = view.container.querySelector<HTMLElement>(".chat-transcript")!;
+    scrollIntoView.mockImplementation(() => {
+      transcript.scrollTop = 500;
+      vi.stubGlobal("scrollY", 500);
+    });
+    await user.type(input, "最新的提问{Enter}");
+    expect(scrollIntoView).toHaveBeenCalled();
+    scrollIntoView.mockClear();
+
+    if (surface === "transcript") {
+      transcript.scrollTop = 100;
+      fireEvent.scroll(transcript);
+    } else {
+      vi.stubGlobal("scrollY", 100);
+      fireEvent.scroll(window);
+    }
+    finish({ status: "ok", text: "最终回答", citations: [], action_results: [], thread_id: "thread-1", error_code: null });
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(screen.getByText("最终回答")).toBeInTheDocument();
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
   it("describes a server timeout without claiming the network failed", async () => {

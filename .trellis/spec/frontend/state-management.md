@@ -41,6 +41,17 @@ another user can authenticate in the same browser. Operation-specific 401s,
 such as an invalid verification code, stay in the owning form and must not
 trigger global session teardown.
 
+On successful login, capture only the public capabilities DTO and its original
+freshness timestamp, cancel/clear the old client, then seed the replacement with
+the canonical Session and that public snapshot. Never transfer private history.
+Background history preloading checks that its captured Session remains current
+before fetching a transcript; cancelled Session/history reads from a disposed
+client cannot affect the active account. Remount query observers on private
+client rotation so they cannot retain the previous QueryClient. Route components
+are loaded on demand, with auth hooks
+outside the protected-page Suspense boundary so chunk loading cannot postpone
+Session validation.
+
 ---
 
 ## Server State

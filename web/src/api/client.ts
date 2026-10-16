@@ -89,9 +89,11 @@ export async function requestJson<T>(
     headers,
     credentials: "same-origin",
   });
+  init.signal?.throwIfAborted();
   if (!response.ok) {
     const fallback = { code: "request_failed", message: "请求无法完成" };
     const payload = await response.json().catch(() => fallback) as Partial<typeof fallback>;
+    init.signal?.throwIfAborted();
     const error = new ApiError(
       response.status,
       payload.code ?? fallback.code,
@@ -163,8 +165,8 @@ export function verifyEmailChallenge(
   });
 }
 
-export function getSession(): Promise<SessionInfo> {
-  return requestJson("/api/v1/auth/session");
+export function getSession(signal?: AbortSignal): Promise<SessionInfo> {
+  return requestJson("/api/v1/auth/session", { signal });
 }
 
 export function logout(): Promise<void> {
@@ -207,18 +209,18 @@ export function revokeBrowserCompanionDevice(deviceId: string): Promise<void> {
   );
 }
 
-export function getCapabilities(): Promise<Capabilities> {
-  return requestJson("/api/v1/capabilities");
+export function getCapabilities(signal?: AbortSignal): Promise<Capabilities> {
+  return requestJson("/api/v1/capabilities", { signal });
 }
 
-export function listConversations(cursor?: string | null): Promise<ConversationHistoryPage> {
+export function listConversations(cursor?: string | null, signal?: AbortSignal): Promise<ConversationHistoryPage> {
   const params = new URLSearchParams({ limit: "30" });
   if (cursor) params.set("cursor", cursor);
-  return requestJson(`/api/v1/conversations?${params.toString()}`);
+  return requestJson(`/api/v1/conversations?${params.toString()}`, { signal });
 }
 
-export function getConversationTurns(threadId: string): Promise<ConversationTurns> {
-  return requestJson(`/api/v1/conversations/${encodeURIComponent(threadId)}/turns`);
+export function getConversationTurns(threadId: string, signal?: AbortSignal): Promise<ConversationTurns> {
+  return requestJson(`/api/v1/conversations/${encodeURIComponent(threadId)}/turns`, { signal });
 }
 
 export function deleteConversation(threadId: string): Promise<void> {

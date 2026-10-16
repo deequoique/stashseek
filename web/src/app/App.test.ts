@@ -1,8 +1,9 @@
 import { QueryClient } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
+import type { Capabilities, SessionInfo } from "../api/contracts";
 
 import {
   App,
@@ -14,7 +15,33 @@ import {
   logoutAndClear,
 } from "./App";
 
+const chatCapabilities: Capabilities = {
+  supported_platforms: ["youtube"], browser_companion: true, web_login_channels: ["email"],
+save_enabled: true, max_save_batch_size: 10,
+transcript_pagination: true,
+  archive: true, summary_generation: false, chat: true,
+};
+const verifiedSession: SessionInfo = {
+  authenticated: true, login_channel: "email", expires_at: "2027-01-01T00:00:00Z",
+};
+const emptyLibrary = { items: [], total: 0, page: 1, page_size: 20, is_true_first_empty: true };
+
+function json(value: unknown, status = 200) {
+  return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
+}
+
+async function verifyLogin() {
+  const user = userEvent.setup();
+  await user.type(await screen.findByRole("textbox", { name: "邮箱地址" }), "local-user@example.test");
+  await user.click(screen.getByRole("button", { name: "获取验证码" }));
+  await user.type(await screen.findByRole("textbox", { name: "6 位验证码" }), "123456");
+  await user.click(screen.getByRole("button", { name: "确认登录" }));
+  return user;
+}
+
 describe("private cache boundary", () => {
+
+
   it("clears all cached tenant data after a successful logout", async () => {
     const client = new QueryClient();
     client.setQueryData(["library"], { private: "previous-user" });
@@ -81,6 +108,117 @@ describe("private cache boundary", () => {
     expect(nextClient).not.toBe(oldClient);
     expect(nextClient.getQueryData(["library"])).toBeUndefined();
     expect(nextClient.getQueryData(["session"])).toEqual(session);
+  });
+
+  it("copies only public capabilities and their original freshness across login", () => {
+    const oldClient = createPrivateQueryClient();
+    oldClient.setQueryData(["conversations"], { private: "previous-user" });
+    oldClient.setQueryData(["conversation", "previous-thread"], { private: "previous-user" });
+    const updatedAt = Date.now() - 90_000;
+    oldClient.setQueryData(["capabilities"], chatCapabilities, { updatedAt });
+
+    const nextClient = createSessionQueryClient(verifiedSession, {
+      data: oldClient.getQueryData<Capabilities>(["capabilities"])!, updatedAt,
+    });
+
+    expect(nextClient.getQueryData(["capabilities"])).toEqual(chatCapabilities);
+    expect(nextClient.getQueryState(["capabilities"])?.dataUpdatedAt).toBe(updatedAt);
+    expect(nextClient.getQueryData(["conversations"])).toBeUndefined();
+    expect(nextClient.getQueryData(["conversation", "previous-thread"])).toBeUndefined();
+    expect(nextClient.getQueryCache().getAll()).toHaveLength(2);
+    oldClient.clear();
+    nextClient.clear();
+  });
+
+  it("loads public capabilities alongside Session validation without private history access", async () => {
+    window.history.replaceState({}, "", "/account/link");
+    let releaseSession: (response: Response) => void = () => undefined;
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const path = String(input);
+      if (path === "/api/v1/auth/session") return new Promise((resolve) => { releaseSession = resolve; });
+      if (path === "/api/v1/capabilities") return Promise.resolve(json(chatCapabilities));
+      if (path === "/api/v1/conversations?limit=30") return Promise.resolve(json({ items: [], next_cursor: null }));
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(createElement(App));
+
+    await waitFor(() => expect(fetch.mock.calls.map(([path]) => String(path))).toContain("/api/v1/capabilities"));
+    expect(screen.getByRole("status", { name: "正在验证登录" })).toBeInTheDocument();
+    expect(fetch.mock.calls.map(([path]) => String(path))).not.toContain("/api/v1/conversations?limit=30");
+    releaseSession(json(verifiedSession));
+
+    expect(await screen.findByRole("heading", { name: "绑定 Telegram" })).toBeInTheDocument();
+    await waitFor(() => expect(fetch.mock.calls.map(([path]) => String(path))).toContain("/api/v1/conversations?limit=30"));
+  });
+
+  it("opens the library before history preload completes and joins it when entering chat", async () => {
+    window.history.replaceState({}, "", "/login");
+    let releaseHistory: (response: Response) => void = () => undefined;
+    let releaseTurns: (response: Response) => void = () => undefined;
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const path = String(input);
+      if (path === "/api/v1/capabilities") return Promise.resolve(json(chatCapabilities));
+      if (path === "/api/v1/auth/challenges") return Promise.resolve(json({ status: "accepted" }));
+      if (path === "/api/v1/auth/verify") return Promise.resolve(json(verifiedSession));
+      if (path.startsWith("/api/v1/library/items?")) return Promise.resolve(json(emptyLibrary));
+      if (path === "/api/v1/conversations?limit=30") return new Promise((resolve) => { releaseHistory = resolve; });
+      if (path === "/api/v1/conversations/latest/turns") return new Promise((resolve) => { releaseTurns = resolve; });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(createElement(App));
+    const user = await verifyLogin();
+
+    expect(await screen.findByRole("heading", { name: "我的视频资料库" })).toBeInTheDocument();
+    const paths = () => fetch.mock.calls.map(([path]) => String(path));
+    await waitFor(() => expect(paths().filter((path) => path === "/api/v1/conversations?limit=30")).toHaveLength(1));
+    expect(paths().filter((path) => path === "/api/v1/capabilities")).toHaveLength(1);
+    expect(paths()).not.toContain("/api/v1/auth/session");
+    await user.click(await screen.findByRole("link", { name: "AI 智能检索" }));
+    expect(await screen.findByText("正在加载历史对话…")).toBeInTheDocument();
+    expect(paths().filter((path) => path === "/api/v1/conversations?limit=30")).toHaveLength(1);
+    releaseHistory(json({ items: [{
+      thread_id: "latest", conversation_id: "latest-id", title: "暖缓存问题", preview: "", updated_at: "2026-10-14T12:00:00Z",
+    }], next_cursor: null }));
+    await waitFor(() => expect(paths().filter((path) => path === "/api/v1/conversations/latest/turns")).toHaveLength(1));
+    releaseTurns(json({ thread_id: "latest", conversation_id: "latest-id", turns: [{
+      user_text: "暖缓存问题", assistant_text: "已经预加载的回答", status: "ok", error_code: null,
+      citations: [], action_results: [], created_at: "2026-10-14T12:00:00Z",
+    }] }));
+    expect(await screen.findByText("已经预加载的回答")).toBeInTheDocument();
+    expect(paths().filter((path) => path === "/api/v1/conversations/latest/turns")).toHaveLength(1);
+  });
+
+  it("ignores an aborted old-session 401 after a different login succeeds", async () => {
+    window.history.replaceState({}, "", "/library");
+    let releaseOldSession: (response: Response) => void = () => undefined;
+    let oldSignal: AbortSignal | null | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const path = String(input);
+      if (path === "/api/v1/auth/session") {
+        oldSignal = init?.signal;
+        return new Promise((resolve) => { releaseOldSession = resolve; });
+      }
+      if (path === "/api/v1/capabilities") return Promise.resolve(json(chatCapabilities));
+      if (path === "/api/v1/auth/challenges") return Promise.resolve(json({ status: "accepted" }));
+      if (path === "/api/v1/auth/verify") return Promise.resolve(json(verifiedSession));
+      if (path.startsWith("/api/v1/library/items?")) return Promise.resolve(json(emptyLibrary));
+      if (path === "/api/v1/conversations?limit=30") return Promise.resolve(json({ items: [], next_cursor: null }));
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(createElement(App));
+    await waitFor(() => expect(oldSignal).toBeDefined());
+    act(() => {
+      window.history.pushState({}, "", "/login");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await verifyLogin();
+    expect(await screen.findByRole("heading", { name: "我的视频资料库" })).toBeInTheDocument();
+    expect(oldSignal?.aborted).toBe(true);
+    await act(async () => {
+      releaseOldSession(json({ code: "session_invalid", message: "登录已失效" }, 401));
+    });
+    expect(window.location.pathname).toBe("/library");
+    expect(screen.getByRole("heading", { name: "我的视频资料库" })).toBeInTheDocument();
   });
 
   it("returns from a successful account link with an ephemeral notice after rotating cache", () => {
@@ -150,7 +288,7 @@ describe("private cache boundary", () => {
 
     render(createElement(App));
 
-    expect(await screen.findByRole("heading", { name: "登录搜藏助手" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "登录搜藏助手" })).toBeInTheDocument());
     expect(screen.queryByRole("heading", { name: "绑定 Telegram" })).not.toBeInTheDocument();
     expect(window.location.pathname).toBe("/login");
   });
@@ -207,6 +345,7 @@ describe("private cache boundary", () => {
           web_login_channels: ["email"],
           save_enabled: true,
           max_save_batch_size: 10,
+
           transcript_pagination: true,
           archive: true,
           summary_generation: false,

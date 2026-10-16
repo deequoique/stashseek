@@ -40,6 +40,17 @@ def rendered_schema() -> str:
         web_login_channels=("email",),
     )
     document = app.openapi()
+    # Python's standard HTTP 422 phrase differs across supported versions.
+    # Keep the existing generated contract stable without changing custom text.
+    for path in document["paths"].values():
+        for operation in path.values():
+            if not isinstance(operation, dict):
+                continue
+            response = operation.get("responses", {}).get("422")
+            if isinstance(response, dict) and response.get("description") in {
+                "Unprocessable Entity", "Unprocessable Content",
+            }:
+                response["description"] = "Unprocessable Entity"
     # The legacy channel UI remains an explicitly non-production compatibility
     # path for embedders that still advertise Telegram/WeChat.  Keep its
     # generated request aliases available without mounting those routes in the
