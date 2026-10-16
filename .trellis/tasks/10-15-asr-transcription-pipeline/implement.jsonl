@@ -1,0 +1,11 @@
+{"file": ".trellis/spec/guides/branch-and-delegation-workflow.md", "reason": "dev-branch rule, Sonnet authorship, DB override and no-commit rules"}
+{"file": ".trellis/spec/backend/index.md", "reason": "backend spec index"}
+{"file": ".trellis/spec/backend/youtube-connector.md", "reason": "yt-dlp child runtime, proxy/CA env, error classification reused for audio download"}
+{"file": ".trellis/spec/backend/bilibili-connector.md", "reason": "Bilibili yt-dlp rules, no cookies, risk-control classification"}
+{"file": ".trellis/spec/backend/ingestion-chunking-embedding.md", "reason": "process_item tail contract reused for ASR transcripts"}
+{"file": ".trellis/spec/backend/ingest-completion-queue.md", "reason": "single completion event per dispatch, terminal states, notifications"}
+{"file": ".trellis/spec/backend/browser-companion-capture.md", "reason": "capture-transcript.v1 canonical transcript format"}
+{"file": ".trellis/spec/backend/deployment-lifecycle.md", "reason": "worker units, deploy script, local launcher queues"}
+{"file": ".trellis/spec/backend/provider-tls-diagnostics.md", "reason": "verified CA for outbound provider calls, redacted diagnostics"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "stable error codes, no raw provider details"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "code standards"}

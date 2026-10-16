@@ -18,6 +18,14 @@ releases=/opt/notebook-agent/releases
 release_dir=$releases/$release_sha
 current=/opt/notebook-agent/current
 lock_file=/run/lock/notebook-agent-production.lock
+asr_unit=notebook-agent-asr-worker.service
+
+# The ASR worker is optional. Hosts that have not installed its unit keep
+# deploying exactly as before; once installed it is stopped, restarted and
+# rolled back together with the other background units.
+asr_unit_installed() {
+  systemctl cat "$asr_unit" >/dev/null 2>&1
+}
 
 exec 9>"$lock_file"
 if ! flock -n 9; then
@@ -62,6 +70,9 @@ fi
 ln -sfn "$release_dir" /opt/notebook-agent/current.next
 systemctl stop notebook-agent-langbot.service notebook-agent-gateway.service \
   notebook-agent.service notebook-agent-worker.service notebook-agent-beat.service
+if asr_unit_installed; then
+  systemctl stop "$asr_unit"
+fi
 mv -Tf /opt/notebook-agent/current.next "$current"
 
 rollback_release() {
@@ -69,12 +80,18 @@ rollback_release() {
     notebook-agent.service notebook-agent-worker.service notebook-agent-beat.service; then
     echo "warning: failed to stop candidate StashSeek Chat services" >&2
   fi
+  if asr_unit_installed && ! systemctl stop "$asr_unit"; then
+    echo "warning: failed to stop candidate ASR worker" >&2
+  fi
   if [[ -n $previous_release && -d $previous_release ]]; then
     ln -sfn "$previous_release" /opt/notebook-agent/current.next
     mv -Tf /opt/notebook-agent/current.next "$current"
     if ! systemctl start notebook-agent-worker.service notebook-agent-beat.service \
       notebook-agent.service notebook-agent-gateway.service notebook-agent-langbot.service; then
       echo "warning: failed to restart previous StashSeek Chat release" >&2
+    fi
+    if asr_unit_installed && ! systemctl start "$asr_unit"; then
+      echo "warning: failed to restart previous ASR worker" >&2
     fi
   fi
 }
@@ -96,6 +113,12 @@ if ! systemctl restart notebook-agent-worker.service \
   || ! systemctl restart notebook-agent.service; then
   rollback_release
   echo "application startup failed; previous release restored" >&2
+  exit 70
+fi
+
+if asr_unit_installed && ! systemctl restart "$asr_unit"; then
+  rollback_release
+  echo "ASR worker startup failed; previous release restored" >&2
   exit 70
 fi
 

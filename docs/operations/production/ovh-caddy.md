@@ -12,6 +12,7 @@ Caddy :443 -> 127.0.0.1:8800
                `-- /mcp: Bearer-authenticated Streamable HTTP MCP
 
 Celery worker: ingest,maintenance
+Celery ASR worker（可选，仅启用 ASR 时安装）: asr，并发 1
 Celery Beat: exactly one scheduler
 PostgreSQL: external pooled Neon runtime + direct Neon migration URL
 Redis/MinIO: Notebook-Agent-only containers published on loopback
@@ -114,6 +115,7 @@ notebook-agent-beat.service
 notebook-agent.service
 ```
 
+启用 ASR 转写时才额外安装 `notebook-agent-asr-worker.service`，见下文“ASR 转写”一节。
 只启用这些 unit。不要安装旧版的
 `notebook-agent-web.service` 或 `notebook-agent-web-migrate.service`；email Web、
 API 和 MCP 流量都属于组合运行时。安装 Caddy 站点时，先保存
@@ -195,6 +197,97 @@ dispatcher。不要授予 interactive shell、任意 sudo、forwarding，或访�
 与其他生产部署串行执行，然后请求 `deploy <40-character-sha>`。dispatcher 只接受
 当前的 `origin/main`，保留之前的 release，在启动前执行迁移；如果迁移或健康准入
 失败，则恢复之前的 symlink。
+
+## ASR 转写（可选）
+
+默认关闭（`ASR_ENABLED=false`）。关闭时没有字幕的公开 YouTube/Bilibili 条目（包括浏览器
+插件采集到 `caption_status=unavailable` 的公开 YouTube 条目）仍以 `needs_asr` 结束，下面
+的步骤都不需要。NTULearn/Kaltura 采集条目是私有媒体，无论是否开启 ASR 都保持
+`needs_asr`。开启后，同一个 dispatch 会从 `ingest` 队列转入
+`asr` 队列：yt-dlp 只下载音频，音频暂存到 MinIO 的 `asr-tmp/` 前缀，Fun-ASR 通过本站
+域名下的短期签名地址 `/api/v1/asr-audio/<name>` 回源下载（无需会话，Caddy 站点已丢弃
+access log，签名只出现在这个 URL 的 query 里），转写结束后立即删除临时对象。需要合并
+到 `main` 并经 `Production` 审批部署之后，由运维单独执行以下步骤。
+
+1. 在主机安装 ffmpeg，并确认它在 service account 的 `PATH` 中：
+
+   ```bash
+   sudo apt install ffmpeg
+   ffmpeg -version | head -1
+   ```
+
+2. 安装并启用独立的 asr worker（并发 1，沙箱与现有 worker 一致）。`deploy/scripts/
+   notebook-agent-deploy` 在该 unit 已安装时会把它纳入 stop、restart 和回滚；未安装
+   的主机照常部署。此时 `ASR_ENABLED` 仍是 `false`，worker 只是空闲地监听 `asr` 队列：
+
+   ```bash
+   sudo install -m 0644 deploy/systemd/notebook-agent-asr-worker.service \
+     /etc/systemd/system/
+   sudo systemd-analyze verify /etc/systemd/system/notebook-agent-asr-worker.service
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now notebook-agent-asr-worker.service
+   ```
+
+3. 给 MinIO 的临时音频前缀设置兜底过期规则（正常情况下转写结束就会删除，该规则只清理
+   进程崩溃留下的对象）。`<alias>` 是已用 `mc alias set` 配置好的本实例 MinIO 别名：
+
+   ```bash
+   mc ilm rule add --prefix asr-tmp/ --expire-days 1 <alias>/kb-raw
+   mc ilm rule ls <alias>/kb-raw
+   ```
+
+4. 前三步都完成后，才在 `/etc/notebook-agent/notebook-agent.env`（仍为 root-owned
+   `0600`）追加以下变量；所有 secret 用新生成的值，不要打印、提交或放在命令行。**不要在
+   asr worker 运行之前设置 `ASR_ENABLED=true`**：没有消费者时，被转交的条目会一直停在
+   `fetching`。
+
+   ```dotenv
+   ASR_ENABLED=true
+   DASHSCOPE_API_KEY=<fun-asr-secret-singapore-region>
+   ASR_PUBLIC_BASE_URL=https://notebookai.deequoique.tech
+   ASR_AUDIO_URL_SECRET=<new-at-least-32-character-secret>
+   # 可选的 whisper-1 备选；不设置则没有备选。
+   OPENAI_API_KEY=<openai-secret>
+   ```
+
+   其余 `DASHSCOPE_BASE_URL`、`ASR_*` 上限均有默认值，见
+   `docs/reference/configuration.md`。`ASR_ENABLED=true` 时缺少必需项会让应用和 worker
+   启动失败，而不是静默降级。
+
+5. 重启组合运行时和所有 worker，使 `ASR_ENABLED=true` 生效，并确认 asr worker 已连上
+   队列：
+
+   ```bash
+   sudo systemctl restart notebook-agent-worker.service notebook-agent.service \
+     notebook-agent-asr-worker.service
+   sudo journalctl -u notebook-agent-asr-worker.service -n 20 --no-pager
+   ```
+
+6. 上线金丝雀：先 `--dry-run` 查看会处理的条目，再只回填一条，并观察
+   `asr_transcription` 诊断日志（在 `/var/log/notebook-agent/` 中检索该事件；它只含
+   供应商、模型、时长、估算费用、耗时、是否使用备选和错误码）。命令必须在已经由受限
+   operator 流程注入环境文件的环境中运行：
+
+   ```bash
+   .venv/bin/python -m app.cli asr-backfill --limit 1 --dry-run
+   .venv/bin/python -m app.cli asr-backfill --limit 1
+   ```
+
+   条目应经 `fetching` 变为 `ready`，且只产生一条 `completed/ready` 通知。确认后再按
+   `--limit` 分批回填其余条目。
+
+注意事项：
+
+- 停止 asr worker 时 Celery 会等待进行中的转写，但 unit 的 `TimeoutStopSec`（60 秒）
+  到期后会被强制终止，被中断的 dispatch 会停留在 `running`。部署前先确认没有进行中的
+  转写：`celery -A app.ingest.tasks.celery_app inspect active`。
+- 回滚：把 `ASR_ENABLED=false` 写回环境文件，并重启组合运行时、`notebook-agent-worker.service`
+  和 asr worker。队列里尚未处理的 ASR 任务由重启后的 asr worker 按原有行为收敛为
+  `needs_asr`；队列排空后可停止并禁用该 unit。
+  已完成的转写（`text_source=asr_whisper`、`raw_format=capture_v1`）保持可检索。
+- 公开签名路由会让音频经过应用进程转发。音频下载选择适合语音的低码率流
+  （`abr` 40–72 kbps），约每音频小时 22MB 出口流量（原先 `bestaudio` 约 58MB）。
+  YouTube 音频经住宅出口（Evomi）下载，同样约每音频小时 22MB，按 GB 计费。
 
 ## 回滚
 

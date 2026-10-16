@@ -1,0 +1,44 @@
+[Unit]
+Description=StashSeek Chat Celery ASR worker
+After=network-online.target notebook-agent-dependencies.service notebook-agent-migrate.service
+Wants=network-online.target
+Requires=notebook-agent-dependencies.service
+
+[Service]
+Type=simple
+User=notebook-agent
+Group=notebook-agent
+WorkingDirectory=/opt/notebook-agent/current
+EnvironmentFile=/etc/notebook-agent/notebook-agent.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=STASHSEEK_ENV=production
+Environment=STASHSEEK_LOG_RETRIEVAL_CONTENT=false
+Environment=STASHSEEK_LOG_DIR=/var/log/notebook-agent
+ExecStartPre=/usr/bin/test -f /opt/notebook-agent/current/.migration-admitted
+ExecStart=/opt/notebook-agent/current/.venv/bin/celery -A app.ingest.tasks.celery_app worker --loglevel=INFO --queues=asr --concurrency=1 --hostname=notebook-agent-asr@%%h
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=60
+KillSignal=SIGTERM
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/log/notebook-agent
+LogsDirectory=notebook-agent
+LogsDirectoryMode=0750
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

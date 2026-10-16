@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import math
+import os
+from collections.abc import Iterator
 from typing import Any
 
 import boto3
+from boto3.s3.transfer import TransferConfig
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
@@ -20,8 +23,63 @@ class ObjectNotFound(ObjectStoreError):
     pass
 
 
+# Same class under the name used by the streaming API contract.
+ObjectNotFoundError = ObjectNotFound
+
+
 class ObjectTooLarge(ObjectStoreError):
     pass
+
+
+_NOT_FOUND_CODES = {"404", "NoSuchKey", "NotFound"}
+# Multipart transfer settings bound upload memory to roughly
+# chunk size * concurrency regardless of the file size.
+_UPLOAD_TRANSFER_CONFIG = TransferConfig(
+    multipart_threshold=8 * 1024 * 1024,
+    multipart_chunksize=8 * 1024 * 1024,
+    max_concurrency=4,
+    use_threads=True,
+)
+
+
+class ObjectStream:
+    """One open object body that is read incrementally and never buffered."""
+
+    def __init__(self, body: Any, *, content_length: int, content_type: str) -> None:
+        self._body = body
+        self.content_length = content_length
+        self.content_type = content_type
+        self._closed = False
+
+    def iter_chunks(self, chunk_size: int = 65536) -> Iterator[bytes]:
+        """Yield at most ``content_length`` bytes, then close the body."""
+
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be positive")
+        sent = 0
+        try:
+            while True:
+                chunk = self._body.read(chunk_size)
+                if not chunk:
+                    break
+                sent += len(chunk)
+                if sent > self.content_length:
+                    raise ObjectStoreError("object stream exceeded declared length")
+                yield bytes(chunk)
+        except ObjectStoreError:
+            raise
+        except Exception as exc:
+            raise ObjectStoreError("object store unavailable") from exc
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        close = getattr(self._body, "close", None)
+        if callable(close):
+            close()
 
 
 class RawObjectStore:
@@ -65,6 +123,64 @@ class RawObjectStore:
             Body=body,
             ContentType=content_type,
         )
+
+    def put_file(self, key: str, path: str | os.PathLike, content_type: str) -> int:
+        """Upload a local file with multipart streaming and return its size."""
+
+        try:
+            size = os.path.getsize(path)
+            try:
+                self.client.head_bucket(Bucket=self.bucket)
+            except ClientError:
+                self.client.create_bucket(Bucket=self.bucket)
+            self.client.upload_file(
+                Filename=os.fspath(path),
+                Bucket=self.bucket,
+                Key=key,
+                ExtraArgs={"ContentType": content_type},
+                Config=_UPLOAD_TRANSFER_CONFIG,
+            )
+        except Exception as exc:
+            raise ObjectStoreError("object upload failed") from exc
+        return size
+
+    def open_stream(self, key: str, *, max_bytes: int) -> ObjectStream:
+        """Open one object for incremental reading.
+
+        Raises ``ObjectNotFoundError`` when the key is absent and ``ValueError``
+        when the object is larger than ``max_bytes``; the body is closed first.
+        """
+
+        if max_bytes <= 0:
+            raise ValueError("max_bytes must be positive")
+        try:
+            response = self.client.get_object(Bucket=self.bucket, Key=key)
+            body = response["Body"]
+            length = response.get("ContentLength")
+            content_type = response.get("ContentType")
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code", ""))
+            if code in _NOT_FOUND_CODES:
+                raise ObjectNotFound("object not found") from exc
+            raise ObjectStoreError("object store unavailable") from exc
+        except Exception as exc:
+            raise ObjectStoreError("object store unavailable") from exc
+        stream = ObjectStream(
+            body,
+            content_length=length if isinstance(length, int) else 0,
+            content_type=(
+                content_type
+                if isinstance(content_type, str) and content_type
+                else "application/octet-stream"
+            ),
+        )
+        if not isinstance(length, int) or length < 0:
+            stream.close()
+            raise ObjectStoreError("object size unavailable")
+        if length > max_bytes:
+            stream.close()
+            raise ValueError("object exceeds byte limit")
+        return stream
 
     def get(self, key: str, *, max_bytes: int) -> bytes:
         """Read at most ``max_bytes`` and reject oversized objects before/while reading."""

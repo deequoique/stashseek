@@ -343,7 +343,7 @@ def _component_commands(profile: str) -> dict[str, list[str]]:
             "app.ingest.tasks.celery_app",
             "worker",
             "--loglevel=INFO",
-            "--queues=ingest,maintenance",
+            "--queues=ingest,maintenance,asr",
             "--concurrency=1",
         ],
         "beat": [

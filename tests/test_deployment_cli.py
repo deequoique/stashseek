@@ -21,7 +21,7 @@ def test_full_profile_includes_mcp_gateway_one_worker_and_one_beat():
     assert plan.components == ("worker", "beat", "mcp", "gateway")
     commands = deployment._component_commands("full")
     assert tuple(commands) == ("worker", "beat", "mcp", "gateway")
-    assert "--queues=ingest,maintenance" in commands["worker"]
+    assert "--queues=ingest,maintenance,asr" in commands["worker"]
     assert "--concurrency=1" in commands["worker"]
     assert "--schedule=.runtime/deployment/celerybeat-schedule" in commands["beat"]
 

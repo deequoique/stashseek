@@ -146,6 +146,43 @@ worker 必须同时监听 `ingest` 和 `maintenance`。Beat 负责周期性 purg
 completion notification 和维护任务；不要让新的部署监听已经退役的
 `ingest-completion` queue。
 
+## ASR 转写（可选）
+
+没有字幕的公开 YouTube/Bilibili 条目默认以 `needs_asr` 结束。开启 ASR 后，同一个
+dispatch 会转入独立的 `asr` 队列：后端用 yt-dlp 下载音频，默认交给阿里云百炼
+Fun-ASR（新加坡区域），不可用时备选 OpenAI `whisper-1`，结果保存为现有的
+`capture-transcript.v1` 并走原有的切分、embedding 和检索流程。浏览器伴侣采集的公开
+YouTube 条目在字幕不可用（`caption_status=unavailable`）时同样进入 ASR；私有的
+NTULearn/Kaltura 采集条目不进入 ASR。默认关闭；关闭时下列变量都不会被读取或校验。
+
+| 变量 | 默认值 | secret | 说明 |
+| --- | --- | --- | --- |
+| `ASR_ENABLED` | `false` | 否 | 总开关；回滚时设为 `false` 并停止 asr worker |
+| `DASHSCOPE_API_KEY` | 未设置 | 是 | 开启时必需；Fun-ASR 密钥 |
+| `DASHSCOPE_BASE_URL` | `https://dashscope-intl.aliyuncs.com` | 否 | 必须是 HTTPS，无末尾 `/` |
+| `FUN_ASR_MODEL` | `fun-asr` | 否 | 录音文件识别模型 |
+| `OPENAI_API_KEY` | 未设置 | 是 | 可选；设置后启用 `whisper-1` 备选 |
+| `ASR_WHISPER_FALLBACK_ENABLED` | `true` | 否 | 设为 `false` 可关闭备选，即使配置了 `OPENAI_API_KEY` |
+| `ASR_PUBLIC_BASE_URL` | 未设置 | 否 | 开启时必需；Fun-ASR 回源下载音频的公网 HTTPS origin，无 path 和末尾 `/` |
+| `ASR_AUDIO_URL_SECRET` | 未设置 | 是 | 开启时必需，至少 32 字符；用于签名下载 URL |
+| `ASR_AUDIO_URL_TTL_SECONDS` | `7200` | 否 | 签名下载 URL 有效期，`300`–`86400` |
+| `ASR_MAX_DURATION_SECONDS` | `14400` | 否 | 视频时长上限，`60`–`43200`；超过则以 `asr_too_long` 失败且不调用供应商 |
+| `ASR_MAX_AUDIO_BYTES` | `524288000` | 否 | 下载音频大小上限，`1MB`–`2GB` |
+| `ASR_DOWNLOAD_TIMEOUT_SECONDS` | `900` | 否 | yt-dlp 音频下载总时长，`30`–`3000` |
+| `ASR_PROVIDER_TIMEOUT_SECONDS` | `1800` | 否 | 单次供应商识别等待上限，`60`–`3000` |
+| `ASR_POLL_INTERVAL_SECONDS` | `5` | 否 | Fun-ASR 结果轮询间隔，`1`–`60` |
+
+ASR 终态失败使用稳定错误码：`asr_too_long`、`asr_audio_unavailable`、
+`asr_audio_too_large`、`asr_provider_failed`、`asr_no_speech`、
+`asr_not_configured`。这些错误不会自动重试（避免对同一音频重复计费）；下载阶段的限流
+和代理问题沿用 `transient_fetch_failed` 的重试语义。
+
+开启 ASR 还需要：worker 主机安装 `ffmpeg`（whisper 备选需要转码并切分较大音频时使用；没有 ffmpeg 时备选只处理不超过上传上限的小文件）、
+一个消费 `asr` 队列的独立 worker（并发 1），以及 MinIO 对 `asr-tmp/` 前缀的 1 天过期
+规则。部署步骤见 `docs/operations/production/ovh-caddy.md` 的 ASR 一节。
+每次转写会写一条 `asr_transcription` 诊断日志（供应商、模型、音频和计费时长、
+估算费用、耗时、是否使用备选、错误码），不含音频、文本、签名 URL 或密钥。
+
 ## MCP transport
 
 | 变量 | 默认值 | 说明 |
