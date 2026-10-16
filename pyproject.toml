@@ -22,6 +22,9 @@ dependencies = [
     "fastapi==0.141.1",
     "uvicorn==0.52.1",
     "httpx==0.28.1",
+    "msal==1.39.0",
+    "PyJWT[crypto]==2.15.1",
+    "cryptography==50.0.2",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,31 @@
+{
+  "id": "multi-provider-login",
+  "name": "multi-provider-login",
+  "title": "多平台账号登录：Microsoft、微信、QQ与邮箱",
+  "description": "Integrate Microsoft, WeChat website, QQ, and email login while preserving existing email-owned libraries.",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-10-15",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-15-external-login-foundation",
+    "10-15-microsoft-login",
+    "10-15-wechat-website-login",
+    "10-15-qq-website-login"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "User approved final plan with 开始 on 2026-10-15. Local implementation and independent reviews complete; verification.md records evidence. Live-provider acceptance pending registration/configuration. No production migration, commit, push or deployment performed.",
+  "meta": {}
+}

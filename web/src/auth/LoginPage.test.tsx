@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,8 +11,10 @@ const capabilities: Capabilities = {
   supported_platforms: ["youtube"],
   browser_companion: true,
   web_login_channels: ["telegram", "wechat"],
+  external_login_providers: [],
   save_enabled: true,
   max_save_batch_size: 10,
+
   transcript_pagination: true,
   archive: true,
   summary_generation: false,
@@ -20,6 +22,117 @@ const capabilities: Capabilities = {
 };
 
 describe("login page", () => {
+  it("notifies anonymous coordination and never activates a late email verification after unmount", async () => {
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn(); const onAnonymous = vi.fn();
+    const session = { authenticated: true as const, login_channel: "email" as const, expires_at: "2099-10-15T12:00:00Z" };
+    let finish: (value: typeof session) => void = () => undefined;
+    const verify = vi.fn().mockImplementation(() => new Promise<typeof session>((resolve) => { finish = resolve; }));
+    const client = new QueryClient();
+    const view = render(<QueryClientProvider client={client}><MemoryRouter><LoginPage
+      loadCapabilities={vi.fn().mockResolvedValue({ ...capabilities, web_login_channels: ["email"], external_login_providers: ["qq"] })}
+      probeSession={vi.fn().mockResolvedValue(null)} onAnonymous={onAnonymous} onAuthenticated={onAuthenticated}
+      requestEmailChallenge={vi.fn().mockResolvedValue({ status: "accepted" })} verifyEmailChallenge={verify}
+    /></MemoryRouter></QueryClientProvider>);
+    await user.type(await screen.findByRole("textbox", { name: "邮箱地址" }), "reader@example.test");
+    expect(onAnonymous).toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "获取验证码" }));
+    await user.type(await screen.findByRole("textbox", { name: "6 位验证码" }), "123456");
+    await user.click(screen.getByRole("button", { name: "确认登录" }));
+    expect(verify).toHaveBeenCalledOnce();
+    view.unmount();
+    await act(async () => { finish(session); });
+    expect(onAuthenticated).not.toHaveBeenCalled();
+    await waitFor(() => expect(client.getMutationCache().getAll()).toHaveLength(0));
+  });
+
+  it("offers email, configured native provider forms and distinct legacy methods together", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><MemoryRouter><LoginPage
+      loadCapabilities={vi.fn().mockResolvedValue({ ...capabilities, web_login_channels: ["email", "wechat", "telegram"], external_login_providers: ["microsoft", "wechat_website", "qq"] })}
+      probeSession={vi.fn().mockResolvedValue(null)}
+    /></MemoryRouter></QueryClientProvider>);
+    expect(await screen.findByRole("textbox", { name: "邮箱地址" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "使用微信聊天账号登录" })).toBeInTheDocument();
+    for (const [label, provider] of [["Microsoft", "microsoft"], ["微信网站授权", "wechat_website"], ["QQ", "qq"]]) {
+      const form = screen.getByRole("button", { name: `使用 ${label} 登录` }).closest("form")!;
+      expect(form).toHaveAttribute("method", "post");
+      expect(form).toHaveAttribute("action", `/api/v1/auth/external/${provider}/start`);
+      expect(form.querySelector("input")).not.toBeInTheDocument();
+    }
+    const form = screen.getByRole("button", { name: "使用 Microsoft 登录" }).closest("form")!;
+    expect(fireEvent.submit(form)).toBe(true);
+    expect(fireEvent.submit(form)).toBe(false);
+    expect(screen.getByRole("button", { name: "正在跳转…" })).toBeDisabled();
+    fireEvent(window, new Event("pageshow"));
+    expect(screen.getByRole("button", { name: "使用 Microsoft 登录" })).toBeEnabled();
+    expect(view.container.querySelector("input[name='state']")).not.toBeInTheDocument();
+  });
+
+  it("does not activate a late email result after the user changes the mailbox", async () => {
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+    const oldSession = { authenticated: true as const, login_channel: "email" as const, expires_at: "2099-10-15T12:00:00Z" };
+    let finish: (value: typeof oldSession) => void = () => undefined;
+    const verify = vi.fn(() => new Promise<typeof oldSession>((resolve) => { finish = resolve; }));
+    const client = new QueryClient();
+    render(<QueryClientProvider client={client}><MemoryRouter><LoginPage
+      loadCapabilities={vi.fn().mockResolvedValue({ ...capabilities, web_login_channels: ["email"] })}
+      requestEmailChallenge={vi.fn().mockResolvedValue({ status: "accepted" })}
+      verifyEmailChallenge={verify} onAuthenticated={onAuthenticated}
+    /></MemoryRouter></QueryClientProvider>);
+    await user.type(await screen.findByRole("textbox", { name: "邮箱地址" }), "old@example.test");
+    await user.click(screen.getByRole("button", { name: "获取验证码" }));
+    await user.type(await screen.findByRole("textbox", { name: "6 位验证码" }), "123456");
+    await user.click(screen.getByRole("button", { name: "确认登录" }));
+    await user.click(screen.getByRole("button", { name: /更换邮箱/ }));
+    const mailbox = screen.getByRole("textbox", { name: "邮箱地址" });
+    await user.clear(mailbox);
+    await user.type(mailbox, "new@example.test");
+    await act(async () => { finish(oldSession); });
+    expect(onAuthenticated).not.toHaveBeenCalled();
+    expect(mailbox).toHaveValue("new@example.test");
+  });
+
+  it("does not activate an in-flight legacy exchange after changing login method", async () => {
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+    const oldSession = { authenticated: true as const, login_channel: "telegram" as const, expires_at: "2099-10-15T12:00:00Z" };
+    let finish: (value: typeof oldSession) => void = () => undefined;
+    const exchange = vi.fn(() => new Promise<typeof oldSession>((resolve) => { finish = resolve; }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><MemoryRouter><LoginPage
+      loadCapabilities={vi.fn().mockResolvedValue(capabilities)}
+      createChallenge={vi.fn().mockResolvedValue({ public_id: "old", browser_secret: "old-proof", command: "/web-login old", target_channel: "telegram", expires_at: "2099-10-15T12:00:00Z" })}
+      getStatus={vi.fn().mockResolvedValue({ status: "approved", expires_at: "2099-10-15T12:00:00Z" })}
+      exchangeSession={exchange} onAuthenticated={onAuthenticated}
+    /></MemoryRouter></QueryClientProvider>);
+    await user.click(await screen.findByRole("button", { name: "使用 Telegram 登录" }));
+    await waitFor(() => expect(exchange).toHaveBeenCalledOnce());
+    await user.click(screen.getByRole("button", { name: /更换登录方式/ }));
+    await act(async () => { finish(oldSession); });
+    expect(onAuthenticated).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "使用 Telegram 登录" })).toBeInTheDocument();
+  });
+
+  it("retains an existing Session until explicit logout succeeds", async () => {
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn(); const onSignedOut = vi.fn();
+    const session = { authenticated: true as const, login_channel: "qq" as const, expires_at: "2099-10-15T12:00:00Z" };
+    const client = new QueryClient();
+    render(<QueryClientProvider client={client}><MemoryRouter><LoginPage
+      loadCapabilities={vi.fn().mockResolvedValue({ ...capabilities, web_login_channels: ["email"], external_login_providers: ["qq"] })}
+      probeSession={vi.fn().mockResolvedValue(session)} signOut={vi.fn().mockRejectedValue(new Error("logout failed"))}
+      onAuthenticated={onAuthenticated} onSignedOut={onSignedOut}
+    /></MemoryRouter></QueryClientProvider>);
+    await user.click(await screen.findByRole("button", { name: "退出后切换账号" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("当前登录仍保留");
+    expect(screen.queryByRole("textbox", { name: "邮箱地址" })).not.toBeInTheDocument();
+    expect(onSignedOut).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "继续当前资料库" }));
+    expect(onAuthenticated).toHaveBeenCalledWith(session);
+  });
+
   beforeEach(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();

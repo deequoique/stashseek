@@ -21,6 +21,7 @@ The frontend is a mobile-first React and TypeScript application under `web/`. It
 | [Quality Guidelines](./quality-guidelines.md) | Required checks, security boundaries, and test expectations | Active |
 | [Type Safety](./type-safety.md) | OpenAPI-generated types and runtime validation ownership | Active |
 | [Account Linking](./account-linking.md) | Telegram link-token handling, cache teardown, and error contracts | Active |
+| [External Login](./external-login.md) | Native provider navigation, clean anonymous continuation, Session probes and private-cache rotation | Active |
 
 ---
 
@@ -28,7 +29,7 @@ The frontend is a mobile-first React and TypeScript application under `web/`. It
 
 - Supported content: server-saved YouTube URLs plus optional browser-companion
   captures from YouTube and NTULearn/Kaltura.
-- Supported routes: `/login`, `/library`, `/videos/:id`, protected
+- Supported routes: `/login`, `/login/external`, `/library`, `/videos/:id`, protected
   `/account/link`, and protected `/account/browser-companion`.
 - The first-empty Agent message is static copy and must never call an LLM.
 - Search segments are not a transcript source. The detail page consumes the

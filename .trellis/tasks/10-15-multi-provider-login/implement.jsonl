@@ -1,0 +1,12 @@
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "Canonical browser composition, session/CSRF, tenant affinity and generated API ownership."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Additive Alembic schema, one head, isolated PostgreSQL checks and production migration separation."}
+{"file": ".trellis/spec/backend/channel-identity-linking.md", "reason": "Existing explicit ownership merge and identity proof boundaries."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Session and private QueryClient lifetime during account transitions."}
+{"file": ".trellis/spec/frontend/account-linking.md", "reason": "Preserve Telegram linking, safe credentials and cache rotation."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required frontend gates and browser security/accessibility checks."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Server-defined API contracts and generated OpenAPI/TypeScript."}
+{"file": ".trellis/tasks/10-15-multi-provider-login/research/authentication-boundaries.md", "reason": "Current email/session/tenant architecture and original WIP boundary."}
+{"file": ".trellis/tasks/10-15-multi-provider-login/research/shared-auth-invariants.md", "reason": "Exact email anchors, session provenance, uncached provider validation, merge/rebind and concurrent binding."}
+{"file": ".trellis/tasks/10-15-multi-provider-login/research/frontend-login-plan.md", "reason": "Chosen login state machine, native navigation, pending proof and Session races."}
+{"file": ".trellis/tasks/10-15-multi-provider-login/research/provider-registration.md", "reason": "Official provider registration sources and rollout prerequisites."}
+{"file": ".trellis/tasks/10-15-multi-provider-login/research/wechat-official-verification.md", "reason": "Verified current official website OAuth endpoints, app-scoped identity, cancellation and registration/security-mode limits."}

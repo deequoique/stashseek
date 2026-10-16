@@ -12,7 +12,7 @@
 | 环境变量、默认值、secret 和重启范围 | [配置](configuration.md) |
 | launcher、应用 CLI 和 grant 管理命令 | [CLI](cli.md) |
 | MCP transport、grant、scope 和 tool surface | [MCP](mcp.md) |
-| Web、会话、资料库、对话和浏览器伴侣 HTTP 合约 | [Web API](web-api.md) |
+| Web、邮箱/外部账号登录、会话、资料库、对话和浏览器伴侣 HTTP 合约 | [Web API](web-api.md) |
 
 ## 相关概念
 
@@ -22,6 +22,10 @@
 - [导入、分块、检索与回答](../explanation/ingestion-and-retrieval.md)
 - [隐私与可信边界](../explanation/privacy-and-trust.md)
 - [身份、租户与渠道](../explanation/identities-and-channels.md)
+
+外部登录的应用申请、回调域名和上线检查见
+[配置外部账号登录](../how-to/configure-external-login.md)。代码支持不等于平台已批准
+当前部署；真实应用凭据和线上登录验收仍由部署者准备。
 
 ## 版本与事实边界
 

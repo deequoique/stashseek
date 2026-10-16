@@ -31,6 +31,7 @@ def rendered_schema() -> str:
             submission=placeholder,
             transcript=placeholder,
             email_auth=placeholder,
+            external_auth=placeholder,
             browser_companion=placeholder,
             browser_capture_submission=placeholder,
         ),

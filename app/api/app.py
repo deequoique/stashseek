@@ -22,6 +22,12 @@ from app.api.auth_routes import build_auth_router
 from app.api.browser_companion_routes import build_browser_companion_router
 from app.api.conversation_routes import build_conversation_router
 from app.api.email_auth_routes import build_email_auth_router
+from app.api.external_auth_routes import (
+    EXTERNAL_FLOW_COOKIE_NAME,
+    ExternalCallbackQueryRedactionMiddleware,
+    authorization_form_origins,
+    build_external_auth_router,
+)
 from app.api.library_routes import build_library_router
 from app.api.library_schemas import ErrorResponse
 from app.channels.types import UserScope
@@ -124,6 +130,7 @@ class CapabilitiesResponse(BaseModel):
         "telegram",
         "wechat",
     )
+    external_login_providers: tuple[Literal["microsoft", "wechat_website", "qq"], ...] = ()
     save_enabled: bool = True
     max_save_batch_size: int = MAX_SAVE_BATCH_SIZE
     transcript_pagination: bool = True
@@ -143,6 +150,7 @@ class WebApiServices:
     browser_companion: Any | None = None
     browser_capture_submission: Any | None = None
     email_auth: Any | None = None
+    external_auth: Any | None = None
     trusted_proxy_hosts: str = ""
     # Retained conversation/link routes are mounted by this canonical app.
     # Optional values keep the OpenAPI exporter inert while allowing runtime
@@ -404,12 +412,18 @@ def create_app(
                 "Authorization, Content-Type, Idempotency-Key"
             )
             response.headers["Vary"] = "Origin"
+        external_form_origins = authorization_form_origins(
+            tuple(services.external_auth.available_providers)
+            if services is not None and services.external_auth is not None
+            else ()
+        )
+        form_sources = " ".join(("'self'", *external_form_origins))
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self'; "
             "img-src 'self' https://i.ytimg.com https://img.youtube.com "
             "https://ntulearnvideo.ntu.edu.sg data:; "
             "connect-src 'self'; object-src 'none'; base-uri 'none'; "
-            "frame-ancestors 'none'; form-action 'self'"
+            f"frame-ancestors 'none'; form-action {form_sources}"
         )
         if expected_origin and expected_origin.startswith("https://"):
             response.headers["Strict-Transport-Security"] = (
@@ -422,6 +436,9 @@ def create_app(
         ).startswith("text/html"):
             response.headers["Cache-Control"] = "no-store"
         return response
+
+    # Outermost: even middleware URL diagnostics must see a clean callback URL.
+    app.add_middleware(ExternalCallbackQueryRedactionMiddleware)
 
     @app.exception_handler(StarletteHTTPException)
     async def safe_http_error(
@@ -457,6 +474,11 @@ def create_app(
     def capabilities() -> CapabilitiesResponse:
         return CapabilitiesResponse(
             web_login_channels=public_login_channels,
+            external_login_providers=(
+                tuple(services.external_auth.available_providers)
+                if services is not None and services.external_auth is not None
+                else ()
+            ),
             save_enabled=save_enabled,
         )
 
@@ -479,8 +501,20 @@ def create_app(
                     expected_origin=expected_origin or "",
                     cookie_secure=cookie_secure,
                     trusted_proxy_hosts=services.trusted_proxy_hosts,
+                    external_flow_cookie_name=(
+                        EXTERNAL_FLOW_COOKIE_NAME if services.external_auth is not None else None
+                    ),
                 )
             )
+            if services.external_auth is not None:
+                app.include_router(
+                    build_external_auth_router(
+                        services.external_auth,
+                        expected_origin=expected_origin or "",
+                        cookie_secure=cookie_secure,
+                        trusted_proxy_hosts=services.trusted_proxy_hosts,
+                    )
+                )
 
         def authenticated_session(request: Request):
             cached = getattr(request.state, "authenticated_session", None)

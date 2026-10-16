@@ -162,14 +162,16 @@ completion notification 和维护任务；不要让新的部署监听已经退�
 
 ## Web 与登录
 
-生产 canonical Web runtime 使用 email OTP；开发/迁移兼容路径仍支持渠道批准
-登录。二者都使用同一类 opaque session 和 CSRF cookie，但配置入口不同。
+生产 canonical Web runtime 保留 email OTP，并可按配置启用 Microsoft、微信网站和
+QQ 登录。首次外部授权需要验证邮箱并明确绑定到该邮箱的原有或新账户，之后同一
+外部账号可直接进入原资料库。开发/迁移兼容路径仍支持渠道批准登录；网站微信与
+微信 Bot 身份不同，不能通过邮箱声明、昵称或相同 ID 文本自动合并。
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `WEB_AUTH_ENABLED` | `false` | 生产必须为 `true` |
 | `WEB_PUBLIC_ORIGIN` | 未设置 | 开启 email Web auth 时必需的精确 HTTPS origin，无末尾 `/` |
-| `WEB_AUTH_SECRET` | 未设置 | 至少 32 字符；用于登录码/会话密钥材料 |
+| `WEB_AUTH_SECRET` | 未设置 | 至少 32 字符的高熵随机 secret；用于验证码 HMAC 和外部流程短期加密材料的独立派生密钥 |
 | `WEB_COOKIE_SECURE` | `true` | 必须保持 true，以满足 `__Host-` cookie 合约 |
 | `WEB_API_PREFIX` | `/api/v1` | 固定值，不能自定义 |
 | `EMAIL_PROVIDER` | 未设置 | 生产 Web auth 需 `resend` 或 `smtp` |
@@ -177,8 +179,8 @@ completion notification 和维护任务；不要让新的部署监听已经退�
 | `SMTP_HOST` / `SMTP_PORT` | 未设置 / `587` | `EMAIL_PROVIDER=smtp` 时使用 |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM_EMAIL` | 未设置 | SMTP 凭据和发件人 |
 | `SMTP_STARTTLS` | `true` | SMTP STARTTLS 开关 |
-| `WEB_SESSION_TTL_SECONDS` | `2592000` | email session TTL |
-| `WEB_SESSION_CACHE_TTL_SECONDS` | `60` | Redis session projection TTL；`0` 表示只查 PostgreSQL |
+| `WEB_SESSION_TTL_SECONDS` | `2592000` | 邮箱及外部登录的浏览器 session TTL |
+| `WEB_SESSION_CACHE_TTL_SECONDS` | `60` | 仅邮箱 Redis session projection TTL；`0` 表示只查 PostgreSQL；外部来源 session 始终查数据库 |
 | `WEB_AUTH_CODE_TTL_SECONDS` | `600` | email code TTL |
 | `WEB_AUTH_MAX_ATTEMPTS` | `5` | email code 尝试上限 |
 | `WEB_AUTH_RESEND_SECONDS` | `60` | 同一邮箱 resend 间隔 |
@@ -198,6 +200,31 @@ completion notification 和维护任务；不要让新的部署监听已经退�
 `app.api.runtime.build_web_app` 使用 `WEB_PUBLIC_ORIGIN` + email auth。两者都
 必须是精确 origin，不能包含 credentials、path、query、fragment 或末尾 `/`；
 不要把旧配置误当成生产 email auth 的替代品。
+
+### 可选外部登录配置
+
+| 变量 | 默认值 | secret | 说明 |
+| --- | --- | --- | --- |
+| `WEB_MICROSOFT_ENABLED` | `false` | 否 | 启用已配置的 Microsoft Web 登录 |
+| `WEB_MICROSOFT_CLIENT_ID` | 未设置 | 否 | 注册应用的 client ID |
+| `WEB_MICROSOFT_CLIENT_SECRET` | 未设置 | 是 | 注册 Web 应用的私有 client secret value |
+| `WEB_MICROSOFT_TENANT` | `common` | 否 | `common`、`organizations`、`consumers` 或 tenant UUID；不接受任意 authority URL |
+| `WEB_WECHAT_WEBSITE_ENABLED` | `false` | 否 | 启用已审核的微信网站应用登录，与 Bot 无关 |
+| `WEB_WECHAT_WEBSITE_APP_ID` | 未设置 | 否 | 网站应用 AppID |
+| `WEB_WECHAT_WEBSITE_APP_SECRET` | 未设置 | 是 | 网站应用 AppSecret |
+| `WEB_QQ_ENABLED` | `false` | 否 | 启用已审核的 QQ Connect 网站应用登录 |
+| `WEB_QQ_APP_ID` | 未设置 | 否 | QQ 网站应用 AppID |
+| `WEB_QQ_APP_KEY` | 未设置 | 是 | QQ 网站应用 AppKey |
+
+启用任一外部方式都要求 `WEB_AUTH_ENABLED=true`、安全 cookie、正确的 HTTPS origin
+和完整应用配置。缺少凭据时保持 enable flag 为 false；启用但配置不完整会使启动
+验证失败。`/api/v1/capabilities.external_login_providers` 仅列出已启用、配置完整的
+实现，不把未申请的应用渲染成可用按钮；所有凭据只属于后端，不能放入 `VITE_*`。
+
+授权流程固定十分钟，过期需重新授权。更换应用 ID 或 secret 后重启服务会使旧的
+未完成流程失效，不会按提供方邮箱重新绑定资料库。`TLS_CA_BUNDLE` 也用于提供方
+HTTPS 请求，不能关闭证书验证。应用申请、审批、回调域名和真实收信验收见
+[配置指南](../how-to/configure-external-login.md)。本仓库不附送已注册应用或真实密钥。
 
 ## 浏览器伴侣
 

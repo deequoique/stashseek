@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   BrowserRouter,
@@ -20,6 +20,7 @@ import { useRouteNavigate } from "./RouteTransition";
 const AccountLinkPage = lazy(() => import("../account/AccountLinkPage").then((module) => ({ default: module.AccountLinkPage })));
 const BrowserCompanionPage = lazy(() => import("../account/BrowserCompanionPage").then((module) => ({ default: module.BrowserCompanionPage })));
 const LoginPage = lazy(() => import("../auth/LoginPage").then((module) => ({ default: module.LoginPage })));
+const ExternalLoginPage = lazy(() => import("../auth/ExternalLoginPage").then((module) => ({ default: module.ExternalLoginPage })));
 const ChatPage = lazy(() => import("../chat/ChatPage").then((module) => ({ default: module.ChatPage })));
 const LibraryPage = lazy(() => import("../library/LibraryPage").then((module) => ({ default: module.LibraryPage })));
 const ShowcasePage = lazy(() => import("../showcase/ShowcasePage").then((module) => ({ default: module.ShowcasePage })));
@@ -167,14 +168,43 @@ function AccountLinkRoute({ rotateClient }: { rotateClient: () => void }) {
   return <AccountLinkPage onLinked={onLinked} />;
 }
 
-function LoginRoute({ activateSession }: { activateSession: (session: SessionInfo, capabilities?: PublicCapabilitiesSnapshot) => void }) {
+function LoginRoute({ activateSession, external = false }: { activateSession: (session?: SessionInfo, capabilities?: PublicCapabilitiesSnapshot) => void; external?: boolean }) {
   const client = useQueryClient();
   const navigate = useRouteNavigate();
   const location = useLocation();
-  const returnTo = loginReturnTo(location.state);
+  const returnTo = external ? "/library" : loginReturnTo(location.state);
+  const Page = external ? ExternalLoginPage : LoginPage;
+  const active = useRef(true);
+  const previousPrivate = useMemo(() => ({
+    queries: client.getQueryCache().getAll().filter((query) => {
+      const key = query.queryKey[0];
+      if (key === "capabilities" || key === "login-session-probe") return false;
+      return !(key === "login-challenge" && query.queryKey[1] == null && query.state.data === undefined && query.state.fetchStatus === "idle");
+    }),
+    mutations: client.getMutationCache().getAll().filter((mutation) => mutation.state.status !== "idle"),
+  }), [client, external]);
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, [client, external]);
+  const onAnonymous = useCallback(() => {
+    if (!active.current) return;
+    const hasOldPrivateState = previousPrivate.queries.some((query) => client.getQueryCache().get(query.queryHash) === query)
+      || previousPrivate.mutations.some((mutation) => client.getMutationCache().getAll().includes(mutation));
+    if (!hasOldPrivateState) return;
+    const capabilities = client.getQueryState<Capabilities>(["capabilities"]);
+    const publicSnapshot = capabilities?.status === "success" && capabilities.data
+      ? { data: capabilities.data, updatedAt: capabilities.dataUpdatedAt }
+      : undefined;
+    active.current = false;
+    client.clear();
+    activateSession(undefined, publicSnapshot);
+  }, [activateSession, client, previousPrivate]);
   return (
-    <LoginPage
+    <Page
       onAuthenticated={(session) => {
+        if (!active.current) return;
+        active.current = false;
         const capabilities = client.getQueryState<Capabilities>(["capabilities"]);
         const publicSnapshot = capabilities?.status === "success" && capabilities.data
           ? { data: capabilities.data, updatedAt: capabilities.dataUpdatedAt }
@@ -183,6 +213,8 @@ function LoginRoute({ activateSession }: { activateSession: (session: SessionInf
         activateSession(session, publicSnapshot);
         navigate(returnTo, { replace: true });
       }}
+      onAnonymous={onAnonymous}
+      onSignedOut={() => endPrivateSession(client, navigate, () => activateSession())}
     />
   );
 }
@@ -204,6 +236,7 @@ function UnauthorizedBoundary({ rotateClient }: { rotateClient: (session?: Sessi
       <Route path="/" element={<LazyPage><ShowcasePage /></LazyPage>} />
       <Route path="/showcase" element={<Navigate to="/" replace />} />
       <Route path="/login" element={<LazyPage><LoginRoute activateSession={rotateClient} /></LazyPage>} />
+      <Route path="/login/external" element={<LazyPage><LoginRoute activateSession={rotateClient} external /></LazyPage>} />
       <Route element={<ProtectedLayout rotateClient={rotateClient} />}>
         <Route path="/library" element={<LibraryPage />} />
         <Route path="/chat" element={<ChatPage sendStream={streamConversationMessage} />} />

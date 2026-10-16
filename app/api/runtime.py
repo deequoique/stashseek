@@ -52,6 +52,8 @@ def build_web_app(
     publisher=None,
     object_store=None,
     email_auth=None,
+    external_auth=None,
+    external_providers=None,
     channel_service=None,
     mount_static: bool | None = None,
 ):
@@ -99,6 +101,16 @@ def build_web_app(
         # Tests and embedders may inject the deterministic in-memory service;
         # production still builds the configured provider-backed service here.
         email_auth = email_auth or build_email_auth_service(settings, factory)
+        if external_auth is None:
+            from app.external_auth import ExternalLoginService
+            from app.external_providers import build_external_providers
+
+            providers = (
+                build_external_providers(settings)
+                if external_providers is None
+                else external_providers
+            )
+            external_auth = ExternalLoginService(email_auth, settings, providers)
         web_auth = EmailWebAuthAdapter(email_auth)
         expected_origin = getattr(settings, "web_public_origin", None) or ""
         public_login_channels = ("email",)
@@ -133,6 +145,7 @@ def build_web_app(
     services = WebApiServices(
         web_auth=web_auth,
         email_auth=email_auth,
+        external_auth=external_auth,
         channel_service=channel_service or _LazyChannelService(settings, factory),
         session_resolver=(email_auth or web_auth).resolve_session,
         session_identity_resolver=lambda session: resolve_browser_session_identity(

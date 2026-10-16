@@ -5,7 +5,7 @@ import asyncio
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 
 from app.bootstrap import build_channel_service, build_embedding_provider
 from app.channels.http_gateway import serve as serve_channel_gateway
@@ -14,7 +14,7 @@ from app.config import get_settings
 from app.diagnostics import configure_runtime_logging
 from app.db import get_session_factory, session
 from app.ingest.tasks import ingest_url
-from app.models import AppUser, ChannelIdentity
+from app.models import AppUser, ChannelIdentity, ExternalLoginIdentity
 from app.retrieval.search import bm25_search, vector_search
 from app.mcp_grants import McpGrantError, McpGrantService
 from app.web_auth import revoke_web_sessions
@@ -161,12 +161,20 @@ def _users(args) -> None:
             print(f"user={user.id}")
             return
         if args.user_command == "rebind-identity":
-            user = db.get(AppUser, args.user_id)
-            identity = db.get(ChannelIdentity, args.identity_id)
+            user = db.scalar(select(AppUser).where(AppUser.id == args.user_id).with_for_update())
+            identity = db.scalar(select(ChannelIdentity).where(ChannelIdentity.id == args.identity_id).with_for_update())
             if user is None:
                 raise SystemExit(f"app user {args.user_id} not found")
             if identity is None:
                 raise SystemExit(f"channel identity {args.identity_id} not found")
+            if (
+                identity.app_user_id != user.id
+                and inspect(db.connection()).has_table("external_login_identity")
+                and db.scalar(select(ExternalLoginIdentity.id).where(
+                    ExternalLoginIdentity.channel_identity_id == identity.id,
+                ).limit(1)) is not None
+            ):
+                raise SystemExit("identity has external login bindings; use the supported account-linking flow")
             identity.app_user_id = user.id
             db.commit()
             print(f"identity={identity.id} user={user.id}")

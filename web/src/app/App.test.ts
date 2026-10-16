@@ -17,7 +17,8 @@ import {
 
 const chatCapabilities: Capabilities = {
   supported_platforms: ["youtube"], browser_companion: true, web_login_channels: ["email"],
-save_enabled: true, max_save_batch_size: 10,
+  external_login_providers: [],
+  save_enabled: true, max_save_batch_size: 10,
 transcript_pagination: true,
   archive: true, summary_generation: false, chat: true,
 };
@@ -40,7 +41,79 @@ async function verifyLogin() {
 }
 
 describe("private cache boundary", () => {
+  it("clears an old private client once while keeping anonymous continuation and public capabilities", async () => {
+    window.history.replaceState({}, "", "/login/external");
+    const oldClient = createSessionQueryClient(verifiedSession, { data: { ...chatCapabilities, chat: false }, updatedAt: Date.now() });
+    oldClient.setQueryData(["library", "old-owner"], { title: "old private title" });
+    let privateSignal: AbortSignal | undefined;
+    let finishPrivate: (value: string) => void = () => undefined;
+    const oldRequest = oldClient.fetchQuery({ queryKey: ["private-slow"], queryFn: ({ signal }) => {
+      privateSignal = signal;
+      return new Promise<string>((resolve) => { finishPrivate = resolve; });
+    } }).catch(() => undefined);
+    const clear = vi.spyOn(oldClient, "clear");
+    let authenticated = false;
+    const externalSession = { ...verifiedSession, login_channel: "microsoft" as const };
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = String(input);
+      if (path === "/api/v1/auth/external/pending") return json({ status: "email_required", provider: "microsoft", expires_at: "2099-10-15T12:00:00Z" });
+      if (path === "/api/v1/auth/session") return authenticated ? json(externalSession) : json({ code: "session_invalid", message: "登录已失效" }, 401);
+      if (path === "/api/v1/auth/external/pending/challenges") return json({ status: "accepted" });
+      if (path === "/api/v1/auth/external/pending/verify") { authenticated = true; return json(externalSession); }
+      if (path.startsWith("/api/v1/library/items?")) return json(emptyLibrary);
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    const user = userEvent.setup();
+    render(createElement(App, { initialClient: oldClient }));
+    await user.type(await screen.findByRole("textbox", { name: "资料库邮箱" }), "reader@example.test");
+    expect(window.location.pathname).toBe("/login/external");
+    expect(clear).toHaveBeenCalledOnce();
+    expect(privateSignal?.aborted).toBe(true);
+    expect(oldClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(oldClient.getMutationCache().getAll()).toHaveLength(0);
+    expect(fetch.mock.calls.filter(([path]) => String(path) === "/api/v1/auth/session")).toHaveLength(2);
+    await act(async () => { finishPrivate("late old owner"); await oldRequest; });
+    expect(oldClient.getQueryCache().getAll()).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "获取验证码" }));
+    await user.type(await screen.findByRole("textbox", { name: "6 位验证码" }), "123456");
+    await user.click(screen.getByRole("button", { name: "验证并绑定" }));
+    expect(await screen.findByRole("heading", { name: "我的视频资料库" })).toBeInTheDocument();
+    expect(screen.queryByText("old private title")).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([path]) => String(path) === "/api/v1/capabilities")).toBe(false);
+    expect(clear).toHaveBeenCalledOnce();
+  });
 
+  it("keeps anonymous external continuation on its clean route and activates the verified Session", async () => {
+    window.history.replaceState({}, "", "/login/external");
+    let authenticated = false;
+    const externalSession = { ...verifiedSession, login_channel: "microsoft" as const };
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const path = String(input);
+      if (path === "/api/v1/auth/external/pending") return json({ status: "email_required", provider: "microsoft", expires_at: "2099-10-15T12:00:00Z", error_code: null });
+      if (path === "/api/v1/auth/session") return authenticated ? json(externalSession) : json({ code: "session_invalid", message: "登录已失效" }, 401);
+      if (path === "/api/v1/auth/external/pending/challenges") return json({ status: "accepted" });
+      if (path === "/api/v1/auth/external/pending/verify") {
+        expect(JSON.parse(String(init?.body))).toEqual({ email: "reader@example.test", code: "123456", confirm_binding: true });
+        authenticated = true;
+        return json(externalSession);
+      }
+      if (path === "/api/v1/capabilities") return json({ ...chatCapabilities, chat: false, external_login_providers: [] });
+      if (path.startsWith("/api/v1/library/items?")) return json(emptyLibrary);
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    const user = userEvent.setup();
+    render(createElement(App));
+    await user.type(await screen.findByRole("textbox", { name: "资料库邮箱" }), "reader@example.test");
+    expect(window.location.pathname).toBe("/login/external");
+    expect(fetch.mock.calls.filter(([path]) => String(path) === "/api/v1/auth/session")).toHaveLength(1);
+    expect(fetch.mock.calls.map(([path]) => String(path)).some((path) => path.startsWith("/api/v1/library"))).toBe(false);
+    await user.click(screen.getByRole("button", { name: "获取验证码" }));
+    await user.type(await screen.findByRole("textbox", { name: "6 位验证码" }), "123456");
+    await user.click(screen.getByRole("button", { name: "验证并绑定" }));
+    expect(await screen.findByRole("heading", { name: "我的视频资料库" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/library");
+    expect(screen.getByText("Microsoft")).toBeInTheDocument();
+  });
 
   it("clears all cached tenant data after a successful logout", async () => {
     const client = new QueryClient();

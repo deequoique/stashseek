@@ -377,6 +377,19 @@
             "title": "Chat",
             "type": "boolean"
           },
+          "external_login_providers": {
+            "default": [],
+            "items": {
+              "enum": [
+                "microsoft",
+                "wechat_website",
+                "qq"
+              ],
+              "type": "string"
+            },
+            "title": "External Login Providers",
+            "type": "array"
+          },
           "max_save_batch_size": {
             "default": 10,
             "title": "Max Save Batch Size",
@@ -1481,6 +1494,115 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "ExternalLoginPendingResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "flow_invalid",
+                  "flow_expired",
+                  "flow_used",
+                  "flow_csrf_invalid",
+                  "provider_unavailable",
+                  "provider_failed",
+                  "provider_denied",
+                  "session_present",
+                  "session_changed",
+                  "binding_conflict",
+                  "verification_failed",
+                  "invalid_email",
+                  "login_rate_limited",
+                  "email_delivery_unavailable",
+                  "request_failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "enum": [
+                  "microsoft",
+                  "wechat_website",
+                  "qq"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "status": {
+            "enum": [
+              "created",
+              "exchanging",
+              "email_required",
+              "completed",
+              "failed",
+              "cancelled",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ExternalLoginPendingResponse",
+        "type": "object"
+      },
+      "ExternalLoginVerifyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 6,
+            "minLength": 6,
+            "pattern": "^\\d{6}$",
+            "title": "Code",
+            "type": "string"
+          },
+          "confirm_binding": {
+            "const": true,
+            "title": "Confirm Binding",
+            "type": "boolean"
+          },
+          "email": {
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "code",
+          "confirm_binding"
+        ],
+        "title": "ExternalLoginVerifyRequest",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1984,7 +2106,10 @@
             "enum": [
               "email",
               "telegram",
-              "wechat"
+              "wechat",
+              "microsoft",
+              "wechat_website",
+              "qq"
             ],
             "title": "Login Channel",
             "type": "string"
@@ -2204,6 +2329,281 @@
           }
         },
         "summary": "Request Challenge",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/external/pending": {
+      "delete": {
+        "operationId": "cancel_api_v1_auth_external_pending_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Cancel",
+        "tags": [
+          "authentication"
+        ]
+      },
+      "get": {
+        "operationId": "pending_api_v1_auth_external_pending_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalLoginPendingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Pending",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/external/pending/challenges": {
+      "post": {
+        "operationId": "request_challenge_api_v1_auth_external_pending_challenges_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailChallengeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Request Challenge",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/external/pending/verify": {
+      "post": {
+        "operationId": "verify_api_v1_auth_external_pending_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExternalLoginVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/external/{provider}/callback": {
+      "get": {
+        "operationId": "callback_api_v1_auth_external__provider__callback_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Leave protocol parameters at a fixed clean URL"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/external/{provider}/start": {
+      "post": {
+        "operationId": "start_api_v1_auth_external__provider__start_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Navigate to authorization or clean continuation"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start",
         "tags": [
           "authentication"
         ]

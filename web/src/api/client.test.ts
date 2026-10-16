@@ -8,6 +8,12 @@ import {
   setUnauthorizedHandler,
   streamConversationMessage,
   StreamingUnavailableError,
+  cancelExternalLogin,
+  getExternalLoginPending,
+  getSession,
+  probeLoginSession,
+  requestExternalLoginCode,
+  verifyExternalLogin,
 } from "./client";
 
 function streamRecord(event: Record<string, unknown>): string {
@@ -15,22 +21,48 @@ function streamRecord(event: Record<string, unknown>): string {
 }
 
 describe("same-origin API client", () => {
-  it("ignores a cancelled old-session 401 after its response body arrives", async () => {
+  it("uses only the flow CSRF cookie for external mutations and keeps Session CSRF separate", async () => {
+    document.cookie = "__Host-kb_csrf=session-csrf; Path=/; Secure";
+    document.cookie = "__Host-kb_external_csrf=flow-csrf; Path=/; Secure";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_path, init) =>
+      init?.method === "DELETE" ? new Response(null, { status: 204 }) : new Response(JSON.stringify({ status: "accepted" }), { status: 200 }));
+    await requestExternalLoginCode("reader@example.test");
+    await verifyExternalLogin({ email: "reader@example.test", code: "123456", confirm_binding: true });
+    await cancelExternalLogin();
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe("flow-csrf");
+      expect(init?.credentials).toBe("same-origin");
+    }
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ email: "reader@example.test", code: "123456", confirm_binding: true });
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/auth/external/pending/challenges");
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/auth/external/pending/verify");
+    expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/auth/external/pending");
+    await requestJson("/api/v1/protected", { method: "POST", body: "{}" });
+    expect(new Headers(fetchMock.mock.calls[3][1]?.headers).get("X-CSRF-Token")).toBe("session-csrf");
+    document.cookie = "__Host-kb_external_csrf=; Path=/; Secure; Max-Age=0";
+    await requestExternalLoginCode("reader@example.test");
+    expect(new Headers(fetchMock.mock.calls[4][1]?.headers).has("X-CSRF-Token")).toBe(false);
+  });
+
+  it("handles anonymous login probes locally while protected Session invalidation stays global", async () => {
     const onUnauthorized = vi.fn();
     setUnauthorizedHandler(onUnauthorized);
-    const controller = new AbortController();
-    let releaseBody: (value: { code: string; message: string }) => void = () => undefined;
-    const response = new Response(null, { status: 401 });
-    vi.spyOn(response, "json").mockImplementation(() => new Promise((resolve) => { releaseBody = resolve; }));
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ code: "session_invalid", message: "登录已失效" }), { status: 401 }));
+    await expect(probeLoginSession()).resolves.toBeNull();
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    await expect(getSession()).rejects.toMatchObject({ code: "session_invalid" });
+    expect(onUnauthorized).toHaveBeenCalledOnce();
+  });
 
-    const result = requestJson("/api/v1/conversations?limit=30", { signal: controller.signal });
-    const rejection = expect(result).rejects.toEqual(expect.objectContaining({ name: "AbortError" }));
-    await vi.waitFor(() => expect(response.json).toHaveBeenCalledOnce());
-    controller.abort();
-    releaseBody({ code: "session_invalid", message: "登录已失效" });
-
-    await rejection;
+  it("reads pending state only through the Cookie and preserves cancelled-probe isolation", async () => {
+    const onUnauthorized = vi.fn();
+    setUnauthorizedHandler(onUnauthorized);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "expired", provider: null, expires_at: null }), { status: 200 }));
+    await getExternalLoginPending();
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/auth/external/pending");
+    expect(fetchMock.mock.calls[0][1]?.body).toBeUndefined();
+    const controller = new AbortController(); controller.abort();
+    await expect(probeLoginSession(controller.signal)).rejects.toMatchObject({ name: "AbortError" });
     expect(onUnauthorized).not.toHaveBeenCalled();
   });
 
@@ -80,6 +112,42 @@ describe("same-origin API client", () => {
       requestJson("/api/v1/auth/verify", { method: "POST", body: "{}" }),
     ).rejects.toEqual(expect.objectContaining({ status: 401, code: "verification_failed" }));
     expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it("ignores a cancelled old-session 401 after its response body arrives", async () => {
+    const onUnauthorized = vi.fn();
+    setUnauthorizedHandler(onUnauthorized);
+    const controller = new AbortController();
+    let releaseBody: (value: { code: string; message: string }) => void = () => undefined;
+    const response = new Response(null, { status: 401 });
+    vi.spyOn(response, "json").mockImplementation(() => new Promise((resolve) => { releaseBody = resolve; }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+
+    const result = requestJson("/api/v1/conversations?limit=30", { signal: controller.signal });
+    const rejection = expect(result).rejects.toEqual(expect.objectContaining({ name: "AbortError" }));
+    await vi.waitFor(() => expect(response.json).toHaveBeenCalledOnce());
+    controller.abort();
+    releaseBody({ code: "session_invalid", message: "登录已失效" });
+
+    await rejection;
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it("does not let an un-aborted old mutation invalidate a replacement Session owner", async () => {
+    const oldOwner = vi.fn();
+    const replacementOwner = vi.fn();
+    setUnauthorizedHandler(oldOwner);
+    let finish: (response: Response) => void = () => undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    const request = requestJson("/api/v1/library/items/item:archive", { method: "POST" });
+    const rejection = expect(request).rejects.toMatchObject({ code: "session_invalid" });
+    // Cache rotation remounts the unauthorized boundary; mutations already
+    // sent without AbortSignal can still finish after this replacement.
+    setUnauthorizedHandler(replacementOwner);
+    finish(new Response(JSON.stringify({ code: "session_invalid", message: "登录已失效" }), { status: 401 }));
+    await rejection;
+    expect(oldOwner).not.toHaveBeenCalled();
+    expect(replacementOwner).not.toHaveBeenCalled();
   });
 
   it("creates a Telegram-targeted link token through the CSRF-protected API", async () => {

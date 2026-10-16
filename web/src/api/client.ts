@@ -7,6 +7,8 @@ import type {
   ConsumeLinkTokenInput,
   EmailChallengeInput,
   EmailVerifyInput,
+  ExternalLoginPending,
+  ExternalLoginVerifyInput,
   LinkTokenInput,
   LinkTokenResponse,
   LinkedResponse,
@@ -75,13 +77,15 @@ function cookie(name: string): string | null {
 export async function requestJson<T>(
   path: string,
   init: RequestInit = {},
+  context: { csrf?: "session" | "external"; unauthorized?: "global" | "local" } = {},
 ): Promise<T> {
+  const requestUnauthorizedHandler = unauthorizedHandler;
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   if (init.method && !["GET", "HEAD", "OPTIONS"].includes(init.method.toUpperCase())) {
-    const csrf = cookie("__Host-kb_csrf");
+    const csrf = cookie(context.csrf === "external" ? "__Host-kb_external_csrf" : "__Host-kb_csrf");
     if (csrf) headers.set("X-CSRF-Token", csrf);
   }
   const response = await fetch(path, {
@@ -102,8 +106,9 @@ export async function requestJson<T>(
     // Login verification failures are 401s too, but they are recoverable
     // form errors.  Only an invalidated browser session tears down the
     // private query client and redirects to the login route.
-    if (response.status === 401 && payload.code === "session_invalid") {
-      unauthorizedHandler?.();
+    if (response.status === 401 && payload.code === "session_invalid" && context.unauthorized !== "local"
+      && requestUnauthorizedHandler === unauthorizedHandler) {
+      requestUnauthorizedHandler?.();
     }
     throw error;
   }
@@ -167,6 +172,37 @@ export function verifyEmailChallenge(
 
 export function getSession(signal?: AbortSignal): Promise<SessionInfo> {
   return requestJson("/api/v1/auth/session", { signal });
+}
+
+// Missing authentication is expected while an anonymous login is in progress.
+// Protected requests continue to use getSession() and global invalidation.
+export async function probeLoginSession(signal?: AbortSignal): Promise<SessionInfo | null> {
+  try {
+    return await requestJson<SessionInfo>("/api/v1/auth/session", { signal }, { unauthorized: "local" });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401 && error.code === "session_invalid") return null;
+    throw error;
+  }
+}
+
+export function getExternalLoginPending(signal?: AbortSignal): Promise<ExternalLoginPending> {
+  return requestJson("/api/v1/auth/external/pending", { signal });
+}
+
+export function requestExternalLoginCode(email: string, signal?: AbortSignal): Promise<AcceptedResponse> {
+  return requestJson("/api/v1/auth/external/pending/challenges", {
+    method: "POST", body: JSON.stringify({ email }), signal,
+  }, { csrf: "external" });
+}
+
+export function verifyExternalLogin(input: ExternalLoginVerifyInput, signal?: AbortSignal): Promise<SessionInfo> {
+  return requestJson("/api/v1/auth/external/pending/verify", {
+    method: "POST", body: JSON.stringify(input), signal,
+  }, { csrf: "external" });
+}
+
+export function cancelExternalLogin(signal?: AbortSignal): Promise<void> {
+  return requestJson("/api/v1/auth/external/pending", { method: "DELETE", signal }, { csrf: "external" });
 }
 
 export function logout(): Promise<void> {

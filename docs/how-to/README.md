@@ -13,6 +13,7 @@
 
 - [连接 MCP 客户端](connect-mcp-client.md)：签发 grant，选择 stdio 或 Streamable HTTP，并检查 scope。
 - [接入 LangBot](connect-langbot.md)：配置可选的 Telegram/微信桥接，并绑定跨渠道身份。
+- [配置外部账号登录](configure-external-login.md)：申请并配置 Microsoft、微信网站、QQ 应用，验证邮箱绑定与真实域名登录；与 Bot 身份分开。
 
 ## 部署与运维
 

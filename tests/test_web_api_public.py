@@ -32,6 +32,7 @@ def test_public_health_capabilities_and_openapi_are_safe():
         "supported_platforms": ["youtube", "bilibili", "ntu_kaltura"],
         "browser_companion": True,
         "web_login_channels": ["telegram", "wechat"],
+        "external_login_providers": [],
         "save_enabled": True,
         "max_save_batch_size": 10,
         "transcript_pagination": True,
