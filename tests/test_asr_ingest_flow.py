@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -47,6 +48,7 @@ from app.ingest.tasks import (
     _completion_diagnostic,
     _handoff_dispatch_to_asr,
     celery_app,
+    ingest_url,
     process_dispatch,
     process_item,
     publish_asr_dispatch,
@@ -132,8 +134,9 @@ class Inner:
 
     platform = "youtube"
 
-    def __init__(self, text=None):
+    def __init__(self, text=None, chapters=None):
         self.text = text if text is not None else NeedsASR()
+        self.chapters = chapters if chapters is not None else []
         self.calls: list[str] = []
 
     def match(self, _url):
@@ -141,7 +144,7 @@ class Inner:
 
     def fetch_meta(self, platform_id):
         self.calls.append("meta")
-        return _meta(platform_id=platform_id)
+        return _meta(platform_id=platform_id, chapters=list(self.chapters))
 
     def fetch_text(self, _platform_id):
         self.calls.append("text")
@@ -177,6 +180,26 @@ class RawStore:
 
     def delete_object(self, _key):
         return None
+
+
+class CombinedStore:
+    """One fake bucket playing both the temporary-audio and transcript roles."""
+
+    def __init__(self):
+        self.audio = AudioStore()
+        self.raw = RawStore()
+
+    def put_file(self, key, path, content_type):
+        return self.audio.put_file(key, path, content_type)
+
+    def delete_object(self, key, **kwargs):
+        return self.audio.delete_object(key, **kwargs)
+
+    def put(self, key, body, content_type):
+        return self.raw.put(key, body, content_type)
+
+    def get(self, *args, **kwargs):
+        return self.raw.get(*args, **kwargs)
 
 
 class Embedder:
@@ -345,7 +368,7 @@ def test_unsupported_platform_stays_needs_asr_with_handoff_requested(monkeypatch
     assert item.state == "needs_asr"
 
 
-def test_browser_capture_without_captions_never_hands_off(monkeypatch):
+def test_youtube_capture_without_captions_hands_off_when_asr_is_enabled(monkeypatch):
     monkeypatch.setattr("app.ingest.tasks.get_settings", lambda: _settings())
     monkeypatch.setattr(
         "app.ingest.tasks._connector",
@@ -353,16 +376,51 @@ def test_browser_capture_without_captions_never_hands_off(monkeypatch):
     )
     item = _item()
     capture = SimpleNamespace(caption_status="unavailable")
+    db = ItemDB(item, capture)
+
+    state = process_item(item.id, asr_handoff=True, session_factory=lambda: db)
+
+    assert state == ASR_PENDING == "asr_pending"
+    assert item.state == "fetching"
+    assert item.text_source == "none"
+    assert db.commits == ["fetching", "fetching"]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "settings_overrides", "asr_handoff"),
+    [
+        pytest.param({}, {"asr_enabled": False}, True, id="asr_disabled"),
+        pytest.param({}, {}, False, id="no_handoff_requested"),
+        pytest.param(
+            {"platform": "ntu_kaltura", "platform_id": "1_abc"},
+            {},
+            True,
+            id="ntu_kaltura_is_private",
+        ),
+    ],
+)
+def test_capture_without_captions_stays_needs_asr_when_not_eligible(
+    monkeypatch, overrides, settings_overrides, asr_handoff
+):
+    monkeypatch.setattr(
+        "app.ingest.tasks.get_settings", lambda: _settings(**settings_overrides)
+    )
+    monkeypatch.setattr(
+        "app.ingest.tasks._connector",
+        lambda _url: pytest.fail("capture path must not use a remote connector"),
+    )
+    item = _item(**overrides)
+    capture = SimpleNamespace(caption_status="unavailable")
+    db = ItemDB(item, capture)
 
     state = process_item(
-        item.id,
-        asr_handoff=True,
-        session_factory=lambda: ItemDB(item, capture),
+        item.id, asr_handoff=asr_handoff, session_factory=lambda: db
     )
 
     assert state == "needs_asr"
     assert item.state == "needs_asr"
     assert item.text_source == "none"
+    assert db.commits == ["fetching", "needs_asr"]
 
 
 def test_asr_transcript_is_stored_as_capture_v1_and_item_becomes_ready(monkeypatch):
@@ -1175,7 +1233,20 @@ def test_transient_download_error_releases_without_an_event(pg_factory, worker_e
 # ---------------------------------------------------------------------------
 
 
-def _capture_row(factory, user_id, item_id, dispatch_id):
+def _capture_row(
+    factory,
+    user_id,
+    item_id,
+    dispatch_id,
+    *,
+    caption_status="unavailable",
+    state="ready",
+    created_at=None,
+):
+    available = caption_status == "available"
+    values = {}
+    if created_at is not None:
+        values["created_at"] = created_at
     with factory() as db:
         db.add(
             BrowserCapture(
@@ -1187,15 +1258,40 @@ def _capture_row(factory, user_id, item_id, dispatch_id):
                 body_hash="0" * 64,
                 protocol_version="capture.v1",
                 client_version="test",
-                caption_status="unavailable",
+                caption_status=caption_status,
+                caption_source="auto_caption" if available else None,
+                language="en" if available else None,
                 capture_metadata={},
-                state="ready",
+                state=state,
+                **values,
             )
         )
         db.commit()
 
 
-def test_backfill_selects_only_public_needs_asr_items_oldest_first(pg_factory):
+def _extra_dispatch(factory, item_id, *, attempt):
+    """Another completed dispatch attempt (each capture owns a distinct one)."""
+
+    with factory() as db:
+        dispatch = IngestDispatch(
+            public_id=uuid4().hex,
+            item_id=item_id,
+            request_key=uuid4().hex,
+            attempt=attempt,
+            state="completed",
+        )
+        db.add(dispatch)
+        db.flush()
+        dispatch_id = dispatch.id
+        db.commit()
+        return dispatch_id
+
+
+def test_backfill_selects_public_and_caption_unavailable_youtube_capture_items(
+    pg_factory,
+):
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    older, newer = base, base + timedelta(hours=1)
     user_id, wanted_a, _ = _seed(pg_factory, state="needs_asr", with_dispatch=False)
     _, wanted_b, _ = _seed(
         pg_factory,
@@ -1204,24 +1300,86 @@ def test_backfill_selects_only_public_needs_asr_items_oldest_first(pg_factory):
         user_id=user_id,
         with_dispatch=False,
     )
+    # A private Kaltura item is never selected, with or without a capture row.
     _seed(pg_factory, state="needs_asr", platform="ntu_kaltura", user_id=user_id, with_dispatch=False)
+    _, kaltura, kaltura_dispatch = _seed(
+        pg_factory, state="needs_asr", platform="ntu_kaltura", user_id=user_id, dispatch_state="completed"
+    )
+    _capture_row(pg_factory, user_id, kaltura, kaltura_dispatch)
     _seed(pg_factory, state="ready", user_id=user_id, with_dispatch=False)
     _seed(pg_factory, state="needs_asr", user_id=user_id, with_dispatch=False, deleted_at=func.now())
     _seed(pg_factory, state="needs_asr", user_id=user_id, with_dispatch=False, archived_at=func.now())
+
+    # The browser found no captions on a public YouTube video: selected.
     _, captured, captured_dispatch = _seed(
         pg_factory, state="needs_asr", user_id=user_id, dispatch_state="completed"
     )
     _capture_row(pg_factory, user_id, captured, captured_dispatch)
+
+    # Captions were available, so another cause put the item in needs_asr.
+    _, with_captions, with_captions_dispatch = _seed(
+        pg_factory, state="needs_asr", user_id=user_id, dispatch_state="completed"
+    )
+    _capture_row(
+        pg_factory, user_id, with_captions, with_captions_dispatch, caption_status="available"
+    )
+
+    # No ready capture at all (only a failed attempt): excluded.
+    _, failed_only, failed_dispatch = _seed(
+        pg_factory, state="needs_asr", user_id=user_id, dispatch_state="completed"
+    )
+    _capture_row(pg_factory, user_id, failed_only, failed_dispatch, state="failed")
+
+    # The newest ready capture decides.
+    _, superseded, first_dispatch = _seed(
+        pg_factory, state="needs_asr", user_id=user_id, dispatch_state="completed"
+    )
+    _capture_row(pg_factory, user_id, superseded, first_dispatch, created_at=older)
+    _capture_row(
+        pg_factory,
+        user_id,
+        superseded,
+        _extra_dispatch(pg_factory, superseded, attempt=2),
+        caption_status="available",
+        created_at=newer,
+    )
+    _, recaptured, recaptured_first = _seed(
+        pg_factory, state="needs_asr", user_id=user_id, dispatch_state="completed"
+    )
+    _capture_row(
+        pg_factory,
+        user_id,
+        recaptured,
+        recaptured_first,
+        caption_status="available",
+        created_at=older,
+    )
+    _capture_row(
+        pg_factory,
+        user_id,
+        recaptured,
+        _extra_dispatch(pg_factory, recaptured, attempt=2),
+        created_at=newer,
+    )
+
+    # A capture of another tenant never counts for this item.
+    other_user = _seed(pg_factory, with_dispatch=False)[0]
+    _, foreign_capture, own_dispatch = _seed(
+        pg_factory, state="needs_asr", user_id=user_id, dispatch_state="completed"
+    )
+    _capture_row(pg_factory, other_user, foreign_capture, own_dispatch)
     other_user_item = _seed(pg_factory, state="needs_asr", with_dispatch=False)[1]
 
     with pg_factory() as db:
         mine = asr_backfill.select_backfill_item_ids(db, limit=50, user_id=user_id)
-        limited = asr_backfill.select_backfill_item_ids(db, limit=1, user_id=user_id)
+        limited = asr_backfill.select_backfill_item_ids(db, limit=3, user_id=user_id)
         everyone = asr_backfill.select_backfill_item_ids(db, limit=500)
 
-    assert mine == [wanted_a, wanted_b]
-    assert limited == [wanted_a]
-    assert other_user_item in everyone and captured not in everyone
+    assert mine == [wanted_a, wanted_b, captured, recaptured]
+    assert limited == [wanted_a, wanted_b, captured]
+    assert other_user_item in everyone
+    for excluded in (kaltura, with_captions, failed_only, superseded, foreign_capture):
+        assert excluded not in everyone
 
 
 def test_backfill_dry_run_changes_nothing_and_never_publishes(pg_factory):
@@ -1341,3 +1499,253 @@ def test_backfill_publish_failure_restores_needs_asr_and_is_reported(pg_factory)
             )
         )
     assert attempts == [1, 2]
+
+
+# ---------------------------------------------------------------------------
+# Browser-capture origin: a public YouTube capture without captions
+# ---------------------------------------------------------------------------
+
+CAPTURE_CHAPTERS = [{"title": "Intro", "start_sec": 0.0, "end_sec": 2.0}]
+YTDLP_CHAPTERS = [{"title": "Intro", "start_time": 0.0, "end_time": 2.0}]
+
+
+@pytest.fixture
+def capture_runtime(pg_factory, monkeypatch):
+    """Real ``process_item`` / ``_asr_processor`` over the isolated schema.
+
+    The platform connector is forbidden until a test installs one, which proves
+    the ingest-queue phase of a capture item never calls the remote platform.
+    """
+
+    monkeypatch.setattr("app.ingest.tasks.get_session_factory", lambda: pg_factory)
+    monkeypatch.setattr(
+        "app.ingest.tasks._connector",
+        lambda _url: pytest.fail("capture path must not use a remote connector"),
+    )
+    return pg_factory
+
+
+def _capture_origin(factory, *, platform="youtube", chapters=None):
+    user_id, item_id, dispatch_id = _seed(
+        factory, platform=platform, chapters=chapters
+    )
+    _capture_row(factory, user_id, item_id, dispatch_id)
+    return user_id, item_id, dispatch_id
+
+
+@pytest.mark.parametrize(
+    "meta_chapters",
+    [[], YTDLP_CHAPTERS],
+    ids=["no_ytdlp_chapters", "ytdlp_chapters"],
+)
+def test_capture_origin_youtube_without_captions_runs_asr_to_one_ready_event(
+    capture_runtime, worker_env, monkeypatch, meta_chapters
+):
+    factory = capture_runtime
+    # The capture stored ``start_sec`` chapters, which ``chunk`` cannot read.
+    user_id, item_id, dispatch_id = _capture_origin(
+        factory, chapters=CAPTURE_CHAPTERS
+    )
+
+    # 1. ingest queue: the default dispatch processor resolves the capture,
+    #    never the connector, and hands the same dispatch to the asr queue.
+    assert (
+        process_dispatch(dispatch_id, task_id="ingest-task", session_factory=factory)
+        == "asr_pending"
+    )
+    dispatch = _row(factory, IngestDispatch, dispatch_id)
+    item = _row(factory, ContentItem, item_id)
+    assert (dispatch.state, dispatch.task_id) == ("enqueued", None)
+    assert item.state == "fetching"
+    assert worker_env.asr_published == [dispatch_id]
+    assert _events(factory, dispatch_id) == []
+    assert worker_env.notified == []
+
+    # 2. asr queue: the unchanged ``_asr_processor`` builds the connector from
+    #    ``item.url``, so metadata/chapters come from the platform, not the capture.
+    store, funasr = CombinedStore(), FunAsr()
+    inner = Inner(chapters=meta_chapters)
+    monkeypatch.setattr("app.ingest.tasks._connector", lambda _url: inner)
+    monkeypatch.setattr("app.ingest.tasks.RawObjectStore", lambda: store)
+    real_transcriber = AsrTranscriber
+    monkeypatch.setattr(
+        "app.ingest.tasks.AsrTranscriber",
+        lambda *, settings, object_store: real_transcriber(
+            settings=settings,
+            object_store=object_store,
+            funasr=funasr,
+            whisper=None,
+            downloader=_downloader,
+        ),
+    )
+    monkeypatch.setattr("app.ingest.tasks.build_worker_embedder", lambda: Embedder())
+
+    assert (
+        process_dispatch(
+            dispatch_id,
+            task_id="asr-task",
+            processor=_asr_processor,
+            session_factory=factory,
+        )
+        == "ready"
+    )
+
+    assert inner.calls == ["meta", "text"]
+    dispatch = _row(factory, IngestDispatch, dispatch_id)
+    item = _row(factory, ContentItem, item_id)
+    assert (dispatch.state, dispatch.task_id, dispatch.error_code) == (
+        "completed",
+        "asr-task",
+        None,
+    )
+    assert item.state == "ready"
+    assert item.fail_reason is None
+    assert item.raw_format == "capture_v1"
+    assert item.text_source == "asr_whisper"
+    assert item.raw_object_key.startswith(f"{user_id}/youtube/")
+    assert item.raw_object_key.endswith(".capture.json")
+    assert [put[0] for put in store.raw.puts] == [item.raw_object_key]
+    assert store.raw.puts[0][2] == "application/json"
+    # Capture-style chapters were replaced by the platform metadata.
+    assert item.chapters == meta_chapters
+    with factory() as db:
+        segments = list(db.scalars(select(Segment).where(Segment.item_id == item_id)))
+        dims = db.scalar(
+            text("select vector_dims(embedding) from segment where item_id = :i limit 1"),
+            {"i": item_id},
+        )
+    assert len(segments) >= 1 and dims == 1536
+    assert SPOKEN in segments[0].text
+    assert segments[0].boundary_kind == ("chapter" if meta_chapters else "hard_cut")
+    # The signed URL reached the provider, then the temporary audio was deleted.
+    assert len(funasr.urls) == 1
+    assert store.audio.deleted == store.audio.puts and len(store.audio.puts) == 1
+
+    events = _events(factory, dispatch_id)
+    assert len(events) == 1
+    assert (events[0].outcome, events[0].item_state, events[0].error_code) == (
+        "completed",
+        "ready",
+        None,
+    )
+    assert worker_env.notified == [events[0].id]
+
+    # The capture row itself is untouched, and duplicate deliveries do nothing.
+    with factory() as db:
+        capture = db.scalar(select(BrowserCapture).where(BrowserCapture.item_id == item_id))
+    assert (capture.caption_status, capture.state) == ("unavailable", "ready")
+    for task_id in ("ingest-task", "asr-task"):
+        assert (
+            process_dispatch(
+                dispatch_id,
+                task_id=task_id,
+                processor=lambda _i: pytest.fail("terminal dispatch re-ran"),
+                session_factory=factory,
+            )
+            == "duplicate"
+        )
+    assert len(_events(factory, dispatch_id)) == 1
+    assert len(worker_env.notified) == 1
+
+
+def test_capture_origin_youtube_without_captions_stays_needs_asr_when_asr_is_disabled(
+    capture_runtime, worker_env, monkeypatch
+):
+    factory = capture_runtime
+    monkeypatch.setattr(
+        "app.ingest.tasks.get_settings", lambda: _settings(asr_enabled=False)
+    )
+    _user_id, item_id, dispatch_id = _capture_origin(factory)
+
+    assert (
+        process_dispatch(dispatch_id, task_id="ingest-task", session_factory=factory)
+        == "needs_asr"
+    )
+
+    dispatch = _row(factory, IngestDispatch, dispatch_id)
+    item = _row(factory, ContentItem, item_id)
+    assert (dispatch.state, dispatch.error_code) == ("completed", None)
+    assert (item.state, item.text_source) == ("needs_asr", "none")
+    assert worker_env.asr_published == []
+    events = _events(factory, dispatch_id)
+    assert len(events) == 1
+    assert (events[0].outcome, events[0].item_state, events[0].error_code) == (
+        "completed",
+        "needs_asr",
+        None,
+    )
+    assert worker_env.notified == [events[0].id]
+
+
+def test_ntu_kaltura_capture_without_captions_never_hands_off(
+    capture_runtime, worker_env
+):
+    factory = capture_runtime
+    _user_id, item_id, dispatch_id = _capture_origin(factory, platform="ntu_kaltura")
+
+    assert (
+        process_dispatch(dispatch_id, task_id="ingest-task", session_factory=factory)
+        == "needs_asr"
+    )
+
+    dispatch = _row(factory, IngestDispatch, dispatch_id)
+    item = _row(factory, ContentItem, item_id)
+    assert (dispatch.state, dispatch.error_code) == ("completed", None)
+    assert (item.state, item.text_source) == ("needs_asr", "none")
+    assert worker_env.asr_published == []
+    events = _events(factory, dispatch_id)
+    assert len(events) == 1
+    assert (events[0].outcome, events[0].item_state) == ("completed", "needs_asr")
+
+
+def test_ingest_url_path_never_hands_off_even_for_a_capture_origin_item(
+    capture_runtime, worker_env
+):
+    # ``ingest_url`` (CLI) passes its connector, so the capture is not consulted,
+    # and it never requests the handoff: today's synchronous needs_asr stays.
+    factory = capture_runtime
+    user_id, item_id, _dispatch_id = _capture_origin(factory)
+    platform_id = _row(factory, ContentItem, item_id).platform_id
+    connector = Inner()
+    connector.match = lambda _url: platform_id
+
+    assert ingest_url(
+        CANONICAL, user_id=user_id, connector=connector, session_factory=factory
+    ) == (item_id, "needs_asr")
+
+    assert connector.calls == ["meta", "text"]
+    assert worker_env.asr_published == []
+    assert _row(factory, ContentItem, item_id).state == "needs_asr"
+
+
+def test_backfilled_capture_origin_item_hands_off_on_the_ingest_worker(
+    capture_runtime, worker_env
+):
+    factory = capture_runtime
+    user_id, item_id, first_dispatch = _capture_origin(factory)
+    with factory() as db:
+        db.get(ContentItem, item_id).state = "needs_asr"
+        db.get(IngestDispatch, first_dispatch).state = "completed"
+        db.commit()
+    published = []
+
+    result = asr_backfill.backfill_needs_asr(
+        limit=5,
+        user_id=user_id,
+        session_factory=factory,
+        publisher=lambda dispatch_id: published.append(dispatch_id) or "task-1",
+    )
+
+    assert result.queued == (item_id,)
+    (new_dispatch,) = published
+    assert new_dispatch != first_dispatch
+
+    assert (
+        process_dispatch(new_dispatch, task_id="task-1", session_factory=factory)
+        == "asr_pending"
+    )
+    assert worker_env.asr_published == [new_dispatch]
+    dispatch = _row(factory, IngestDispatch, new_dispatch)
+    assert (dispatch.state, dispatch.task_id) == ("enqueued", None)
+    assert _row(factory, ContentItem, item_id).state == "fetching"
+    assert _events(factory, new_dispatch) == []

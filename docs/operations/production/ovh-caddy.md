@@ -200,8 +200,10 @@ dispatcher。不要授予 interactive shell、任意 sudo、forwarding，或访�
 
 ## ASR 转写（可选）
 
-默认关闭（`ASR_ENABLED=false`）。关闭时没有字幕的公开 YouTube/Bilibili 条目仍以
-`needs_asr` 结束，下面的步骤都不需要。开启后，同一个 dispatch 会从 `ingest` 队列转入
+默认关闭（`ASR_ENABLED=false`）。关闭时没有字幕的公开 YouTube/Bilibili 条目（包括浏览器
+插件采集到 `caption_status=unavailable` 的公开 YouTube 条目）仍以 `needs_asr` 结束，下面
+的步骤都不需要。NTULearn/Kaltura 采集条目是私有媒体，无论是否开启 ASR 都保持
+`needs_asr`。开启后，同一个 dispatch 会从 `ingest` 队列转入
 `asr` 队列：yt-dlp 只下载音频，音频暂存到 MinIO 的 `asr-tmp/` 前缀，Fun-ASR 通过本站
 域名下的短期签名地址 `/api/v1/asr-audio/<name>` 回源下载（无需会话，Caddy 站点已丢弃
 access log，签名只出现在这个 URL 的 query 里），转写结束后立即删除临时对象。需要合并

@@ -25,6 +25,19 @@
   - 无字幕视频自动处理，不需要逐条确认。
 - **开发规范**：在 `dev` 分支开发，具体代码由 Sonnet 子 agent 编写。见 `.trellis/spec/guides/branch-and-delegation-workflow.md`。
 
+## 2026-10-16 范围扩展
+
+用户确认：浏览器插件通过页面采集保存的**公开 YouTube** 视频，如果字幕不可用（`caption_status="unavailable"`），也要进入 ASR。
+
+- **NTULearn/Kaltura 仍然排除。** 这类视频是私有的，后端无法获取音频。
+- **弹窗与失败文案的改动单独作为后续任务**，见 `10-16-extension-asr-copy`。
+- 原 R1 中“浏览器伴侣采集的条目不进入 ASR”一条，改为“只排除 `ntu_kaltura`”。
+
+验收：
+- [ ] 采集来源、字幕不可用的 YouTube 条目在 ASR 开启时转入 `asr` 队列，最终变成 `ready`，并且只产生一个完成事件。
+- [ ] `ntu_kaltura` 采集条目和 ASR 关闭时的行为不变。
+- [ ] `asr-backfill` 能选中采集来源的无字幕 YouTube 条目，但不选 `ntu_kaltura`。
+
 ## 需求
 
 ### R1. 触发

@@ -279,6 +279,10 @@ def create_item(url: str, *, user_id: int, why_saved: str | None = None, connect
 # queue under the same dispatch.  It is never persisted or user visible.
 ASR_PENDING = "asr_pending"
 _ASR_PLATFORMS = frozenset({"youtube", "bilibili"})
+# Browser captures whose caption track was unavailable may still be transcribed
+# when the video is a public YouTube one the backend can fetch itself.  Private
+# ``ntu_kaltura`` media is never reachable by the server and is excluded.
+_ASR_CAPTURE_PLATFORMS = frozenset({"youtube"})
 
 
 def process_item(item_id: int, *, connector: Any | None = None, embedder: EmbeddingProvider | None = None, object_store: Any | None = None, session_factory=None, asr_handoff: bool = False) -> str:
@@ -314,6 +318,18 @@ def process_item(item_id: int, *, connector: Any | None = None, embedder: Embedd
             item.state = "fetching"
             db.commit()
             if capture.caption_status == "unavailable":
+                if (
+                    asr_handoff
+                    and settings.asr_enabled
+                    and item.platform in _ASR_CAPTURE_PLATFORMS
+                ):
+                    # The browser found no caption track.  A public YouTube
+                    # video continues on the asr queue under the same
+                    # dispatch; the asr worker fetches metadata and audio
+                    # through the platform connector, not from the capture.
+                    item.state = "fetching"
+                    db.commit()
+                    return ASR_PENDING
                 item.state = "needs_asr"
                 item.text_source = "none"
                 db.commit()

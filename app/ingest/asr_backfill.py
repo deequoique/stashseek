@@ -4,7 +4,9 @@ Items saved before ASR was enabled ended in ``needs_asr``.  This module gives
 the operator a bounded, dry-run-capable way to run them through the normal
 dispatch path again: a fresh ``IngestDispatch`` is created and published to the
 ``ingest`` queue exactly like a library retry, the worker finds no caption
-track and hands the same dispatch to the ``asr`` queue.
+track (from the connector, or from a browser capture reporting
+``caption_status = 'unavailable'`` for a YouTube item) and hands the same
+dispatch to the ``asr`` queue.
 
 Only counts and internal item IDs leave this module; URLs, titles and error
 text never do.
@@ -17,7 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import exists, select
+from sqlalchemy import and_, exists, or_, select
 
 from app.db import get_session_factory
 from app.models import BrowserCapture, ContentItem, IngestDispatch
@@ -26,6 +28,9 @@ DEFAULT_BACKFILL_LIMIT = 20
 MAX_BACKFILL_LIMIT = 500
 _ACTIVE_DISPATCH_STATES = frozenset({"pending", "enqueued", "running"})
 _ASR_PLATFORMS = ("youtube", "bilibili")
+# Browser-capture items qualify only for public YouTube (``ntu_kaltura`` media
+# is private and the server can never fetch its audio).
+_ASR_CAPTURE_PLATFORM = "youtube"
 
 
 @dataclass(frozen=True)
@@ -42,8 +47,26 @@ class BackfillResult:
 def select_backfill_item_ids(
     db, *, limit: int, user_id: int | None = None
 ) -> list[int]:
-    """Oldest-first public ``needs_asr`` items that did not come from a capture."""
+    """Oldest-first public ``needs_asr`` items the server can transcribe.
 
+    Items without any browser capture qualify.  A capture-origin item qualifies
+    only when it is a YouTube item whose latest ready, tenant-matching capture
+    reported ``caption_status = 'unavailable'`` (the same capture ``process_item``
+    resolves); ``ntu_kaltura`` and every other capture item is excluded.
+    """
+
+    latest_ready_caption_status = (
+        select(BrowserCapture.caption_status)
+        .where(
+            BrowserCapture.item_id == ContentItem.id,
+            BrowserCapture.app_user_id == ContentItem.user_id,
+            BrowserCapture.state == "ready",
+        )
+        .order_by(BrowserCapture.created_at.desc(), BrowserCapture.id.desc())
+        .limit(1)
+        .correlate(ContentItem)
+        .scalar_subquery()
+    )
     statement = (
         select(ContentItem.id)
         .where(
@@ -52,7 +75,13 @@ def select_backfill_item_ids(
             ContentItem.deleted_at.is_(None),
             ContentItem.purge_claimed_at.is_(None),
             ContentItem.archived_at.is_(None),
-            ~exists().where(BrowserCapture.item_id == ContentItem.id),
+            or_(
+                ~exists().where(BrowserCapture.item_id == ContentItem.id),
+                and_(
+                    ContentItem.platform == _ASR_CAPTURE_PLATFORM,
+                    latest_ready_caption_status == "unavailable",
+                ),
+            ),
         )
         .order_by(ContentItem.id)
         .limit(limit)

@@ -291,3 +291,17 @@ class AsrFallbackConnector:
   - 从 OVH 访问 Bilibili 的风控情况还没有验证；
   - 公开路由会让音频经过应用进程转发，占用服务器出口带宽，大约每音频小时 60MB。
 - 关闭 ASR 后再开启：已经处于 `needs_asr` 的条目，用 `asr-backfill` 命令重新处理。
+
+## 2026-10-16 补充：采集来源的 YouTube
+
+- **交接条件。** `process_item` 的采集分支在 `capture.caption_status == "unavailable"` 时，如果同时满足以下条件，就保持 `fetching` 并返回 `asr_pending`：
+  - `asr_handoff` 为真；
+  - `settings.asr_enabled` 为真；
+  - `item.platform == "youtube"`。
+
+  其他情况保持原样，状态为 `needs_asr`，`text_source` 为 `none`。
+- **ASR 任务不需要改。** `_asr_processor` 用 `item.url` 构造 YouTube 连接器，并通过 `connector=` 显式传入。因此 `process_item` 不会再查采集记录，而是直接走连接器路径：
+  - `fetch_meta` 会用 yt-dlp 的元数据覆盖条目元数据，章节键也随之变成 `start_time`，正好避开 chunker 和采集章节键不一致的问题；
+  - 如果服务器这次拿到了字幕，就直接走字幕入库。
+- **回填。** `asr-backfill` 的选取条件改为：排除 `ntu_kaltura`；采集来源的 YouTube 条目，只要最新的 ready 采集记录 `caption_status = 'unavailable'`，也一并选入。
+- **风险。** 用户在浏览器里能看视频，不代表服务器能取到。服务器访问 YouTube 仍然受 IP 限流和家用代理的限制，取不到时按现有的 `youtube_*` 临时错误重试。
