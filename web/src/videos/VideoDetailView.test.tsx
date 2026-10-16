@@ -37,6 +37,21 @@ const transcript: TranscriptPage = {
 };
 
 describe("video detail", () => {
+  it("uses server-owned part source links for detail, chapters and transcript local time", () => {
+    const source = "/api/v1/library/items/video-public/source?t=0";
+    render(<VideoDetailView item={{ ...item, platform: "bilibili", url: source }}
+      transcriptPages={[{ blocks: [{ ordinal: 0, start_sec: 12, end_sec: 15, text: "P2 字幕", source_url: source.replace("t=0", "t=12") }], next_cursor: null }]}
+      onLoadMore={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} onRetry={vi.fn()} onUpdateWhySaved={vi.fn()} />);
+    expect(screen.getByRole("link", { name: "在 Bilibili 查看" })).toHaveAttribute("href", source);
+    expect(screen.getByRole("link", { name: /建立联系/ })).toHaveAttribute("href", source.replace("t=0", "t=185"));
+    expect(screen.getByRole("link", { name: "从 0:12 播放" })).toHaveAttribute("href", source.replace("t=0", "t=12"));
+  });
+
+  it("retains an honest legacy Bilibili P while changing only local chapter time", () => {
+    render(<VideoDetailView item={{ ...item, platform: "bilibili", url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2&tracking=x" }}
+      transcriptPages={[]} onLoadMore={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} onRetry={vi.fn()} onUpdateWhySaved={vi.fn()} />);
+    expect(screen.getByRole("link", { name: /建立联系/ })).toHaveAttribute("href", "https://www.bilibili.com/video/BV1xx411c7mD?p=2&t=185");
+  });
   it("keeps a long title complete while opting into compact hero typography", () => {
     const longTitle = "How to practice effectively...for just about anything";
     render(

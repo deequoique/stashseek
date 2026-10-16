@@ -42,7 +42,8 @@ function renderPage(
     external_login_providers: [],
     save_enabled: true,
     max_save_batch_size: 10,
-
+  bilibili_parts_enabled: false,
+  bilibili_favorites_enabled: false,
     transcript_pagination: true,
     archive: true,
     summary_generation: false,
@@ -149,7 +150,8 @@ describe("library page", () => {
               external_login_providers: [],
               save_enabled: false,
               max_save_batch_size: 10,
-
+  bilibili_parts_enabled: false,
+  bilibili_favorites_enabled: false,
               transcript_pagination: true,
               archive: true,
               summary_generation: false,

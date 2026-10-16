@@ -1,0 +1,16 @@
+{"file": ".trellis/spec/backend/bilibili-connector.md", "reason": "Preserve local BV/share compatibility; explicit multipart path supersedes P1-only restriction without hidden playlist expansion."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Additive source-identity migration, one head, isolated PostgreSQL; no shared or production migrations."}
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "Canonical Session/CSRF/tenant/router ownership, safe projections and generated OpenAPI composition."}
+{"file": ".trellis/spec/backend/ingest-completion-queue.md", "reason": "Reuse durable dispatch/item completion, retries and ID-only broker boundaries."}
+{"file": ".trellis/spec/backend/ingestion-chunking-embedding.md", "reason": "Per-part local timelines and old segment preservation under source-fence failure."}
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Trusted retrieval/citation ownership and per-item/source identity."}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Native dialogs, safe server-owned citation anchors, existing chat behavior and accessible UI."}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Ephemeral selection, canonical server state and account/private-cache teardown."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Canonical DTO/generated TypeScript, no duplicated response unions."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend gates and real browser desktop/mobile verification."}
+{"file": ".trellis/tasks/10-15-bilibili-favorites-import/research/public-sample-access.md", "reason": "Bounded unauthenticated list-access evidence and limits of the canary."}
+{"file": ".trellis/tasks/10-15-bilibili-favorites-import/research/backend-integration.md", "reason": "Existing admission limits, quota/idempotency semantics and bounded discovery research; later parent artifacts override earlier pending scope."}
+{"file": ".trellis/tasks/10-15-bilibili-favorites-import/research/frontend-flow.md", "reason": "Selection, per-P workflow, legacy disclosure, frozen attempts and honest partial outcomes."}
+{"file": ".trellis/tasks/10-15-bilibili-favorites-import/research/multipart-gap.md", "reason": "CID/ordinal and citation gaps; extension capability and unsupported proof assumptions."}
+{"file": ".trellis/tasks/10-15-bilibili-favorites-import/research/multipart-backend-design-review.md", "reason": "Stable CID and typed source metadata, early pin, source fence, legacy truth and dynamic browser source opening."}
+{"file": ".trellis/tasks/10-15-bilibili-favorites-import/research/planning-review.md", "reason": "Independent final planning PASS, resolved CID proof gap and offline maintained-dependency feasibility evidence; not implementation verification."}

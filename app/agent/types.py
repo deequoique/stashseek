@@ -26,6 +26,9 @@ class Citation(BaseModel):
     url: str
     start_sec: float | None = None
     _retrieval_score: float | None = PrivateAttr(default=None)
+    # Set only by tenant-scoped database hydration, never public/model payloads.
+    # A mutable source URL/P ordinal cannot prove exact CID item identity.
+    _source_reference: tuple[str, str] | None = PrivateAttr(default=None)
 
     def __eq__(self, other: object) -> bool:
         """Keep private retrieval diagnostics out of the public source contract."""

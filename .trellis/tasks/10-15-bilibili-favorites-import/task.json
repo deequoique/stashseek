@@ -1,0 +1,29 @@
+{
+  "id": "bilibili-favorites-import",
+  "name": "bilibili-favorites-import",
+  "title": "B站收藏夹导入与分P视频处理",
+  "description": "Public favorites preview/selection and independent verified multipart ingestion/source navigation; retain existing ten-entry limit and quotas.",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-10-15",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-16-bilibili-multipart",
+    "10-16-bilibili-favorites-preview"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "User approved implementation with 开发 on 2026-10-16. Product code and combined independent review complete; actual IAB desktop/mobile/source acceptance and isolated PostgreSQL/Redis checks recorded in parent verification.md. Preserve ten-entry limit and quotas. Code remains uncommitted pending the repository one-shot commit-plan confirmation. Earlier SSO/chat/BV work is preserved; migration depends on uncommitted SSO e2f3a4b5c6d7. No real collection import, shared/production migration or deployment. Initial temporary snapshot is missing; do not claim a bytewise baseline comparison.",
+  "meta": {}
+}

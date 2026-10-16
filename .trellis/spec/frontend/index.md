@@ -22,13 +22,15 @@ The frontend is a mobile-first React and TypeScript application under `web/`. It
 | [Type Safety](./type-safety.md) | OpenAPI-generated types and runtime validation ownership | Active |
 | [Account Linking](./account-linking.md) | Telegram link-token handling, cache teardown, and error contracts | Active |
 | [External Login](./external-login.md) | Native provider navigation, clean anonymous continuation, Session probes and private-cache rotation | Active |
+| [Bilibili Import](./bilibili-import.md) | Public favorites, lazy part selection, stable proofs, explicit confirmation and browser source navigation | Active |
 
 ---
 
 ## Product Boundary
 
-- Supported content: server-saved YouTube URLs plus optional browser-companion
-  captures from YouTube and NTULearn/Kaltura.
+- Supported content: server-saved YouTube/Bilibili videos, capability-gated public
+  Bilibili favorites and explicit parts, plus optional browser-companion captures
+  from YouTube and NTULearn/Kaltura.
 - Supported routes: `/login`, `/login/external`, `/library`, `/videos/:id`, protected
   `/account/link`, and protected `/account/browser-companion`.
 - The first-empty Agent message is static copy and must never call an LLM.

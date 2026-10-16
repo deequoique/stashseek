@@ -1,0 +1,39 @@
+{
+  "chat": {
+    "backend_changed_paths": 3,
+    "tests": {
+      "passed": 9,
+      "skipped": 0,
+      "files": [
+        "tests/test_conversation_list_queries.py",
+        "tests/test_agent_context.py"
+      ]
+    }
+  },
+  "auth": {
+    "backend_changed_paths": 46,
+    "tests": {
+      "passed": 169,
+      "skipped": 19,
+      "warnings": 14,
+      "files": [
+        "tests/test_external_login.py",
+        "tests/test_external_login_models.py",
+        "tests/test_external_login_postgres.py",
+        "tests/test_external_login_routes.py",
+        "tests/test_external_providers.py",
+        "tests/test_web_auth_postgres.py",
+        "tests/test_web_session_cache.py",
+        "tests/test_web_api_runtime.py",
+        "tests/test_web_api_public.py",
+        "tests/test_web_auth_migration.py",
+        "tests/test_conversation_list_queries.py"
+      ]
+    },
+    "migration_head": "e2f3a4b5c6d7",
+    "imported_local_snapshot": true,
+    "generation": "root pending combined frontend/backend readiness"
+  },
+  "scope": "temporary snapshots only; no workspace product edits, Git staging or commits",
+  "configuration": "explicit disabled loopback database/Redis, providers false, dummy API keys; isolated PG/Redis not started"
+}

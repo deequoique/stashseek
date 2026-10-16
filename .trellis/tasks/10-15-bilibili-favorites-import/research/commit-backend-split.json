@@ -1,0 +1,251 @@
+{
+  "chat": [
+    {
+      "path": ".trellis/spec/backend/web-browser-runtime.md",
+      "sha256": "1a8ac97c85e990ce35363757580f536d1736549d0676149251bf226d79052c02",
+      "status": "modified"
+    },
+    {
+      "path": "app/api/conversation_routes.py",
+      "sha256": "613d4da87bf728140976447ece0f375e3511c314f1ec618c9ba1dbe1f7d696dd",
+      "status": "modified"
+    },
+    {
+      "path": "tests/test_conversation_list_queries.py",
+      "sha256": "73bdb448db26224cc909cdaa1bd4c6ed2967e79873abd1c423a36567e6cb4268",
+      "status": "modified"
+    }
+  ],
+  "auth": [
+    {
+      "path": ".env.example",
+      "sha256": "6a0a174d725920445d14ba357aed01af08f0b2b6e7e2598ff0de08bea97decd8",
+      "status": "modified"
+    },
+    {
+      "path": ".trellis/spec/backend/channel-identity-linking.md",
+      "sha256": "13e206b33ae049522f01a1d592a3b2cd81c8a55bc4f1a928133361a96428314e",
+      "status": "modified"
+    },
+    {
+      "path": ".trellis/spec/backend/external-login.md",
+      "sha256": "b32e2db755a8e5c4a7398b3f1fd264213574fbbb3c78a39be028de609e3d347f",
+      "status": "new"
+    },
+    {
+      "path": ".trellis/spec/backend/index.md",
+      "sha256": "6a8f62e5a4062eecf3ebbc05ae3bdb07fa8b6c2c48b6c21ad6bd5053c4dc1f0a",
+      "status": "modified"
+    },
+    {
+      "path": ".trellis/spec/backend/web-browser-runtime.md",
+      "sha256": "4a0374fabae6cea49f18ba04250438506104f4e7d49c6c97fab4e6c30bf1ab86",
+      "status": "modified"
+    },
+    {
+      "path": "app/api/app.py",
+      "sha256": "e14e1861d7b7fc16aba42b17b1da24c176ed3a58582a38917a9d94090ee62b11",
+      "status": "modified"
+    },
+    {
+      "path": "app/api/auth_schemas.py",
+      "sha256": "bd42a35c2d9556b7832bdef307ead664e5a12572880a1906d15e41ac0913344c",
+      "status": "modified"
+    },
+    {
+      "path": "app/api/conversation_routes.py",
+      "sha256": "613d4da87bf728140976447ece0f375e3511c314f1ec618c9ba1dbe1f7d696dd",
+      "status": "modified"
+    },
+    {
+      "path": "app/api/email_auth_routes.py",
+      "sha256": "2fc9936ca4f0a5c035c547c13b393c30139fba55f8e31be717ed38c9f449f9f6",
+      "status": "modified"
+    },
+    {
+      "path": "app/api/external_auth_routes.py",
+      "sha256": "fc12537b860a3422a4f173fd58215c36a0d6387efef13aba6407d2c767aa8d6b",
+      "status": "new"
+    },
+    {
+      "path": "app/api/runtime.py",
+      "sha256": "fd29ef2f7a13a3c17128f6faf8a7f6eb7cbb648d3a9916b3789fbdf37dd25234",
+      "status": "modified"
+    },
+    {
+      "path": "app/channels/identity.py",
+      "sha256": "46d5cf3c771e3c38faae2df471444af1fb68357842472a934b0fe6278117983a",
+      "status": "modified"
+    },
+    {
+      "path": "app/cli.py",
+      "sha256": "edc7102749db74be70a39a7123e1aba732bde2a63eb63d03382d9f874b76ddcc",
+      "status": "modified"
+    },
+    {
+      "path": "app/config.py",
+      "sha256": "7c6254127c247bc1fb4ee0b66c68d72ea109caecf26ac254ce6d8cc415f5ff8b",
+      "status": "modified"
+    },
+    {
+      "path": "app/external_auth.py",
+      "sha256": "49879ef16a17867158ec8e6e438463bfbeae475c9eca25b781b888ae28a98735",
+      "status": "new"
+    },
+    {
+      "path": "app/external_providers/__init__.py",
+      "sha256": "cab54d71d916fbd6bd941f49b4646ab487680acc5431d01ea1305f629257ff22",
+      "status": "new"
+    },
+    {
+      "path": "app/external_providers/base.py",
+      "sha256": "4e6ff62a5acade665a7c992d998ded645fa5f389ba63250ea1e7f9ca88c18890",
+      "status": "new"
+    },
+    {
+      "path": "app/external_providers/http.py",
+      "sha256": "4596383aecf9b94cedd251fb25022641c337a1d24946d97e965d263e4258d1e3",
+      "status": "new"
+    },
+    {
+      "path": "app/external_providers/microsoft.py",
+      "sha256": "b1b1fd04ff4e23792f4c03f5f8cdc44729a924ba8a5940bedb3974f5ce405ae0",
+      "status": "new"
+    },
+    {
+      "path": "app/external_providers/qq.py",
+      "sha256": "2dac483242d041f17956b9f050b902163c9407852b151c278569fe92ddaec80a",
+      "status": "new"
+    },
+    {
+      "path": "app/external_providers/registry.py",
+      "sha256": "4924655114fb49df847bb0aacc6ed2ea2729ef058c61290cedab1540af23cba5",
+      "status": "new"
+    },
+    {
+      "path": "app/external_providers/wechat.py",
+      "sha256": "ae481b7450515883af821c663ba385b5b68e3de36712b3f5bb11c250d09c6643",
+      "status": "new"
+    },
+    {
+      "path": "app/models.py",
+      "sha256": "bc1374e84b096c3c712b3789afab9784351450cc2cb8acf806e033bb9a25f667",
+      "status": "modified"
+    },
+    {
+      "path": "app/web/auth.py",
+      "sha256": "fc337609f80fb6619afc6cbee5cd609027bff1091c24fdfab52bb70434eb2d7b",
+      "status": "modified"
+    },
+    {
+      "path": "app/web_auth.py",
+      "sha256": "663aa858777346ef467d95fd06958769e777d596033878d3ac3e6f1242200a9d",
+      "status": "modified"
+    },
+    {
+      "path": "docs/README.md",
+      "sha256": "5b23622f324f26aa08372a372a73a9515792c9dc185b0ebc2aec06c367ea82fb",
+      "status": "modified"
+    },
+    {
+      "path": "docs/how-to/README.md",
+      "sha256": "6e024af37d4fa74b680ad4ea16f0bab46a1e841e61c5da9b1b88b0cfc9d6c2ab",
+      "status": "modified"
+    },
+    {
+      "path": "docs/how-to/configure-external-login.md",
+      "sha256": "26729b38a0db9acc27eba3443e145790a41e8464af8cafb859799e2331a83e7b",
+      "status": "new"
+    },
+    {
+      "path": "docs/reference/README.md",
+      "sha256": "758355333f8dcf580b77ac056441d28f6af89dbe7e14f55ac35e51a87e0619fe",
+      "status": "modified"
+    },
+    {
+      "path": "docs/reference/configuration.md",
+      "sha256": "6ec8769396516ee7b791f6da52061e422bbf65a366642a0dd20f228273b446cd",
+      "status": "modified"
+    },
+    {
+      "path": "docs/reference/web-api.md",
+      "sha256": "4230ca33d97dece3ca0649b4d4f6cc88af77e89ff09b33efdf1a98a53bca6d10",
+      "status": "modified"
+    },
+    {
+      "path": "migrations/versions/e2f3a4b5c6d7_external_login_foundation.py",
+      "sha256": "7cf375743be4f3868f9a8ef92044408a65af25fe3170373de0018817243334d5",
+      "status": "new"
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "8b4cfe82c64581c8e9c763635cdd02183fa9e7730934a997a135416fb2c41c0a",
+      "status": "modified"
+    },
+    {
+      "path": "scripts/export_web_openapi.py",
+      "sha256": "31b8a7c0fa49ad2ad0b08f3589045636d782f51740ed20d8024098bf963804b0",
+      "status": "modified"
+    },
+    {
+      "path": "tests/test_conversation_list_queries.py",
+      "sha256": "73bdb448db26224cc909cdaa1bd4c6ed2967e79873abd1c423a36567e6cb4268",
+      "status": "modified"
+    },
+    {
+      "path": "tests/test_external_login.py",
+      "sha256": "eabb1cba57f218672ac72ab5e19302be4daba01a67bf7c75e0861e5932f404e9",
+      "status": "new"
+    },
+    {
+      "path": "tests/test_external_login_models.py",
+      "sha256": "78d0257978d766f3902080be49a02a9846391f89ade901867649be8e55920125",
+      "status": "new"
+    },
+    {
+      "path": "tests/test_external_login_postgres.py",
+      "sha256": "c740a25bc5be1c01e0c2e33556b57cc5f075969b02fa4a9c0d7db070a4ff1c7e",
+      "status": "new"
+    },
+    {
+      "path": "tests/test_external_login_routes.py",
+      "sha256": "5bd61971b99c37af7ee903e41c6a30a3123179bd0e45792ea829b19b5acd5b7b",
+      "status": "new"
+    },
+    {
+      "path": "tests/test_external_providers.py",
+      "sha256": "f79a93d88e90852b81bda155601df61be3137656c2d1f39034c12b2e5966c56f",
+      "status": "new"
+    },
+    {
+      "path": "tests/test_web_api_public.py",
+      "sha256": "f04b8959c00bd309340a3dd8fe96a58a96889160368ce5ffa9d3339d141c1d39",
+      "status": "modified"
+    },
+    {
+      "path": "tests/test_web_api_runtime.py",
+      "sha256": "5fe3c88786f560635ad2fcb17e6baf9fdb52c5f99257cb63fe23306ef825af73",
+      "status": "modified"
+    },
+    {
+      "path": "tests/test_web_auth_migration.py",
+      "sha256": "6c5a9e356221fd53e1387afb8f2b2d9fafda4c9fc912acbe3b31ca0d918fffe7",
+      "status": "modified"
+    },
+    {
+      "path": "tests/test_web_auth_postgres.py",
+      "sha256": "7f6b1e2188a61ff36afd894bf84ce71d67621e6cbd391755bcefc51670f02b13",
+      "status": "modified"
+    },
+    {
+      "path": "tests/test_web_session_cache.py",
+      "sha256": "707b04071d6df1d6a355ff2d81a04ed5cda1d52104fc15ac21f6532d50b14143",
+      "status": "modified"
+    },
+    {
+      "path": "uv.lock",
+      "sha256": "57c2e8ac1f0d82a0a44f7206d10005c39bbac09079f85deea0ab3d22881faf94",
+      "status": "modified"
+    }
+  ]
+}

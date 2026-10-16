@@ -28,8 +28,10 @@ def test_web_and_ingest_completion_branches_converge_on_one_merge_head():
     )
     assert script.get_revision("e5f6a7b8c9d0").down_revision == "d4e5f6a7b8c9"
     assert script.get_revision("f6a7b8c9d0e1").down_revision == "e5f6a7b8c9d0"
-    # External login is additive after the existing HNSW-drop/merge chain.
-    assert script.get_heads() == ["e2f3a4b5c6d7"]
+    # Stable part sources are additive after external login; both retain the
+    # existing Web/ingest branch convergence and HNSW-drop ancestry below.
+    assert script.get_heads() == ["f8a9b0c1d2e3"]
+    assert script.get_revision("f8a9b0c1d2e3").down_revision == "e2f3a4b5c6d7"
     assert script.get_revision("e2f3a4b5c6d7").down_revision == "d04fdae36884"
     assert script.get_revision("d04fdae36884").down_revision == "b8c9d0e1f2a3"
     assert script.get_revision("b8c9d0e1f2a3").down_revision == "f1a2b3c4d5e6"

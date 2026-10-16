@@ -69,6 +69,10 @@ protected `session_invalid` handler.
 - The API decides lifecycle and `available_actions`.
 - The client never persists queries to `localStorage`, `sessionStorage`, IndexedDB, or a service worker.
 - Add-video partial results remain in the open dialog while the library query is invalidated.
+- Favorites/part selections, signed refs, expiry, consent and frozen operation
+  attempts also stay only in the owning add-dialog/private-query lifetime. Source
+  changes discard that interaction; uncertain replay keeps its original payload,
+  key and proof expiry. There is no persistent or cross-tab import coordinator.
 - Transcript cursors are opaque and only passed back to the API.
 - Query cache contents are private tenant data and receive explicit teardown semantics.
 

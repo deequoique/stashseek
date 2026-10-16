@@ -19,6 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.auth_routes import build_auth_router
+from app.api.bilibili_routes import build_bilibili_router
 from app.api.browser_companion_routes import build_browser_companion_router
 from app.api.conversation_routes import build_conversation_router
 from app.api.email_auth_routes import build_email_auth_router
@@ -96,6 +97,14 @@ _SAFE_HTTP_CODES = frozenset(
         "capture_upload_failed",
         "queue_unavailable",
         "streaming_disabled",
+        "bilibili_invalid_url",
+        "bilibili_invalid_favorites_url",
+        "bilibili_favorites_private",
+        "bilibili_unavailable",
+        "bilibili_limit_exceeded",
+        "bilibili_rate_limited",
+        "bilibili_busy",
+        "source_unavailable",
     }
 )
 
@@ -137,6 +146,8 @@ class CapabilitiesResponse(BaseModel):
     archive: bool = True
     summary_generation: bool = False
     chat: bool = True
+    bilibili_parts_enabled: bool = False
+    bilibili_favorites_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -164,6 +175,7 @@ class WebApiServices:
     session_factory: Callable | None = None
     settings: Any | None = None
     include_conversation_routes: bool = True
+    bilibili: Any | None = None
 
 
 _SAFE_MESSAGES = {
@@ -215,6 +227,14 @@ _SAFE_MESSAGES = {
     "capture_upload_failed": "字幕上传失败，请稍后重试",
     "queue_unavailable": "保存任务暂时无法排队，请稍后重试",
     "streaming_disabled": "流式回答当前未启用，请使用兼容模式重试",
+    "bilibili_invalid_url": "请输入有效的 B 站视频链接或 BV 号",
+    "bilibili_invalid_favorites_url": "请输入有效的公开 B 站收藏夹链接",
+    "bilibili_favorites_private": "这个收藏夹未公开，暂时无法读取",
+    "bilibili_unavailable": "暂时无法读取 B 站资料，请稍后重试",
+    "bilibili_limit_exceeded": "B 站资料超过当前预览上限",
+    "bilibili_rate_limited": "读取过于频繁，请稍后重试",
+    "bilibili_busy": "B 站资料读取繁忙，请稍后重试",
+    "source_unavailable": "当前分 P 来源不可用，请稍后重试",
 }
 
 
@@ -480,6 +500,8 @@ def create_app(
                 else ()
             ),
             save_enabled=save_enabled,
+            bilibili_parts_enabled=bool(save_enabled and services is not None and services.bilibili is not None),
+            bilibili_favorites_enabled=bool(save_enabled and services is not None and services.bilibili is not None),
         )
 
     if services is not None:
@@ -573,6 +595,11 @@ def create_app(
                 scope_dependency=authenticated_scope,
             )
         )
+        if services.bilibili is not None:
+            app.include_router(build_bilibili_router(
+                services.bilibili, scope_dependency=authenticated_scope,
+                publish_budget_seconds=publish_budget_seconds, save_enabled=save_enabled,
+            ))
         if (
             services.browser_companion is not None
             and services.browser_capture_submission is not None

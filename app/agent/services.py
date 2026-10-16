@@ -72,6 +72,7 @@ def _citation(item: ContentItem, segment: Segment, *, score: float | None = None
         start_sec=float(segment.start_sec) if segment.start_sec is not None else None,
     )
     citation._retrieval_score = score
+    citation._source_reference = (item.platform, item.platform_id)
     return citation
 
 

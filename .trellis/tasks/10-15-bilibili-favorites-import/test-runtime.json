@@ -1,0 +1,13 @@
+{
+  "root": "/private/tmp/stashseek-parts-pg-hfd_if0p",
+  "source": "https://repo.maven.apache.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-darwin-arm64v8/17.9.0/embedded-postgres-binaries-darwin-arm64v8-17.9.0.jar",
+  "sha256": "668ce99db56370e124020163fba3d7c3d2a9bfbbdf2d93a1a02ad8d4950b9a38",
+  "port": 55439,
+  "role": "stashseek_test",
+  "database": "postgres",
+  "database_url_env": "STASHSEEK_TEST_DATABASE_URL",
+  "available_optional_extensions": [
+    "pg_trgm"
+  ],
+  "state": "stopped after final regression; pg_ctl fast stop confirmed; port 55439 has no listener"
+}

@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-16",
+  "operation": "bounded public read-only favorites preview",
+  "collection_id": "4157547776",
+  "title": "study",
+  "reported_total": 8,
+  "page": 1,
+  "page_size": 20,
+  "has_more": false,
+  "capped": false,
+  "returned_entries": 8,
+  "available_entries": 8,
+  "unavailable_reasons": [],
+  "writes": 0,
+  "queue_publications": 0,
+  "credentials_sent": false,
+  "caveat": "Public metadata only; does not establish subtitles, production egress or general provider availability."
+}

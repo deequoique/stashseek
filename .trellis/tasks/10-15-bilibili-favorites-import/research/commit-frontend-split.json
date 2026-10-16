@@ -1,0 +1,113 @@
+{
+  "base_commit": "74182624a89393ea6dbd0a054e708322d287924b",
+  "real_workspace_modified": false,
+  "generated_contracts_owner": "root",
+  "dependency_classification": [
+    "AppShell changes are solely SSO; retained at HEAD in chat, applied in auth (root approved).",
+    "LoginPage and LibraryPage shared capabilitiesQueryOptions wiring is required for chat AbortSignal signatures (root approved); provider UI and Bilibili modes remain in their intended stages.",
+    "Generic App query-observer generation/key remount is required for history preload private-cache dedupe (root approved); all external routes/probes/anonymous/provider behavior remains auth."
+  ],
+  "snapshots": {
+    "chat": {
+      "cumulative_frontend_files_vs_HEAD": [
+        "web/src/api/client.test.ts",
+        "web/src/api/client.ts",
+        "web/src/app/App.test.ts",
+        "web/src/app/App.tsx",
+        "web/src/auth/LoginPage.tsx",
+        "web/src/chat/ChatPage.test.tsx",
+        "web/src/chat/ChatPage.tsx",
+        "web/src/chat/conversationQueries.test.ts",
+        "web/src/chat/conversationQueries.ts",
+        "web/src/library/LibraryPage.tsx",
+        "web/src/styles.css",
+        ".trellis/spec/frontend/component-guidelines.md",
+        ".trellis/spec/frontend/hook-guidelines.md",
+        ".trellis/spec/frontend/state-management.md"
+      ],
+      "incremental_frontend_files": [
+        "web/src/api/client.test.ts",
+        "web/src/api/client.ts",
+        "web/src/app/App.test.ts",
+        "web/src/app/App.tsx",
+        "web/src/auth/LoginPage.tsx",
+        "web/src/chat/ChatPage.test.tsx",
+        "web/src/chat/ChatPage.tsx",
+        "web/src/chat/conversationQueries.test.ts",
+        "web/src/chat/conversationQueries.ts",
+        "web/src/library/LibraryPage.tsx",
+        "web/src/styles.css",
+        ".trellis/spec/frontend/component-guidelines.md",
+        ".trellis/spec/frontend/hook-guidelines.md",
+        ".trellis/spec/frontend/state-management.md"
+      ],
+      "validation": {
+        "typecheck": "passed",
+        "tests": "176 passed (19 files)",
+        "lint": "passed",
+        "production_build": "passed",
+        "openapi_check": "root-owned, pending lock-version environment confirmation"
+      }
+    },
+    "auth": {
+      "cumulative_frontend_files_vs_HEAD": [
+        "web/src/api/client.test.ts",
+        "web/src/api/client.ts",
+        "web/src/api/contracts.ts",
+        "web/src/api/openapi.json",
+        "web/src/api/schema.d.ts",
+        "web/src/app/App.test.ts",
+        "web/src/app/App.tsx",
+        "web/src/app/AppShell.test.tsx",
+        "web/src/app/AppShell.tsx",
+        "web/src/auth/ExternalLoginMethods.tsx",
+        "web/src/auth/ExternalLoginPage.test.tsx",
+        "web/src/auth/ExternalLoginPage.tsx",
+        "web/src/auth/LoginPage.test.tsx",
+        "web/src/auth/LoginPage.tsx",
+        "web/src/chat/ChatPage.test.tsx",
+        "web/src/chat/ChatPage.tsx",
+        "web/src/chat/conversationQueries.test.ts",
+        "web/src/chat/conversationQueries.ts",
+        "web/src/library/LibraryPage.test.tsx",
+        "web/src/library/LibraryPage.tsx",
+        "web/src/styles.css",
+        ".trellis/spec/frontend/component-guidelines.md",
+        ".trellis/spec/frontend/external-login.md",
+        ".trellis/spec/frontend/hook-guidelines.md",
+        ".trellis/spec/frontend/index.md",
+        ".trellis/spec/frontend/state-management.md"
+      ],
+      "incremental_frontend_files": [
+        "web/src/api/client.test.ts",
+        "web/src/api/client.ts",
+        "web/src/api/contracts.ts",
+        "web/src/api/openapi.json",
+        "web/src/api/schema.d.ts",
+        "web/src/app/App.test.ts",
+        "web/src/app/App.tsx",
+        "web/src/app/AppShell.test.tsx",
+        "web/src/app/AppShell.tsx",
+        "web/src/auth/ExternalLoginMethods.tsx",
+        "web/src/auth/ExternalLoginPage.test.tsx",
+        "web/src/auth/ExternalLoginPage.tsx",
+        "web/src/auth/LoginPage.test.tsx",
+        "web/src/auth/LoginPage.tsx",
+        "web/src/chat/ChatPage.test.tsx",
+        "web/src/chat/conversationQueries.test.ts",
+        "web/src/library/LibraryPage.test.tsx",
+        "web/src/styles.css",
+        ".trellis/spec/frontend/external-login.md",
+        ".trellis/spec/frontend/index.md",
+        ".trellis/spec/frontend/state-management.md"
+      ],
+      "validation": {
+        "typecheck": "passed",
+        "tests": "205 passed (20 files)",
+        "lint": "passed",
+        "production_build": "passed",
+        "openapi_check": "root-owned, pending lock-version environment confirmation"
+      }
+    }
+  }
+}

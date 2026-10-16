@@ -1,0 +1,34 @@
+{
+  "directory": "/private/tmp/stashseek-redis-maven-j4nu22fi",
+  "artifact": "https://repo.maven.apache.org/maven2/com/github/codemonstur/embedded-redis/1.4.3/embedded-redis-1.4.3.jar",
+  "artifact_bytes": 11953653,
+  "sha1": "1c0273801089295096f588ecd226bfa12cb59a0e",
+  "sha256": "ffbc63265c60d25dee453d6f656b527d98200d98657c6a0ab4dec4ea2c3a5cd6",
+  "repository_sha1_matches": true,
+  "candidate_members": [
+    {
+      "name": "redis-server-6.2.6-v5-darwin-amd64",
+      "size": 5635808
+    },
+    {
+      "name": "redis-server-6.2.6-v5-darwin-arm64",
+      "size": 1829888
+    },
+    {
+      "name": "redis-server-6.2.7-linux-arm64",
+      "size": 3547712
+    }
+  ],
+  "binary": "/private/tmp/stashseek-redis-maven-j4nu22fi/redis-server",
+  "binary_sha256": "c523aec5a9b6f565cff0271ef67f5c51fa83e1180e3e954ab5251b3cf6282b76",
+  "observed_server_version": "Redis server v=6.2.11 sha=720ea82e:0 malloc=libc bits=64 build=24766f51e4115c72",
+  "bundle_member": "redis-server-6.2.6-v5-darwin-arm64",
+  "test_result": {
+    "file": "tests/test_bilibili_gate_redis.py",
+    "passed": 6,
+    "duration_seconds": 27.95,
+    "existing_redis_connected": false,
+    "production_dependencies_changed": false
+  },
+  "remaining_test_processes": []
+}

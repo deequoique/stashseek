@@ -21,6 +21,7 @@ from app.ingest.submission import (
 )
 from app.models import ContentItem, IngestDispatch
 from app.limits import normalize_why_saved
+from app.web.source_projection import has_verified_bilibili_source, item_source_url
 
 
 ACTIVE_DISPATCH_STATES = frozenset({"pending", "enqueued", "running"})
@@ -34,6 +35,8 @@ SAFE_ERROR_CODES = frozenset(
         "transcript_unavailable",
         "transcript_invalid",
         "ingest_too_large",
+        "source_changed",
+        "source_unavailable",
     }
 )
 Lifecycle = Literal[
@@ -509,7 +512,7 @@ class ContentLibraryService:
             public_id=item.public_id,
             platform=item.platform,
             kind=item.kind,
-            url=item.url,
+            url=item_source_url(item.public_id) if has_verified_bilibili_source(item) else item.url,
             title=item.title,
             author=item.author,
             published_at=item.published_at,

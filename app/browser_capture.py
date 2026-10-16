@@ -259,7 +259,13 @@ def timestamp_url(platform: str, url: str, seconds: float) -> str:
     if platform == "youtube":
         query["t"] = str(max(0, int(seconds)))
     elif platform == "bilibili":
-        query = {"t": str(max(0, int(seconds)))}
+        # Generic channels remain provider-direct. Preserve only one validated
+        # part selector and a local timestamp, never tracking/signed parameters.
+        pages = [value for name, value in parse_qsl(parts.query, keep_blank_values=True) if name == "p"]
+        query = {}
+        if len(pages) == 1 and re.fullmatch(r"[1-9][0-9]{0,3}", pages[0]) and int(pages[0]) <= 1000:
+            query["p"] = pages[0]
+        query["t"] = str(max(0, min(2_147_483_647, int(seconds))))
     elif platform == "ntu_kaltura":
         # NTULearnVideo's supported deep-link parameter has not been verified.
         # Preserve the safe canonical source instead of inventing one.

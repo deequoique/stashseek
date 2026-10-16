@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-16",
+  "operation": "bounded controlled single-part metadata/subtitle read-only canary",
+  "bvid": "BV1gA411j7Ta",
+  "requested_page": 2,
+  "writes": 0,
+  "queue_publications": 0,
+  "credentials_sent": false,
+  "media_download": false,
+  "subtitle_files_written": false,
+  "status": "verified",
+  "expected_cid": "1432055578",
+  "actual_cid_matches": true,
+  "source_page": 2,
+  "after_page": 2,
+  "source_page_unchanged": true,
+  "text_state": "NeedsASR",
+  "cue_count": 0,
+  "caption_format": null,
+  "elapsed_seconds": 2.81,
+  "caveat": "A single observed provider result; no actual ingestion or production-network/subtitle guarantee."
+}

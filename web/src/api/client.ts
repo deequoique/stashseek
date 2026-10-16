@@ -1,4 +1,10 @@
 import type {
+  BilibiliPartsPreviewInput,
+  BilibiliPartsPreview,
+  BilibiliPartsBatchInput,
+  BilibiliPartsBatchResponse,
+  BilibiliFavoritesPreviewInput,
+  BilibiliFavoritesPreview,
   BatchSubmitInput,
   BatchSubmitResponse,
   AcceptedResponse,
@@ -791,5 +797,28 @@ export function submitVideoBatch(input: BatchSubmitInput): Promise<BatchSubmitRe
     method: "POST",
     headers: { "Idempotency-Key": crypto.randomUUID() },
     body: JSON.stringify(input),
+  });
+}
+
+export function previewBilibiliParts(input: BilibiliPartsPreviewInput, signal?: AbortSignal): Promise<BilibiliPartsPreview> {
+  return requestJson("/api/v1/bilibili/parts:preview", {
+    method: "POST", body: JSON.stringify(input), signal,
+  });
+}
+
+export function previewBilibiliFavorites(input: BilibiliFavoritesPreviewInput, signal?: AbortSignal): Promise<BilibiliFavoritesPreview> {
+  return requestJson("/api/v1/bilibili/favorites:preview", {
+    method: "POST", body: JSON.stringify(input), signal,
+  });
+}
+
+export function submitBilibiliParts(
+  input: BilibiliPartsBatchInput,
+  operationKey: string,
+  signal?: AbortSignal,
+): Promise<BilibiliPartsBatchResponse> {
+  return requestJson("/api/v1/bilibili/parts:batch", {
+    method: "POST", headers: { "Idempotency-Key": operationKey },
+    body: JSON.stringify(input), signal,
   });
 }

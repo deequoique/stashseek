@@ -1,0 +1,51 @@
+{
+  "changes": [
+    "replace machine hostname with test-host",
+    "replace home prefix with USER_HOME",
+    "strip trailing whitespace from copied pytest logs; preserve test results and raw originals"
+  ],
+  "test_counts_unchanged": true,
+  "raw_logs_kept_outside_git": true,
+  "files": [
+    {
+      "file": "foundation-backend.xml",
+      "original_sha256": "a0e876808f80640da2cbdff63412c3f5e74dfa403a6274d045fcec173b6c5e36",
+      "redacted_sha256": "9faa24f05007fb7b66e686932147299c8b7ad9c6e84af32c64bae4fe65fca62a"
+    },
+    {
+      "file": "foundation-backend.txt",
+      "original_sha256": "f63269acbb666cc1ace5026c356b5d2218713a75f63aca412ee0c3a6d3a79c4c",
+      "redacted_sha256": "852a547a373d124fbc2d4295b561f4119247f5171baa295d68024f2b1ee25bb2"
+    },
+    {
+      "file": "combined-backend.xml",
+      "original_sha256": "7eec599f70b8a92360f78139781d56196370c5b8f7b10071d10302f56d4f1136",
+      "redacted_sha256": "076cefa668006cebb1a504e153a8841cb44660bbcdbf2cbb82351fbd675a1741"
+    },
+    {
+      "file": "combined-backend.txt",
+      "original_sha256": "2412224ca8c34dd2d55a630c26eff83a1b971cf987cb1f6844048d79d1393135",
+      "redacted_sha256": "888ca239b27124e6db5bfd997848796b47511db0c9ca7034433441ca9774bdff"
+    },
+    {
+      "file": "combined-backend-final.xml",
+      "original_sha256": "40390bf5e8c6d076dfac5526057c5ab98fa5312b2eb70f019dfc080ce7468052",
+      "redacted_sha256": "0397affca8c64e108ebb1e55ad8ab1f8e979c55f8b19e484a52607ce1deaff3a"
+    },
+    {
+      "file": "combined-backend-final.txt",
+      "original_sha256": "310c8df9fd4dfcdc7c69bbf07273fa04d596cb138e80f653193cddf85c29a030",
+      "redacted_sha256": "c0660f6b0ccdcabcadd8ca157503f3413e48cb598f3e0cfc951e384f2bfe6c66"
+    },
+    {
+      "file": "commit-backend.xml",
+      "original_sha256": "4b15db65e4320f820f97a3d5b2fec100302a13ee169a066b34d0c0d267039917",
+      "redacted_sha256": "551c50d67b6e8bb845d4c81b42268f0a377239f3897f83850d6314d1f34c710e"
+    },
+    {
+      "file": "commit-backend.txt",
+      "original_sha256": "3ce5c35b6135b985c9106267ef3667ed45ebbc5ad883d422f21a28b1252438c1",
+      "redacted_sha256": "8959cac2db2a877c718ee25b44f68047c092574a386b56972d49ac101bf6bf66"
+    }
+  ]
+}

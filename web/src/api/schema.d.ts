@@ -142,6 +142,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/bilibili/favorites:preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Favorites */
+        post: operations["favorites_api_v1_bilibili_favorites_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bilibili/parts:batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save */
+        post: operations["save_api_v1_bilibili_parts_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bilibili/parts:preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview */
+        post: operations["preview_api_v1_bilibili_parts_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/browser-companion/devices": {
         parameters: {
             query?: never;
@@ -477,6 +528,23 @@ export interface paths {
         patch: operations["update_api_v1_library_items__item_public_id__patch"];
         trace?: never;
     };
+    "/api/v1/library/items/{item_public_id}/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Source */
+        get: operations["source_api_v1_library_items__item_public_id__source_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/library/items/{item_public_id}/transcript": {
         parameters: {
             query?: never;
@@ -646,6 +714,148 @@ export interface components {
             /** Results */
             results: components["schemas"]["BatchItemResponse"][];
         };
+        /** BilibiliFavoriteVideo */
+        BilibiliFavoriteVideo: {
+            /** Available */
+            available: boolean;
+            /** Bvid */
+            bvid?: string | null;
+            /** Canonical Url */
+            canonical_url?: string | null;
+            /** Entry Key */
+            entry_key: string;
+            /** Title */
+            title?: string | null;
+            /** Unavailable Reason */
+            unavailable_reason?: ("deleted" | "not_video" | "invalid_video") | null;
+        };
+        /** BilibiliFavoritesPreviewRequest */
+        BilibiliFavoritesPreviewRequest: {
+            /**
+             * Page
+             * @default 1
+             */
+            page: number;
+            /** Url */
+            url: string;
+        };
+        /** BilibiliFavoritesPreviewResponse */
+        BilibiliFavoritesPreviewResponse: {
+            /** Capped */
+            capped: boolean;
+            /** Collection Id */
+            collection_id: string;
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["BilibiliFavoriteVideo"][];
+            /** Page */
+            page: number;
+            /**
+             * Page Size
+             * @default 20
+             * @constant
+             */
+            page_size: 20;
+            /** Reported Total */
+            reported_total: number;
+            /** Title */
+            title?: string | null;
+        };
+        /** BilibiliPartPreview */
+        BilibiliPartPreview: {
+            /** Duration Sec */
+            duration_sec?: number | null;
+            /** Expires At */
+            expires_at?: number | null;
+            /**
+             * Has Unverified Legacy Item
+             * @default false
+             */
+            has_unverified_legacy_item: boolean;
+            /** Page */
+            page: number;
+            /** Part Key */
+            part_key: string;
+            /** Part Ref */
+            part_ref?: string | null;
+            /** Selectable */
+            selectable: boolean;
+            /** Title */
+            title?: string | null;
+            /** Unavailable Reason */
+            unavailable_reason?: "source_unavailable" | null;
+        };
+        /** BilibiliPartSaveResult */
+        BilibiliPartSaveResult: {
+            /** Input Index */
+            input_index: number;
+            /** Item Public Id */
+            item_public_id?: string | null;
+            /** Lifecycle */
+            lifecycle?: ("archived" | "ready" | "needs_action" | "failed" | "processing" | "queued") | null;
+            /** Result Id */
+            result_id: string;
+            /** Safe Error Code */
+            safe_error_code?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "already_exists" | "unsupported_url" | "invalid_url" | "queue_unavailable" | "create_failed" | "quota_exceeded" | "part_ref_invalid" | "part_ref_expired" | "legacy_identity_unknown";
+        };
+        /** BilibiliPartSelection */
+        BilibiliPartSelection: {
+            /**
+             * Allow Legacy Overlap
+             * @default false
+             */
+            allow_legacy_overlap: boolean;
+            /** Part Ref */
+            part_ref: string;
+        };
+        /** BilibiliPartsBatchRequest */
+        BilibiliPartsBatchRequest: {
+            /** Selections */
+            selections: components["schemas"]["BilibiliPartSelection"][];
+            /** Why Saved */
+            why_saved?: string | null;
+        };
+        /** BilibiliPartsBatchResponse */
+        BilibiliPartsBatchResponse: {
+            /** Results */
+            results: components["schemas"]["BilibiliPartSaveResult"][];
+        };
+        /** BilibiliPartsPreviewRequest */
+        BilibiliPartsPreviewRequest: {
+            /** Page */
+            page?: number | null;
+            /** Url */
+            url: string;
+        };
+        /** BilibiliPartsPreviewResponse */
+        BilibiliPartsPreviewResponse: {
+            /** Bvid */
+            bvid: string;
+            /** Has More */
+            has_more: boolean;
+            /** Page */
+            page: number;
+            /**
+             * Page Size
+             * @default 20
+             * @constant
+             */
+            page_size: 20;
+            /** Parts */
+            parts: components["schemas"]["BilibiliPartPreview"][];
+            /** Requested Page */
+            requested_page?: number | null;
+            /** Title */
+            title?: string | null;
+            /** Total Parts */
+            total_parts: number;
+        };
         /** BrowserCaptureRequest */
         BrowserCaptureRequest: {
             /** Canonical Url */
@@ -721,6 +931,16 @@ export interface components {
              * @default true
              */
             archive: boolean;
+            /**
+             * Bilibili Favorites Enabled
+             * @default false
+             */
+            bilibili_favorites_enabled: boolean;
+            /**
+             * Bilibili Parts Enabled
+             * @default false
+             */
+            bilibili_parts_enabled: boolean;
             /**
              * Browser Companion
              * @default true
@@ -1829,6 +2049,112 @@ export interface operations {
             };
         };
     };
+    favorites_api_v1_bilibili_favorites_preview_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BilibiliFavoritesPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BilibiliFavoritesPreviewResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    save_api_v1_bilibili_parts_batch_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-CSRF-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BilibiliPartsBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BilibiliPartsBatchResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    preview_api_v1_bilibili_parts_preview_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BilibiliPartsPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BilibiliPartsPreviewResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_devices_api_v1_browser_companion_devices_get: {
         parameters: {
             query?: never;
@@ -2597,6 +2923,37 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["LibraryItemResponse"];
                 };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    source_api_v1_library_items__item_public_id__source_get: {
+        parameters: {
+            query?: {
+                t?: number;
+            };
+            header?: never;
+            path: {
+                item_public_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Unprocessable Entity */
             422: {

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/bilibili-connector.md", "reason": "Existing strict Bilibili URL/ID and local preflight contract; preserve security boundaries."}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Add Videos form controls and concise Chinese guidance; preserve existing UI changes."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Keep existing generated request contract; raw string normalization belongs to server."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Focused user-flow regressions and relevant frontend verification."}

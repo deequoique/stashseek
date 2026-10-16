@@ -30,10 +30,21 @@ interface VideoDetailViewProps {
 }
 
 function timestampUrl(url: string, seconds: number, platform: string): string {
-  const parsed = new URL(url);
+  const parsed = new URL(url, window.location.origin);
+  const timestamp = String(Number.isFinite(seconds) ? Math.min(2_147_483_647, Math.max(0, Math.floor(seconds))) : 0);
+  if (url.startsWith("/api/v1/library/items/") && parsed.origin === window.location.origin
+    && /^\/api\/v1\/library\/items\/[^/]+\/source$/.test(parsed.pathname)) {
+    parsed.search = "";
+    parsed.searchParams.set("t", timestamp);
+    return `${parsed.pathname}${parsed.search}`;
+  }
   if (platform === "ntu_kaltura") return `${parsed.origin}${parsed.pathname}`;
-  if (platform === "bilibili") parsed.search = "";
-  parsed.searchParams.set("t", String(Math.max(0, Math.floor(seconds))));
+  if (platform === "bilibili") {
+    const page = parsed.searchParams.get("p");
+    parsed.search = "";
+    if (page && /^[1-9]\d{0,3}$/.test(page)) parsed.searchParams.set("p", page);
+  }
+  parsed.searchParams.set("t", timestamp);
   return parsed.toString();
 }
 
@@ -167,6 +178,8 @@ export function VideoDetailView({
           {actionError ? <p className="inline-error" role="alert" aria-label="视频操作失败">操作未完成，请稍后重试。</p> : null}
           {item.error_code === "youtube_rate_limited" ? <p className="inline-error">服务器暂时无法访问 YouTube。你可以打开原视频，使用 <RouteLink to="/account/browser-companion">浏览器伴侣</RouteLink> 从当前浏览器保存字幕。</p> : null}
           {item.error_code === "bilibili_rate_limited" ? <p className="inline-error">服务器暂时无法访问 Bilibili，请稍后重新整理。</p> : null}
+          {item.error_code === "source_changed" ? <p className="inline-error">这个分 P 的来源位置已变化，未写入其他分 P 的内容。可以稍后重新整理。</p> : null}
+          {item.error_code === "source_unavailable" ? <p className="inline-error">暂时无法验证这个分 P 的来源，请稍后重新整理。</p> : null}
         </div>
       </header>
 

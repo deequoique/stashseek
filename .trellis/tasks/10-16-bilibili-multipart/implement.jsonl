@@ -1,0 +1,14 @@
+{"file":".trellis/spec/backend/bilibili-connector.md","reason":"Preserve local P1 admission, no-playlist, safe raw formats and existing BV/share-text behavior while adding explicit parts."}
+{"file":".trellis/spec/backend/web-browser-runtime.md","reason":"Canonical runtime, Session/Origin/CSRF, safe DTOs and browser-only source projection ownership."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Additive source columns, single Alembic head and isolated PostgreSQL migration/concurrency verification."}
+{"file":".trellis/spec/backend/agent-retrieval-convergence.md","reason":"Trusted part/item scope, server citation allow-lists and generic-channel source semantics."}
+{"file":".trellis/spec/backend/ingestion-chunking-embedding.md","reason":"Part-local cues/segments, raw preservation and bounded retry/embedding behavior."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Reusable accessible native part picker, explicit consent and existing UI/WIP preservation."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Query-owned preview, cancellation, bounded retry and mutation/cache handoff."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Ephemeral selection/ref state and private QueryClient teardown on account changes."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Canonical server DTOs and generated OpenAPI/TypeScript ownership."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend gates, honest partial results and real-browser navigation/accessibility checks."}
+{"file":".trellis/tasks/10-15-bilibili-favorites-import/research/multipart-backend-design-review.md","reason":"Stable-CID/schema/artifact/legacy analysis; current child design supersedes its pre/post-only suggestion with mandatory actual extractor CID proof."}
+{"file":".trellis/tasks/10-15-bilibili-favorites-import/research/multipart-gap.md","reason":"Verified multipart protocol/current-code limits, source-time links and capture exclusions."}
+{"file":".trellis/tasks/10-15-bilibili-favorites-import/research/backend-integration.md","reason":"Existing quota/idempotency/publish/no-job boundary; selected multipart design supersedes older P1-only proposal."}
+{"file":".trellis/tasks/10-15-bilibili-favorites-import/research/frontend-flow.md","reason":"Confirmed ten-part UX, shared picker, legacy warning, partial outcomes and account/refresh behavior."}

@@ -63,8 +63,12 @@ def _citation_matches_scope(
     citation: Citation,
     scope: tuple[tuple[str, str], ...],
 ) -> bool:
-    """Validate a citation URL against the current-message subject set."""
+    """Match trusted exact item identity, with legacy URL compatibility only."""
 
+    if citation._source_reference is not None:
+        return citation._source_reference in set(scope)
+    # CID-qualified identities have no URL-derived representation: an ordinal
+    # or model-authored browser resolver cannot authorize that source.
     try:
         reference = normalize_item_reference(citation.url)
     except (ValueError, TypeError):

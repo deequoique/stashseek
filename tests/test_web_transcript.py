@@ -76,6 +76,15 @@ def test_tenant_validation_happens_before_object_io():
     assert "content_item.deleted_at IS NULL" in str(db.statements[0])
 
 
+def test_verified_part_transcript_uses_owned_source_resolver_with_local_time():
+    transcript, _ = service(content(
+        platform="bilibili", bilibili_bvid="BV1xx411c7mD", bilibili_cid="123", bilibili_page=2,
+        url="https://www.bilibili.com/video/BV1xx411c7mD?p=2",
+    ), Store(json3(cue(12_000, 2_000, "这一 P 的字幕"))))
+    page = transcript.get(SimpleNamespace(app_user_id=7), "item-public")
+    assert page.blocks[0].source_url == "/api/v1/library/items/item-public/source?t=12"
+
+
 def test_raw_key_must_have_authenticated_user_prefix_before_io():
     store = Store(b"unused")
     transcript, _ = service(content(raw_object_key="8/youtube/private.json3"), store)

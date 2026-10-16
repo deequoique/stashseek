@@ -10,6 +10,7 @@ from app.api.email_auth_routes import EmailWebAuthAdapter
 from app.config import Settings, get_settings
 from app.browser_capture_submission import BrowserCaptureSubmissionService
 from app.browser_companion import BrowserCompanionService
+from app.bilibili.service import build_bilibili_service
 from app.db import get_session_factory
 from app.ingest.submission import build_ingest_submission_service
 from app.object_store import RawObjectStore
@@ -55,6 +56,7 @@ def build_web_app(
     external_auth=None,
     external_providers=None,
     channel_service=None,
+    bilibili=None,
     mount_static: bool | None = None,
 ):
     """Wire concrete services while keeping test doubles explicit and local."""
@@ -164,6 +166,7 @@ def build_web_app(
         transcript=TranscriptService(factory, store),
         browser_companion=browser_companion,
         browser_capture_submission=browser_capture_submission,
+        bilibili=bilibili or build_bilibili_service(settings, factory, submission),
     )
     serve_static = (
         settings.web_serve_static

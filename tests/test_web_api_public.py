@@ -39,6 +39,8 @@ def test_public_health_capabilities_and_openapi_are_safe():
         "archive": True,
         "summary_generation": False,
         "chat": True,
+        "bilibili_parts_enabled": False,
+        "bilibili_favorites_enabled": False,
     }
 
     assert openapi.status_code == 200

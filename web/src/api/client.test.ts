@@ -14,6 +14,9 @@ import {
   probeLoginSession,
   requestExternalLoginCode,
   verifyExternalLogin,
+  previewBilibiliParts,
+  submitBilibiliParts,
+  previewBilibiliFavorites,
 } from "./client";
 
 function streamRecord(event: Record<string, unknown>): string {
@@ -21,6 +24,30 @@ function streamRecord(event: Record<string, unknown>): string {
 }
 
 describe("same-origin API client", () => {
+  it("keeps part previews abortable and caller-owned stable import keys with Session CSRF", async () => {
+    document.cookie = "__Host-kb_csrf=parts-csrf; Path=/; Secure";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response("{}", { status: 200 }));
+    const signal = new AbortController().signal;
+    await previewBilibiliParts({ url: "BV1xx411c7mD", page: 2 }, signal);
+    const input = { selections: [{ part_ref: "signed-proof", allow_legacy_overlap: false }], why_saved: null };
+    await submitBilibiliParts(input, "same-operation", signal);
+    await submitBilibiliParts(input, "same-operation", signal);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/bilibili/parts:preview");
+    for (const [path, init] of fetchMock.mock.calls.slice(1)) {
+      expect(path).toBe("/api/v1/bilibili/parts:batch");
+      expect(new Headers(init?.headers).get("Idempotency-Key")).toBe("same-operation");
+      expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe("parts-csrf");
+      expect(init?.signal).toBe(signal);
+      expect(init?.credentials).toBe("same-origin");
+      expect(JSON.parse(String(init?.body))).toEqual(input);
+    }
+    await previewBilibiliFavorites({ url: "https://space.bilibili.com/7/favlist?fid=8", page: 2 }, signal);
+    const [favoritePath, favoriteInit] = fetchMock.mock.calls.at(-1)!;
+    expect(favoritePath).toBe("/api/v1/bilibili/favorites:preview");
+    expect(favoriteInit?.signal).toBe(signal);
+    expect(new Headers(favoriteInit?.headers).get("X-CSRF-Token")).toBe("parts-csrf");
+    expect(JSON.parse(String(favoriteInit?.body))).toEqual({ url: "https://space.bilibili.com/7/favlist?fid=8", page: 2 });
+  });
   it("uses only the flow CSRF cookie for external mutations and keeps Session CSRF separate", async () => {
     document.cookie = "__Host-kb_csrf=session-csrf; Path=/; Secure";
     document.cookie = "__Host-kb_external_csrf=flow-csrf; Path=/; Secure";

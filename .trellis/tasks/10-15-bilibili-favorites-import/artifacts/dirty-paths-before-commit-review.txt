@@ -1,0 +1,250 @@
+ M .env.example
+ M .trellis/spec/backend/bilibili-connector.md
+ M .trellis/spec/backend/channel-identity-linking.md
+ M .trellis/spec/backend/index.md
+ M .trellis/spec/backend/web-browser-runtime.md
+ M .trellis/spec/frontend/component-guidelines.md
+ M .trellis/spec/frontend/hook-guidelines.md
+ M .trellis/spec/frontend/index.md
+ M .trellis/spec/frontend/state-management.md
+ M app/agent/runtime_state.py
+ M app/agent/services.py
+ M app/agent/types.py
+ M app/api/app.py
+ M app/api/auth_schemas.py
+ M app/api/conversation_routes.py
+ M app/api/email_auth_routes.py
+ M app/api/runtime.py
+ M app/browser_capture.py
+ M app/channels/identity.py
+ M app/cli.py
+ M app/config.py
+ M app/connectors/base.py
+ M app/connectors/bilibili.py
+ M app/ingest/submission.py
+ M app/ingest/tasks.py
+ M app/models.py
+ M app/web/auth.py
+ M app/web/library.py
+ M app/web/transcript.py
+ M app/web_auth.py
+ M docs/README.md
+ M docs/how-to/README.md
+ M docs/how-to/use-web-library.md
+ M docs/reference/README.md
+ M docs/reference/configuration.md
+ M docs/reference/web-api.md
+ M pyproject.toml
+ M scripts/export_web_openapi.py
+ M tests/test_agent_context.py
+ M tests/test_bilibili_url.py
+ M tests/test_conversation_list_queries.py
+ M tests/test_ingest_submission.py
+ M tests/test_item_management_tools.py
+ M tests/test_web_api_public.py
+ M tests/test_web_api_runtime.py
+ M tests/test_web_auth_migration.py
+ M tests/test_web_auth_postgres.py
+ M tests/test_web_session_cache.py
+ M tests/test_web_transcript.py
+ M uv.lock
+ M web/src/api/client.test.ts
+ M web/src/api/client.ts
+ M web/src/api/contracts.ts
+ M web/src/api/openapi.json
+ M web/src/api/schema.d.ts
+ M web/src/app/App.test.ts
+ M web/src/app/App.tsx
+ M web/src/app/AppShell.test.tsx
+ M web/src/app/AppShell.tsx
+ M web/src/auth/LoginPage.test.tsx
+ M web/src/auth/LoginPage.tsx
+ M web/src/chat/ChatPage.test.tsx
+ M web/src/chat/ChatPage.tsx
+ M web/src/library/AddVideosDialog.test.tsx
+ M web/src/library/AddVideosDialog.tsx
+ M web/src/library/LibraryPage.test.tsx
+ M web/src/library/LibraryPage.tsx
+ M web/src/styles.css
+ M web/src/videos/VideoDetailView.test.tsx
+ M web/src/videos/VideoDetailView.tsx
+?? .trellis/spec/backend/bilibili-parts.md
+?? .trellis/spec/backend/external-login.md
+?? .trellis/spec/frontend/bilibili-import.md
+?? .trellis/spec/frontend/external-login.md
+?? .trellis/tasks/10-14-email-login-delivery/check.jsonl
+?? .trellis/tasks/10-14-email-login-delivery/design.md
+?? .trellis/tasks/10-14-email-login-delivery/implement.jsonl
+?? .trellis/tasks/10-14-email-login-delivery/implement.md
+?? .trellis/tasks/10-14-email-login-delivery/paused-scope.md
+?? .trellis/tasks/10-14-email-login-delivery/prd.md
+?? .trellis/tasks/10-14-email-login-delivery/research/email-delivery.md
+?? .trellis/tasks/10-14-email-login-delivery/task.json
+?? .trellis/tasks/10-14-history-loading-performance/backend-auth-results.md
+?? .trellis/tasks/10-14-history-loading-performance/check.jsonl
+?? .trellis/tasks/10-14-history-loading-performance/commit-plan.md
+?? .trellis/tasks/10-14-history-loading-performance/design.md
+?? .trellis/tasks/10-14-history-loading-performance/frontend-results.md
+?? .trellis/tasks/10-14-history-loading-performance/implement.jsonl
+?? .trellis/tasks/10-14-history-loading-performance/implement.md
+?? .trellis/tasks/10-14-history-loading-performance/prd.md
+?? .trellis/tasks/10-14-history-loading-performance/research/bottlenecks.md
+?? .trellis/tasks/10-14-history-loading-performance/task.json
+?? .trellis/tasks/10-14-history-loading-performance/verification.md
+?? .trellis/tasks/10-14-verify-local-runtime/check.jsonl
+?? .trellis/tasks/10-14-verify-local-runtime/implement.jsonl
+?? .trellis/tasks/10-14-verify-local-runtime/prd.md
+?? .trellis/tasks/10-14-verify-local-runtime/python-checks.md
+?? .trellis/tasks/10-14-verify-local-runtime/task.json
+?? .trellis/tasks/10-14-verify-local-runtime/verification.md
+?? .trellis/tasks/10-15-bilibili-bv-input/artifacts/bv-input-test.jpg
+?? .trellis/tasks/10-15-bilibili-bv-input/artifacts/share-text-test.jpg
+?? .trellis/tasks/10-15-bilibili-bv-input/check.jsonl
+?? .trellis/tasks/10-15-bilibili-bv-input/commit-plan.md
+?? .trellis/tasks/10-15-bilibili-bv-input/implement.jsonl
+?? .trellis/tasks/10-15-bilibili-bv-input/prd.md
+?? .trellis/tasks/10-15-bilibili-bv-input/task.json
+?? .trellis/tasks/10-15-bilibili-bv-input/verification.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/approval.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/artifacts/browser-before-count-fix.jpg
+?? .trellis/tasks/10-15-bilibili-favorites-import/artifacts/combined-backend-final.txt
+?? .trellis/tasks/10-15-bilibili-favorites-import/artifacts/combined-backend-final.xml
+?? .trellis/tasks/10-15-bilibili-favorites-import/artifacts/combined-backend.txt
+?? .trellis/tasks/10-15-bilibili-favorites-import/artifacts/combined-backend.xml
+?? .trellis/tasks/10-15-bilibili-favorites-import/artifacts/dirty-paths-before-commit-review.txt
+?? .trellis/tasks/10-15-bilibili-favorites-import/artifacts/favorites-desktop.jpg
+?? .trellis/tasks/10-15-bilibili-favorites-import/artifacts/favorites-mobile.jpg
+?? .trellis/tasks/10-15-bilibili-favorites-import/artifacts/foundation-backend.txt
+?? .trellis/tasks/10-15-bilibili-favorites-import/artifacts/foundation-backend.xml
+?? .trellis/tasks/10-15-bilibili-favorites-import/artifacts/source-click.jpg
+?? .trellis/tasks/10-15-bilibili-favorites-import/baseline.json
+?? .trellis/tasks/10-15-bilibili-favorites-import/check.jsonl
+?? .trellis/tasks/10-15-bilibili-favorites-import/commit-plan.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/design.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/implement.jsonl
+?? .trellis/tasks/10-15-bilibili-favorites-import/implement.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/prd.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/progress.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/research/backend-integration.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/research/browser-acceptance.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/research/controlled-part-canary-20261016.json
+?? .trellis/tasks/10-15-bilibili-favorites-import/research/favorites-canary-20261016.json
+?? .trellis/tasks/10-15-bilibili-favorites-import/research/frontend-flow.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/research/multipart-backend-design-review.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/research/multipart-gap.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/research/parts-canary-20261016.json
+?? .trellis/tasks/10-15-bilibili-favorites-import/research/planning-review.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/research/public-sample-access.md
+?? .trellis/tasks/10-15-bilibili-favorites-import/task.json
+?? .trellis/tasks/10-15-bilibili-favorites-import/test-runtime.json
+?? .trellis/tasks/10-15-bilibili-favorites-import/verification.md
+?? .trellis/tasks/10-15-external-login-foundation/check.jsonl
+?? .trellis/tasks/10-15-external-login-foundation/design.md
+?? .trellis/tasks/10-15-external-login-foundation/implement.jsonl
+?? .trellis/tasks/10-15-external-login-foundation/implement.md
+?? .trellis/tasks/10-15-external-login-foundation/prd.md
+?? .trellis/tasks/10-15-external-login-foundation/task.json
+?? .trellis/tasks/10-15-microsoft-login/check.jsonl
+?? .trellis/tasks/10-15-microsoft-login/design.md
+?? .trellis/tasks/10-15-microsoft-login/implement.jsonl
+?? .trellis/tasks/10-15-microsoft-login/implement.md
+?? .trellis/tasks/10-15-microsoft-login/prd.md
+?? .trellis/tasks/10-15-microsoft-login/task.json
+?? .trellis/tasks/10-15-multi-provider-login/artifacts/login-test-desktop.jpg
+?? .trellis/tasks/10-15-multi-provider-login/artifacts/login-test-mobile.jpg
+?? .trellis/tasks/10-15-multi-provider-login/check.jsonl
+?? .trellis/tasks/10-15-multi-provider-login/design.md
+?? .trellis/tasks/10-15-multi-provider-login/implement.jsonl
+?? .trellis/tasks/10-15-multi-provider-login/implement.md
+?? .trellis/tasks/10-15-multi-provider-login/planning-review.md
+?? .trellis/tasks/10-15-multi-provider-login/prd.md
+?? .trellis/tasks/10-15-multi-provider-login/research/authentication-boundaries.md
+?? .trellis/tasks/10-15-multi-provider-login/research/frontend-login-plan.md
+?? .trellis/tasks/10-15-multi-provider-login/research/provider-registration.md
+?? .trellis/tasks/10-15-multi-provider-login/research/shared-auth-invariants.md
+?? .trellis/tasks/10-15-multi-provider-login/research/wechat-official-verification.md
+?? .trellis/tasks/10-15-multi-provider-login/task.json
+?? .trellis/tasks/10-15-multi-provider-login/verification.md
+?? .trellis/tasks/10-15-qq-website-login/check.jsonl
+?? .trellis/tasks/10-15-qq-website-login/design.md
+?? .trellis/tasks/10-15-qq-website-login/implement.jsonl
+?? .trellis/tasks/10-15-qq-website-login/implement.md
+?? .trellis/tasks/10-15-qq-website-login/prd.md
+?? .trellis/tasks/10-15-qq-website-login/task.json
+?? .trellis/tasks/10-15-wechat-website-login/check.jsonl
+?? .trellis/tasks/10-15-wechat-website-login/design.md
+?? .trellis/tasks/10-15-wechat-website-login/implement.jsonl
+?? .trellis/tasks/10-15-wechat-website-login/implement.md
+?? .trellis/tasks/10-15-wechat-website-login/prd.md
+?? .trellis/tasks/10-15-wechat-website-login/task.json
+?? .trellis/tasks/10-16-bilibili-favorites-preview/check.jsonl
+?? .trellis/tasks/10-16-bilibili-favorites-preview/design.md
+?? .trellis/tasks/10-16-bilibili-favorites-preview/implement.jsonl
+?? .trellis/tasks/10-16-bilibili-favorites-preview/implement.md
+?? .trellis/tasks/10-16-bilibili-favorites-preview/prd.md
+?? .trellis/tasks/10-16-bilibili-favorites-preview/research/backend-implementation-verification.md
+?? .trellis/tasks/10-16-bilibili-favorites-preview/research/frontend-implementation.md
+?? .trellis/tasks/10-16-bilibili-favorites-preview/research/independent-implementation-check.md
+?? .trellis/tasks/10-16-bilibili-favorites-preview/task.json
+?? .trellis/tasks/10-16-bilibili-multipart/artifacts/browser_qa_api.py
+?? .trellis/tasks/10-16-bilibili-multipart/artifacts/browser_qa_vite.mjs
+?? .trellis/tasks/10-16-bilibili-multipart/check.jsonl
+?? .trellis/tasks/10-16-bilibili-multipart/design.md
+?? .trellis/tasks/10-16-bilibili-multipart/implement.jsonl
+?? .trellis/tasks/10-16-bilibili-multipart/implement.md
+?? .trellis/tasks/10-16-bilibili-multipart/prd.md
+?? .trellis/tasks/10-16-bilibili-multipart/research/browser-qa-20261016.md
+?? .trellis/tasks/10-16-bilibili-multipart/research/core-implementation-verification.md
+?? .trellis/tasks/10-16-bilibili-multipart/research/extraction-implementation-check.md
+?? .trellis/tasks/10-16-bilibili-multipart/research/independent-implementation-check.md
+?? .trellis/tasks/10-16-bilibili-multipart/research/redis-live-gate-attempt.md
+?? .trellis/tasks/10-16-bilibili-multipart/research/redis-live-gate-success.md
+?? .trellis/tasks/10-16-bilibili-multipart/research/redis-test-runtime.json
+?? .trellis/tasks/10-16-bilibili-multipart/task.json
+?? app/api/bilibili_routes.py
+?? app/api/bilibili_schemas.py
+?? app/api/external_auth_routes.py
+?? app/bilibili/__init__.py
+?? app/bilibili/fetch_public.py
+?? app/bilibili/gate.py
+?? app/bilibili/public.py
+?? app/bilibili/refs.py
+?? app/bilibili/service.py
+?? app/connectors/bilibili_extract.py
+?? app/external_auth.py
+?? app/external_providers/__init__.py
+?? app/external_providers/base.py
+?? app/external_providers/http.py
+?? app/external_providers/microsoft.py
+?? app/external_providers/qq.py
+?? app/external_providers/registry.py
+?? app/external_providers/wechat.py
+?? app/web/source_projection.py
+?? docs/how-to/configure-external-login.md
+?? migrations/versions/e2f3a4b5c6d7_external_login_foundation.py
+?? migrations/versions/f8a9b0c1d2e3_bilibili_part_sources.py
+?? tests/test_bilibili_favorites.py
+?? tests/test_bilibili_gate_redis.py
+?? tests/test_bilibili_multipart_extract.py
+?? tests/test_bilibili_parts_api.py
+?? tests/test_bilibili_parts_core.py
+?? tests/test_bilibili_parts_postgres.py
+?? tests/test_browser_source_projection.py
+?? tests/test_external_login.py
+?? tests/test_external_login_models.py
+?? tests/test_external_login_postgres.py
+?? tests/test_external_login_routes.py
+?? tests/test_external_providers.py
+?? web/src/auth/ExternalLoginMethods.tsx
+?? web/src/auth/ExternalLoginPage.test.tsx
+?? web/src/auth/ExternalLoginPage.tsx
+?? web/src/chat/conversationQueries.test.ts
+?? web/src/chat/conversationQueries.ts
+?? web/src/library/FavoritesPicker.test.tsx
+?? web/src/library/FavoritesPicker.tsx
+?? web/src/library/PartsPicker.test.tsx
+?? web/src/library/PartsPicker.tsx
+?? web/src/library/partSelection.test.ts
+?? web/src/library/partSelection.ts
+?? web/src/library/videoInput.test.ts
+?? web/src/library/videoInput.ts

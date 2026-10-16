@@ -1,0 +1,48 @@
+........................................................................ [  5%]
+.......................................................................s [ 11%]
+sssss................................................................... [ 16%]
+ssssssssssssss.......................................................... [ 22%]
+........................................................................ [ 27%]
+........................................................................ [ 33%]
+........................................................................ [ 38%]
+........................................................................ [ 44%]
+........................................................ssssssssss...... [ 49%]
+........................................................................ [ 55%]
+.......................................ssssss........................... [ 60%]
+...................................sssssssssssssssssssss................ [ 66%]
+.....FF.............................sssssssss..........................s [ 72%]
+.....sssss.ssssssssssss...........................................ssssss [ 77%]
+sss..................................................................... [ 83%]
+........................................................................ [ 88%]
+.........s.ssssssss.........................................ss.......... [ 94%]
+........................................................................ [ 99%]
+....                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_save_restore_early_return_is_committed_and_retry_queue_failure_is_retryable _
+tests/test_item_management_tools.py:1796: in test_save_restore_early_return_is_committed_and_retry_queue_failure_is_retryable
+    assert restored.results[0].status == "restored"
+E   AssertionError: assert 'purge_in_progress' == 'restored'
+E
+E     - restored
+E     + purge_in_progress
+_____________ test_delete_restore_and_resave_converge_on_same_item _____________
+tests/test_item_management_tools.py:1851: in test_delete_restore_and_resave_converge_on_same_item
+    assert result.results[0].status == "restored"
+E   AssertionError: assert 'purge_in_progress' == 'restored'
+E
+E     - restored
+E     + purge_in_progress
+=============================== warnings summary ===============================
+.venv/lib/python3.13/site-packages/starlette/testclient.py:45
+  USER_HOME/stashseek/.venv/lib/python3.13/site-packages/starlette/testclient.py:45: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+tests/test_external_providers.py: 14 warnings
+  USER_HOME/stashseek/.venv/lib/python3.13/site-packages/msal/oauth2cli/oauth2.py:461: UserWarning: response_mode='form_post' is recommended for better security. See https://www.rfc-editor.org/rfc/rfc9700.html#section-4.3.1
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_item_management_tools.py::test_save_restore_early_return_is_committed_and_retry_queue_failure_is_retryable
+FAILED tests/test_item_management_tools.py::test_delete_restore_and_resave_converge_on_same_item
+2 failed, 1194 passed, 104 skipped, 15 warnings in 12.99s

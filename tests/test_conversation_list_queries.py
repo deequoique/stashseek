@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+import json
 
 import httpx
 import pytest
@@ -12,9 +13,11 @@ from app.channels.types import TenantContext
 from app.config import Settings
 from app.models import ConversationThread, ConversationTurn
 from app.web_auth import AuthenticatedWebSession, _token_hash
+from app.agent.types import AgentAnswer, Citation
+from app.agent.streaming import AgentStreamEvent
 
 
-def _runtime(thread_count: int):
+def _runtime(thread_count: int, channel_service=None):
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -128,7 +131,7 @@ def _runtime(thread_count: int):
     app = FastAPI()
     app.include_router(
         build_conversation_router(
-            channel_service=None,
+            channel_service=channel_service,
             session_dependency=lambda _request: session,
             session_factory=factory,
             settings=Settings(
@@ -139,6 +142,76 @@ def _runtime(thread_count: int):
         )
     )
     return app, engine
+
+
+def _part_source_tables(engine):
+    with engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE content_item (id INTEGER PRIMARY KEY, public_id TEXT, platform TEXT, user_id INTEGER, deleted_at TEXT, bilibili_bvid TEXT, bilibili_cid TEXT, bilibili_page INTEGER)")
+        connection.exec_driver_sql("CREATE TABLE segment (id INTEGER PRIMARY KEY, item_id INTEGER)")
+        connection.exec_driver_sql("INSERT INTO content_item VALUES (41, 'verified-part', 'bilibili', 7, NULL, 'BV1xx411c7mD', '123', 6), (42, 'foreign-part', 'bilibili', 8, NULL, 'BV1xx411c7mD', '456', 2)")
+        connection.exec_driver_sql("INSERT INTO segment VALUES (51, 41), (52, 42)")
+
+
+def _part_citation():
+    return Citation(item_id=41, segment_id=51, title="父视频 · P2 课程", excerpt="来源",
+                    url="https://www.bilibili.com/video/BV1xx411c7mD?p=2&t=12", start_sec=12)
+
+
+@pytest.mark.asyncio
+async def test_reopened_history_uses_batched_owned_segment_links_without_rewriting_generic_history():
+    app, engine = _runtime(1)
+    _part_source_tables(engine)
+    stored = [_part_citation().model_dump()] * 8
+    stored.append({**stored[0], "item_id": 42, "segment_id": 52})
+    with engine.begin() as connection:
+        connection.exec_driver_sql("UPDATE conversation_turn SET sources=? WHERE id=1", (json.dumps(stored),))
+    statements = []
+    @event.listens_for(engine, "before_cursor_execute")
+    def record(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://app.example.test") as client:
+        response = await client.get("/api/v1/conversations/thread-1/turns")
+    assert response.status_code == 200
+    citations = response.json()["turns"][0]["citations"]
+    assert len(citations) == 8
+    assert all(value["url"] == "/api/v1/library/items/verified-part/source?t=12" for value in citations)
+    assert all(set(value) == {"title", "excerpt", "url", "start_sec"} for value in citations)
+    assert len(statements) == 3  # owned thread, public turns, one source join
+    with engine.connect() as connection:
+        assert json.loads(connection.exec_driver_sql("SELECT sources FROM conversation_turn WHERE id=1").scalar_one()) == stored
+    engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_current_json_stream_sections_and_final_project_the_same_owned_part():
+    class Channel:
+        async def handle(self, _envelope):
+            return AgentAnswer(status="ok", text="回答", citations=[_part_citation()])
+
+        async def handle_stream(self, envelope):
+            yield AgentStreamEvent("section_started", envelope.request_id, envelope.message_id,
+                section_id="s1", status="grounded", citation_ids=(51,), citations=(_part_citation(),))
+            yield AgentStreamEvent("text_delta", envelope.request_id, envelope.message_id,
+                section_id="s1", text="回答")
+            yield AgentStreamEvent("section_completed", envelope.request_id, envelope.message_id,
+                section_id="s1", status="grounded")
+            yield AgentStreamEvent("completed", envelope.request_id, envelope.message_id,
+                answer=AgentAnswer(status="ok", text="回答", citations=[_part_citation()]))
+    app, engine = _runtime(1, Channel())
+    _part_source_tables(engine)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://app.example.test") as client:
+        direct = await client.post("/api/v1/conversations/conversation-1/messages", json={"message_id": "part-json", "text": "提问"}, headers={"X-CSRF-Token": "csrf"})
+        streamed = await client.post("/api/v1/conversations/conversation-1/messages/stream", json={"message_id": "part-stream", "text": "提问"}, headers={"X-CSRF-Token": "csrf"})
+    assert direct.status_code == 200
+    assert direct.json()["citations"][0]["url"] == "/api/v1/library/items/verified-part/source?t=12"
+    events = [json.loads(line[6:]) for line in streamed.text.splitlines() if line.startswith("data: ")]
+    section = next(value for value in events if value["type"] == "section_started")
+    final = next(value for value in events if value["type"] == "completed")
+    assert section["citations"][0]["url"] == direct.json()["citations"][0]["url"]
+    assert final["response"]["citations"][0]["url"] == direct.json()["citations"][0]["url"]
+    assert "item_id" not in direct.json()["citations"][0]
+    engine.dispose()
 
 
 @pytest.mark.asyncio

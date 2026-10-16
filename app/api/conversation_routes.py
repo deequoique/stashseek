@@ -44,6 +44,7 @@ from app.channels.types import ChannelEnvelope, TenantContext
 from app.models import AppUser, ChannelIdentity, ConversationThread, ConversationTurn
 from app.web.auth import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
 from app.web_auth import AuthenticatedWebSession
+from app.web.source_projection import project_browser_sources
 
 _MAX_CONVERSATION_ID = 128
 _MAX_MESSAGE_ID = 128
@@ -565,19 +566,19 @@ def build_conversation_router(
             raise ValueError("browser session identity resolver returned an invalid value")
         return resolve_browser_session_identity(session, session_factory)
 
-    def project_answer(answer: AgentAnswer) -> ConversationResponse:
+    def browser_citations(values, session: object) -> list[ConversationCitationResponse]:
+        sources = [value.model_dump() for value in values]
+        if not sources:
+            return []
+        with session_factory() as db:
+            projected = project_browser_sources(db, browser_identity(session).app_user_id, sources)
+        return [ConversationCitationResponse(**value) for value in projected if value is not None]
+
+    def project_answer(answer: AgentAnswer, session: object) -> ConversationResponse:
         return ConversationResponse(
             status=answer.status,
             text=answer.text,
-            citations=[
-                ConversationCitationResponse(
-                    title=citation.title,
-                    excerpt=citation.excerpt,
-                    url=citation.url,
-                    start_sec=citation.start_sec,
-                )
-                for citation in answer.citations
-            ],
+            citations=browser_citations(answer.citations, session),
             action_results=[_safe_result(value) for value in answer.action_results],
             thread_id=answer.thread_id,
             error_code=answer.error_code,
@@ -809,6 +810,20 @@ def build_conversation_router(
                     .order_by(ConversationTurn.created_at, ConversationTurn.id)
                 )
             )
+            # One bounded batched provenance pass for the complete transcript,
+            # rather than a source lookup per turn or per citation.
+            source_groups = [
+                [source for source in turn.sources if isinstance(source, dict)]
+                if isinstance(turn.sources, list) else []
+                for turn in turns
+            ]
+            projected_sources = iter(project_browser_sources(
+                db, identity.app_user_id, [source for group in source_groups for source in group],
+            ))
+            turn_sources = [
+                [value for _ in group if (value := next(projected_sources)) is not None]
+                for group in source_groups
+            ]
             return ConversationTurnsResponse(
                 thread_id=thread.public_id,
                 conversation_id=thread.external_conversation_id,
@@ -818,13 +833,13 @@ def build_conversation_router(
                         assistant_text=turn.assistant_text,
                         status=turn.answer_status,
                         error_code=turn.error_code,
-                        citations=_safe_citations(turn.sources),
+                        citations=_safe_citations(sources),
                         action_results=[_safe_result(value) for value in turn.action_results]
                         if isinstance(turn.action_results, list)
                         else [],
                         created_at=turn.created_at,
                     )
-                    for turn in turns
+                    for turn, sources in zip(turns, turn_sources, strict=True)
                 ],
             )
 
@@ -900,7 +915,7 @@ def build_conversation_router(
             )
         except TimeoutError:
             raise HTTPException(status_code=504, detail="request_failed") from None
-        return project_answer(answer)
+        return project_answer(answer, session)
 
     @router.post(
         "/conversations/{conversation_id}/messages/stream",
@@ -1014,15 +1029,7 @@ def build_conversation_router(
                 )
 
             def project_citations(values) -> list[ConversationCitationResponse]:
-                return [
-                    ConversationCitationResponse(
-                        title=value.title,
-                        excerpt=value.excerpt,
-                        url=value.url,
-                        start_sec=value.start_sec,
-                    )
-                    for value in values
-                ]
+                return browser_citations(values, session)
 
             def project_plan(values: tuple[AgentPlanItem, ...]) -> list[ConversationPlanItem]:
                 return [
@@ -1073,7 +1080,7 @@ def build_conversation_router(
                         channel.handle(envelope),
                         timeout=float(getattr(settings, "agent_timeout_seconds", 30.0)),
                     )
-                    projected = _safe_stream_response(project_answer(answer))
+                    projected = _safe_stream_response(project_answer(answer, session))
                     if projected.status == "failed":
                         yield emit(
                             next_event(
@@ -1326,7 +1333,7 @@ def build_conversation_router(
                             if open_section_id is not None:
                                 raise ValueError("completed event has an open section")
                             projected = _safe_stream_response(
-                                project_answer(internal.answer)
+                                project_answer(internal.answer, session)
                             )
                             if section_aborted and projected.status != "failed":
                                 raise ValueError("aborted stream cannot complete successfully")
@@ -1515,7 +1522,7 @@ def build_conversation_router(
                 "/new",
             )
         )
-        return project_answer(answer)
+        return project_answer(answer, session)
 
     @router.post(
         "/link-tokens",

@@ -1,0 +1,14 @@
+{"file":".trellis/spec/backend/bilibili-connector.md","reason":"Check unchanged generic P1/BV/share guards and no hidden playlist/unsafe-fetch expansion."}
+{"file":".trellis/spec/backend/web-browser-runtime.md","reason":"Check one Session authority, protected routes and all browser-only source projections."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Check model/migration parity, single head, NULL legacy provenance and actual isolated-PG races."}
+{"file":".trellis/spec/backend/agent-retrieval-convergence.md","reason":"Check trusted part scope/current/history citations and no relative resolver leakage into MCP/model sources."}
+{"file":".trellis/spec/backend/ingestion-chunking-embedding.md","reason":"Check validation before artifact/segment mutation, part-local timelines and resource budgets."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Check accessible reusable picker, default-false per-entry legacy consent and selected-part count."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Check abort/stale completion, stable operation retry and bounded preview lifecycle."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Check refs/selections/results cannot survive tenant/private cache rotation."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Check generated preview/import/current/history/transcript/source contracts."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Check full relevant gates and browser direct-P/overlap/reorder/missing-source behavior."}
+{"file":".trellis/tasks/10-15-bilibili-favorites-import/research/multipart-backend-design-review.md","reason":"Check stable CID and legacy invariants; child design mandatory actual extractor CID proof overrides earlier pre/post-only research."}
+{"file":".trellis/tasks/10-15-bilibili-favorites-import/research/multipart-gap.md","reason":"Check actual provider evidence and no unsupported multipart/capture promises."}
+{"file":".trellis/tasks/10-15-bilibili-favorites-import/research/backend-integration.md","reason":"Check existing quota/idempotency/queue safety and absence of unnecessary durable jobs."}
+{"file":".trellis/tasks/10-15-bilibili-favorites-import/research/frontend-flow.md","reason":"Check user-confirmed selection/partial/legacy/source-jump UX and account boundaries."}

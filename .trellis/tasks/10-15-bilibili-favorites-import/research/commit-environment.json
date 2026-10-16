@@ -1,0 +1,117 @@
+{
+  "before_version": "1.8.0",
+  "locked_version": "0.52.1",
+  "scope": "only project .venv Starlette; no product/snapshot/pyproject/lock or database changes",
+  "wheel_url": "https://files.pythonhosted.org/packages/81/0d/13d1d239a25cbfb19e740db83143e95c772a1fe10202dda4b76792b114dd/starlette-0.52.1-py3-none-any.whl",
+  "wheel_sha256": "sha256:0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74",
+  "wheel_bytes": 74272,
+  "metadata_name": "starlette",
+  "metadata_version": "0.52.1",
+  "after_version": "0.52.1",
+  "changed_distributions": {
+    "starlette": [
+      "1.8.0",
+      "0.52.1"
+    ]
+  },
+  "pip_check": "No broken requirements found",
+  "explicit_422_description": "Unprocessable Content",
+  "stdlib_422_phrase": "Unprocessable Content",
+  "focused_api_tests": {
+    "passed": 123,
+    "warnings": 1
+  },
+  "critical_lock_comparison": {
+    "fastapi": {
+      "installed": "0.141.1",
+      "locked": [
+        "0.141.1"
+      ],
+      "matches": true
+    },
+    "starlette": {
+      "installed": "0.52.1",
+      "locked": [
+        "0.52.1"
+      ],
+      "matches": true
+    },
+    "pydantic": {
+      "installed": "2.14.1",
+      "locked": [
+        "2.13.4"
+      ],
+      "matches": false
+    },
+    "pydantic-core": {
+      "installed": "2.50.1",
+      "locked": [
+        "2.46.4"
+      ],
+      "matches": false
+    },
+    "httpx": {
+      "installed": "0.28.1",
+      "locked": [
+        "0.28.1"
+      ],
+      "matches": true
+    },
+    "httpcore": {
+      "installed": "1.0.9",
+      "locked": [
+        "1.0.9"
+      ],
+      "matches": true
+    },
+    "anyio": {
+      "installed": "4.15.1",
+      "locked": [
+        "4.14.2"
+      ],
+      "matches": false
+    },
+    "sqlalchemy": {
+      "installed": "2.0.51",
+      "locked": [
+        "2.0.51"
+      ],
+      "matches": true
+    },
+    "alembic": {
+      "installed": "1.18.5",
+      "locked": [
+        "1.18.5"
+      ],
+      "matches": true
+    },
+    "redis": {
+      "installed": "8.1.0",
+      "locked": [
+        "8.1.0"
+      ],
+      "matches": true
+    },
+    "msal": {
+      "installed": "1.39.0",
+      "locked": [
+        "1.39.0"
+      ],
+      "matches": true
+    },
+    "pyjwt": {
+      "installed": "2.15.1",
+      "locked": [
+        "2.15.1"
+      ],
+      "matches": true
+    },
+    "cryptography": {
+      "installed": "50.0.2",
+      "locked": [
+        "50.0.2"
+      ],
+      "matches": true
+    }
+  }
+}
