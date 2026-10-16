@@ -165,14 +165,14 @@ def _validate_langbot_outbound_url(value: str) -> None:
         )
 
 
-def _validate_youtube_proxy_url(value: str | None) -> None:
-    """Restrict the temporary YouTube proxy contract to a local tunnel."""
+def _validate_us_video_proxy_url(value: str | None) -> None:
+    """Restrict the US video egress proxy to a credential-free loopback URL."""
 
     if value is None:
         return
     if not isinstance(value, str) or value != value.strip() or not value:
         raise ValueError(
-            "YOUTUBE_PROXY_URL must be a credential-free loopback HTTP URL "
+            "US_VIDEO_PROXY_URL must be a credential-free loopback HTTP URL "
             "with an explicit port"
         )
     parsed = urlsplit(value)
@@ -180,7 +180,7 @@ def _validate_youtube_proxy_url(value: str | None) -> None:
         port = parsed.port
     except ValueError as exc:
         raise ValueError(
-            "YOUTUBE_PROXY_URL must be a credential-free loopback HTTP URL "
+            "US_VIDEO_PROXY_URL must be a credential-free loopback HTTP URL "
             "with an explicit port"
         ) from exc
     if (
@@ -195,7 +195,7 @@ def _validate_youtube_proxy_url(value: str | None) -> None:
         or "#" in value
     ):
         raise ValueError(
-            "YOUTUBE_PROXY_URL must be a credential-free loopback HTTP URL "
+            "US_VIDEO_PROXY_URL must be a credential-free loopback HTTP URL "
             "with an explicit port"
         )
 
@@ -375,8 +375,8 @@ class Settings:
     youtube_fetch_timeout_seconds: float = field(
         default_factory=lambda: _env_float("YOUTUBE_FETCH_TIMEOUT_SECONDS", 30.0)
     )
-    youtube_proxy_url: str | None = field(
-        default_factory=lambda: _env("YOUTUBE_PROXY_URL")
+    us_video_proxy_url: str | None = field(
+        default_factory=lambda: _env("US_VIDEO_PROXY_URL")
     )
     bilibili_fetch_timeout_seconds: float = field(
         default_factory=lambda: _env_float("BILIBILI_FETCH_TIMEOUT_SECONDS", 30.0)
@@ -948,7 +948,14 @@ class Settings:
             raise ValueError("YOUTUBE_FETCH_TIMEOUT_SECONDS must be positive")
         if self.bilibili_fetch_timeout_seconds <= 0:
             raise ValueError("BILIBILI_FETCH_TIMEOUT_SECONDS must be positive")
-        _validate_youtube_proxy_url(self.youtube_proxy_url)
+        if "YOUTUBE_PROXY_URL" in os.environ:
+            # Renamed, not aliased: silently ignoring the old key would send
+            # video fetches over the direct (blocked) route after a release.
+            raise ValueError(
+                "YOUTUBE_PROXY_URL was renamed to US_VIDEO_PROXY_URL; "
+                "move the value and remove the old variable"
+            )
+        _validate_us_video_proxy_url(self.us_video_proxy_url)
         if self.asr_enabled:
             self._validate_asr()
         if self.ingest_notification_interval_seconds <= 0:

@@ -293,7 +293,7 @@ LangBot 4.10.6 部署还需要 patched runtime 的 required plugin readiness；
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `YOUTUBE_FETCH_TIMEOUT_SECONDS` | `30` | yt-dlp metadata/subtitle bounded timeout |
-| `YOUTUBE_PROXY_URL` | 未设置 | 可选；只允许无凭据 loopback HTTP URL 且必须有显式端口，例如 `http://127.0.0.1:18080` |
+| `US_VIDEO_PROXY_URL` | 未设置 | 可选；服务端所有视频抓取（YouTube 与 Bilibili 的 metadata、字幕和 ASR 音频）共用的美国住宅出口。只允许无凭据 loopback HTTP URL 且必须有显式端口，例如 `http://127.0.0.1:18080`。取代旧的 `YOUTUBE_PROXY_URL`：旧变量仍存在（即使为空）时启动直接失败，不做别名或静默回退 |
 | `BILIBILI_FETCH_TIMEOUT_SECONDS` | `30` | Bilibili yt-dlp timeout |
 | `TRASH_RETENTION_DAYS` | `30` | 回收站保留时长 |
 | `TRASH_PURGE_INTERVAL_SECONDS` | `86400` | purge 周期（每天一次，让空闲的 Neon compute 归零） |
@@ -302,7 +302,8 @@ LangBot 4.10.6 部署还需要 patched runtime 的 required plugin readiness；
 | `TRASH_PURGE_MAX_DURATION_SECONDS` | `30` | 一次 purge 总预算 |
 | `TRASH_PURGE_OBJECT_TIMEOUT_SECONDS` | `10` | 单个 object 删除预算 |
 
-YouTube proxy 只注入 yt-dlp 和 bounded subtitle 子进程，并移除 ambient
-`ALL_PROXY`；proxy 失败不会回退到直连。Bilibili 服务端只消费 yt-dlp
+`US_VIDEO_PROXY_URL` 只注入 YouTube 和 Bilibili 的 yt-dlp 子进程、YouTube 的
+bounded subtitle 子进程以及 ASR 音频下载子进程，并移除 ambient `ALL_PROXY`；
+proxy 失败不会回退到直连。Bilibili 服务端只消费 yt-dlp
 投影的 inline SRT；URL-only 或登录字幕进入 `needs_extension`，不会扩大
 服务端 cookie/字幕 URL 获取范围。

@@ -56,8 +56,9 @@ dispatch 转入 `asr` 队列由后端自行下载音频转写；其余（包括 
 
 YouTube server connector 使用声明的 yt-dlp runtime、bounded socket/process
 timeout，并优先与视频原始语言匹配的 track，再考虑英文、中文等 fallback。它
-只保存归一化字幕对象和公开 metadata；如果配置 `YOUTUBE_PROXY_URL`，代理只
-注入 metadata/subtitle 子进程，失败后不回退直连。
+只保存归一化字幕对象和公开 metadata；如果配置 `US_VIDEO_PROXY_URL`，代理只
+注入 metadata/subtitle 子进程，失败后不回退直连。Bilibili connector 和 ASR
+音频下载使用同一个代理设置（美国住宅出口）。
 
 Bilibili connector 只接收 credential-free HTTPS ordinary-video URL（BV 或 av
 ID）；去掉 tracking query，固定第一 part，不展开 playlist。它优先官方 SRT，

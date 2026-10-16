@@ -46,7 +46,7 @@ def test_worker_connector_resolves_trusted_ca_before_construction(monkeypatch):
     settings = replace(
         Settings(),
         tls_ca_bundle="/operator/ca.pem",
-        youtube_proxy_url="http://127.0.0.1:18080",
+        us_video_proxy_url="http://127.0.0.1:18080",
     )
     calls = []
     monkeypatch.setattr("app.ingest.tasks.get_settings", lambda: settings)

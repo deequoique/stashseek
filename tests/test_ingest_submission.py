@@ -57,8 +57,8 @@ def test_youtube_fetch_timeout_must_be_positive():
         "http://localhost:18080",
     ),
 )
-def test_youtube_proxy_accepts_only_explicit_loopback_http_urls(proxy_url):
-    assert Settings(youtube_proxy_url=proxy_url).youtube_proxy_url == proxy_url
+def test_us_video_proxy_accepts_only_explicit_loopback_http_urls(proxy_url):
+    assert Settings(us_video_proxy_url=proxy_url).us_video_proxy_url == proxy_url
 
 
 @pytest.mark.parametrize(
@@ -81,9 +81,9 @@ def test_youtube_proxy_accepts_only_explicit_loopback_http_urls(proxy_url):
         "http://[::1]:18080",
     ),
 )
-def test_youtube_proxy_rejects_unsafe_or_ambiguous_urls(proxy_url):
-    with pytest.raises(ValueError, match="YOUTUBE_PROXY_URL"):
-        Settings(youtube_proxy_url=proxy_url)
+def test_us_video_proxy_rejects_unsafe_or_ambiguous_urls(proxy_url):
+    with pytest.raises(ValueError, match="US_VIDEO_PROXY_URL"):
+        Settings(us_video_proxy_url=proxy_url)
 
 
 def test_batch_preflight_preserves_order_and_safe_validation_results():
