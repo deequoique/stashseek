@@ -151,8 +151,9 @@ completion notification 和维护任务；不要让新的部署监听已经退�
 没有字幕的公开 YouTube/Bilibili 条目默认以 `needs_asr` 结束。开启 ASR 后，同一个
 dispatch 会转入独立的 `asr` 队列：后端用 yt-dlp 下载音频，默认交给阿里云百炼
 Fun-ASR（新加坡区域），不可用时备选 OpenAI `whisper-1`，结果保存为现有的
-`capture-transcript.v1` 并走原有的切分、embedding 和检索流程。浏览器伴侣采集的条目
-不进入 ASR。默认关闭；关闭时下列变量都不会被读取或校验。
+`capture-transcript.v1` 并走原有的切分、embedding 和检索流程。浏览器伴侣采集的公开
+YouTube 条目在字幕不可用（`caption_status=unavailable`）时同样进入 ASR；私有的
+NTULearn/Kaltura 采集条目不进入 ASR。默认关闭；关闭时下列变量都不会被读取或校验。
 
 | 变量 | 默认值 | secret | 说明 |
 | --- | --- | --- | --- |
