@@ -37,8 +37,10 @@ handler: source-channel.notification.v1
 task: app.ingest.tasks.deliver_ingest_notification_task
 queue: maintenance
 payload: [completion_event_id]
-repair task: app.ingest.tasks.deliver_pending_ingest_notifications_task
-repair schedule: INGEST_NOTIFICATION_INTERVAL_SECONDS (default 600 seconds)
+repair tick: app.ingest.tasks.deliver_pending_ingest_notifications_task
+repair tick schedule: INGEST_NOTIFICATION_INTERVAL_SECONDS (default 600 seconds), Redis-gated
+full repair: app.ingest.tasks.repair_all_ingest_notifications_task
+full repair schedule: INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS (default 86400 seconds), ungated
 ```
 
 Terminal worker hooks create the durable event and best-effort enqueue only its
@@ -78,6 +80,64 @@ delivery mode: persistent
   equivalent durability before acknowledging a publish; periodic snapshots
   alone are insufficient because accepted `enqueued` rows are not swept again.
 
+## Redis repair index and gated tick
+
+PostgreSQL stays the only source of truth. The repair tick is gated by a
+**disposable** Redis structure so an idle production database receives no
+periodic traffic (Neon scale-to-zero; see `database-guidelines.md`).
+
+```text
+due:      notebook-agent:ingest-notification-repair:v1:due       ZSET
+          member = str(event_id), score = integer epoch seconds
+baseline: notebook-agent:ingest-notification-repair:v1:baseline  STRING, no TTL
+          written only after a full repair rebuilt the index from PostgreSQL
+```
+
+- `repair_due_at()` (`app/ingest/notification_repair_index.py`) is the single
+  derivation of a member's due time from the ledger: no delivery row -> now;
+  `claimed` -> `claimed_at + claim timeout`; retryable `failed` ->
+  `next_attempt_at`; `succeeded`, `terminal_failure`, `retry_exhausted`, or a
+  deleted event -> `None` (remove from the index). Round times up so a member
+  is never due before PostgreSQL would consider the row eligible.
+- Write points, all best effort (a Redis exception emits only the numeric
+  `notification_repair_index_write_failed` diagnostic and never changes the
+  ingestion or delivery result): `mark_due(event_id, now + claim timeout)`
+  after the terminal event commits and before the targeted enqueue;
+  `mark_due(event_id, now)` when the enqueue fails or the event is created by
+  the deleted-item claim path (no targeted task); a post-delivery reconcile in
+  `deliver_event`; `mark_due(event_id, now)` after a successful
+  `redrive_failed`. `mark_due` is `ZADD LT`: the earliest time wins.
+- Reconcile is compare-and-set (Lua): it only changes or removes a member whose
+  score still equals the one the caller observed, so a stale derivation can
+  never erase a concurrent `mark_due` such as an operator redrive. Observe the
+  score before reading the ledger. The reconcile SQL in the targeted
+  `deliver_event` path takes its `statement_timeout` from the remaining
+  delivery deadline and is skipped (members stay due) when that is exhausted.
+- Redis client timeouts (connect and read) never exceed 0.5 seconds.
+- The tick has three modes:
+  - **Idle** (baseline present, nothing due): zero PostgreSQL statements. Emit
+    `notification_poller_heartbeat` with `heartbeat=1`, zero counters,
+    `observability_failed=0`, `idle_skipped=1`, and no
+    `oldest_eligible_backlog_age_seconds` (no query ran, so the "empty backlog
+    is age 0" convention does not apply).
+  - **Due**: run the normal bounded `sweep_once`, then reconcile the swept and
+    due members against the ledger. Members the sweep could not finish stay due
+    (at most one database visit per tick; no hot loop because an ineligible row
+    is rescheduled to its derived time).
+  - **Fail open**: Redis unreadable -> the original ungated `sweep_once` plus
+    `notification_repair_gate` `repair_gate_unavailable=1`. Baseline missing
+    (fresh or lost Redis) -> one full repair plus `baseline_missing=1`.
+- The full repair (`repair_all_ingest_notifications_task`, once a day by
+  default, never gated) runs `sweep_once`, rebuilds the index from every
+  non-terminal ledger row and delivery-less event (bounded to 1000), removes
+  members that are terminal or gone, and then writes the baseline. When the
+  non-terminal set exceeds the bound it emits `truncated=1`, withholds the
+  baseline and clears any earlier one, so the next tick repeats the full repair
+  (the sweep claims events regardless of the index) until the backlog drains.
+  It bounds the notification delay after any lost Redis write to one interval.
+- Rollback: the old code ignores both keys and keeps scheduling the original
+  ungated tick. Deleting the baseline key forces one full repair.
+
 ## Repair sweep
 
 - The legacy broker repair sweep is retained only for rollback compatibility
@@ -104,7 +164,8 @@ delivery mode: persistent
 - Notification observability is best effort and numeric only. Cap an oldest-
   eligible-age query to its explicit observation reserve (at most 10% of the
   sweep and 250 ms), isolate its failure from delivery state, and reserve age
-  `0` for an empty eligible backlog.
+  `0` for an empty eligible backlog. A gated idle tick runs no query and omits
+  the age field instead.
 - Isolate each event. A publish failure for one event must not block peers.
   When the deadline expires after broker acceptance, leave the claim for stale
   recovery rather than starting unbounded SQL; the resulting duplicate is
@@ -137,6 +198,15 @@ delivery mode: persistent
 - Verify local Redis AOF/fsync configuration, single Alembic head, model and
   migration constraint parity, expected hosted revision, upgrade/downgrade
   roundtrip, privacy-safe logs, and bounded statement-timeout SQL.
+- Repair-index coverage: an idle tick never opens a PostgreSQL session; a lost
+  targeted task is found by the first tick after the claim timeout; a retryable
+  failure is not visited before `next_attempt_at`; terminal events leave the
+  index and later ticks stay idle; Redis read failure fails open and write
+  failure changes no result; a missing baseline triggers one full sweep; the
+  full repair rebuilds the index and withholds the baseline when truncated;
+  reconcile loses to a concurrent `mark_due`. Redis-implementation tests use a
+  real local Redis on logical db 15 with a random key prefix and skip when it
+  is unreachable.
 
 ## Wrong vs correct
 

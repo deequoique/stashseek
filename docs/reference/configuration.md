@@ -125,7 +125,8 @@ completion 与 notification delivery/repair 的维护参数也由 worker/Beat �
 
 | 变量 | 默认值 | 作用 |
 | --- | --- | --- |
-| `INGEST_NOTIFICATION_INTERVAL_SECONDS` | `600` | 事件入队失败时的 PostgreSQL completion notification repair 周期；正常投递不等待此 sweep |
+| `INGEST_NOTIFICATION_INTERVAL_SECONDS` | `600` | completion notification repair tick 的周期；每个 tick 先读 Redis repair index，没有到期事件时不访问 PostgreSQL。正常投递不等待此 tick |
+| `INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS` | `86400` | 不经 Redis 门控的全量 repair 周期，同时根据 PostgreSQL 重建 repair index；Redis 丢失后通知最多延迟这么久 |
 | `INGEST_NOTIFICATION_BATCH_SIZE` | `20` | 每次 poller claim 数量 |
 | `INGEST_NOTIFICATION_CLAIM_TIMEOUT_SECONDS` | `300` | poller claim 超时 |
 | `INGEST_NOTIFICATION_MAX_DURATION_SECONDS` | `8` | 一次 repair sweep 总预算，必须小于 interval |
@@ -140,7 +141,19 @@ completion 与 notification delivery/repair 的维护参数也由 worker/Beat �
 `INGEST_COMPLETION_*` 保留用于 rollback/schema compatibility；当前权威的
 notification delivery 由 terminal completion event 通过 Celery 事件入队，使用
 `INGEST_NOTIFICATION_*` 的 delivery ledger。`INGEST_NOTIFICATION_INTERVAL_SECONDS`
-只控制有界 repair sweep，不要重新启用已退役的 `ingest-completion` queue。
+只控制有界 repair tick，不要重新启用已退役的 `ingest-completion` queue。
+
+repair tick 由一个可丢失的 Redis repair index 门控（键
+`notebook-agent:ingest-notification-repair:v1:due` 与 `:baseline`）：终态事件提交后、
+入队失败、可重试失败（到期时间为 `next_attempt_at`）和运维 redrive 都会把事件写入
+索引，事件进入终态后移除。索引里没有到期成员时，tick 不向 PostgreSQL 发出任何语句，
+只写 `notification_poller_heartbeat`（`idle_skipped=1`，没有
+`oldest_eligible_backlog_age_seconds`）。Redis 读取失败时 tick 退回原有的数据库
+sweep（诊断 `notification_repair_gate` 的 `repair_gate_unavailable=1`）；基线键缺失
+（全新或丢失的 Redis）时执行一次全量 repair 并重建索引。Neon 数据库不要把
+`INGEST_NOTIFICATION_INTERVAL_SECONDS` 设为很短的值，也不要在生产 env 里保留旧的
+`TRASH_PURGE_INTERVAL_SECONDS=3600`：任何短于 5 分钟挂起超时的周期性数据库访问
+都会让 compute 无法归零。
 
 worker 必须同时监听 `ingest` 和 `maintenance`。Beat 负责周期性 purge、
 completion notification 和维护任务；不要让新的部署监听已经退役的
@@ -281,7 +294,7 @@ LangBot 4.10.6 部署还需要 patched runtime 的 required plugin readiness；
 | `YOUTUBE_PROXY_URL` | 未设置 | 可选；只允许无凭据 loopback HTTP URL 且必须有显式端口，例如 `http://127.0.0.1:18080` |
 | `BILIBILI_FETCH_TIMEOUT_SECONDS` | `30` | Bilibili yt-dlp timeout |
 | `TRASH_RETENTION_DAYS` | `30` | 回收站保留时长 |
-| `TRASH_PURGE_INTERVAL_SECONDS` | `3600` | purge 周期 |
+| `TRASH_PURGE_INTERVAL_SECONDS` | `86400` | purge 周期（每天一次，让空闲的 Neon compute 归零） |
 | `TRASH_PURGE_BATCH_SIZE` | `20` | 一次 purge 数量，最大 100 |
 | `TRASH_PURGE_CLAIM_TIMEOUT_SECONDS` | `1800` | purge claim 超时 |
 | `TRASH_PURGE_MAX_DURATION_SECONDS` | `30` | 一次 purge 总预算 |
