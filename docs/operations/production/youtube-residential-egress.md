@@ -53,17 +53,21 @@ tinyproxy 只放行到 `youtube.com` / `googlevideo.com` 的 HTTPS CONNECT 443�
 以下命令在包含本手册的 release 已部署之后执行，工作目录为
 `/opt/notebook-agent/current`。
 
-1. 安装 tinyproxy，并立即停用发行版自带的默认实例（它会监听 8888）：
+1. 先屏蔽发行版自带的 `tinyproxy.service`，再安装 tinyproxy。这样软件包装好后不会
+   自动在 8888 端口起一个默认实例：
 
    ```bash
+   sudo systemctl mask tinyproxy.service
    sudo apt update
    sudo apt install tinyproxy
-   sudo systemctl disable --now tinyproxy.service
+   systemctl is-enabled tinyproxy.service
    tinyproxy -v
    ```
 
-   版本需为 1.11.0 或更高。保持 `apt upgrade` 获取安全补丁；本服务只监听回环地址，
-   暴露面仅限本机。
+   `is-enabled` 应输出 `masked`；单元还不存在时，`mask` 会提示
+   `Unit tinyproxy.service does not exist, proceeding anyway`，这是正常的。版本需为
+   1.11.0 或更高（生产环境 Ubuntu 26.04 为 1.11.3）。保持 `apt upgrade` 获取安全补丁；
+   本服务只监听回环地址，暴露面仅限本机。
 
 2. 安装配置和过滤规则（目录和文件都只允许 root 读取）：
 
@@ -89,7 +93,23 @@ tinyproxy 只放行到 `youtube.com` / `googlevideo.com` 的 HTTPS CONNECT 443�
    密码那一段连同 `_country-US_session-...` 整段照抄。不要把凭据写在命令行、shell
    历史、`notebook-agent.env` 或任何提交里。
 
-4. 安装、校验并启动 unit：
+4. 放行 AppArmor。Ubuntu 的 apparmor 软件包为 `/usr/bin/tinyproxy` 带了一份 profile，
+   只允许读取 `/etc/tinyproxy/tinyproxy.conf`；而 unit 通过 `LoadCredential` 把配置放在
+   `/run/credentials/...` 下，不放行时服务会报 `Could not open config file` 并退出。
+   该 profile 末尾会 include `local/tinyproxy`，在这里只追加两条只读规则：
+
+   ```bash
+   test -f /etc/apparmor.d/tinyproxy && echo "profile present"
+   test ! -e /etc/apparmor.d/local/tinyproxy || cat /etc/apparmor.d/local/tinyproxy
+   sudo install -o root -g root -m 0644 deploy/youtube-egress/apparmor-local-tinyproxy \
+     /etc/apparmor.d/local/tinyproxy
+   sudo apparmor_parser -r /etc/apparmor.d/tinyproxy
+   ```
+
+   如果第一条没有输出 `profile present`，说明系统没有这份 profile，跳过本步。如果第二条
+   打印出了已有内容，说明有人自定义过这个文件：把仓库里的两行追加进去，不要覆盖。
+
+5. 安装、校验并启动 unit：
 
    ```bash
    sudo install -m 0644 deploy/systemd/notebook-agent-youtube-egress.service \
@@ -182,6 +202,14 @@ sudo systemctl restart notebook-agent-youtube-egress
 
 遇到 429、403、机器人挑战时不要批量重试，避免短时间内消耗大量流量。
 
+egress 服务本身起不来、journal 里出现
+`tinyproxy: Could not open config file "/run/credentials/..."` 时，多半是 AppArmor 拦截。
+用下面的命令确认后，回到安装第 4 步补上 local override：
+
+```bash
+sudo journalctl -k --since "-10 min" --no-pager | grep 'apparmor="DENIED".*tinyproxy'
+```
+
 ## 切换到家庭出口
 
 ```bash
@@ -207,7 +235,12 @@ sudo systemctl restart notebook-agent-worker
 sudo rm -r /etc/notebook-agent/youtube-egress
 sudo rm /etc/systemd/system/notebook-agent-youtube-egress.service
 sudo systemctl daemon-reload
+sudo rm /etc/apparmor.d/local/tinyproxy
+sudo apparmor_parser -r /etc/apparmor.d/tinyproxy
 ```
+
+如果 `/etc/apparmor.d/local/tinyproxy` 里还有别人加的规则，只删掉本手册追加的两行，
+不要删除整个文件。
 
 回滚不修改数据库、对象存储、Redis、Caddy、Web/MCP 或其他服务。去掉代理后，生产 IP
 仍会被 YouTube 拦截；回滚只恢复原路由，不保证字幕恢复。

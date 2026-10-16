@@ -576,3 +576,29 @@ def test_residential_egress_unit_isolates_provider_credentials():
     assert "NoNewPrivileges=true" in unit
     assert "CapabilityBoundingSet=\n" in unit
     assert "ProtectSystem=strict" in unit
+
+
+def test_residential_egress_apparmor_override_allows_only_unit_credentials():
+    override = (RESIDENTIAL_EGRESS_DIR / "apparmor-local-tinyproxy").read_text(
+        encoding="utf-8"
+    )
+    unit = RESIDENTIAL_EGRESS_UNIT.read_text(encoding="utf-8")
+    config = (RESIDENTIAL_EGRESS_DIR / "tinyproxy.conf.example").read_text(
+        encoding="utf-8"
+    )
+
+    credentials_dir = f"/run/credentials/{RESIDENTIAL_EGRESS_UNIT.name}"
+    credential_names = [
+        line.split("=", 1)[1].split(":", 1)[0]
+        for line in unit.splitlines()
+        if line.startswith("LoadCredential=")
+    ]
+    rules = _config_directives(override)
+
+    assert credential_names == ["tinyproxy.conf", "filter"]
+    assert rules == [
+        f"file r {credentials_dir}/{name}," for name in credential_names
+    ]
+    assert f'Filter "{credentials_dir}/filter"' in _config_directives(config)
+    assert "*" not in override
+    assert "w" not in "".join(rule.split()[1] for rule in rules)
