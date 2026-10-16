@@ -51,7 +51,8 @@ const capabilities: Capabilities = {
   supported_platforms: ["youtube"],
   browser_companion: true,
   web_login_channels: ["email"],
-save_enabled: false,
+  external_login_providers: [],
+  save_enabled: false,
   max_save_batch_size: 10,
 
   transcript_pagination: true,

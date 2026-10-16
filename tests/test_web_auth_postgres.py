@@ -13,6 +13,7 @@ from app.models import (
     AppUser,
     Base,
     ChannelIdentity,
+    ExternalLoginIdentity,
     WebLoginChallenge,
     WebSession,
 )
@@ -36,6 +37,7 @@ def web_auth_factory():
                 tables=[
                     AppUser.__table__,
                     ChannelIdentity.__table__,
+                    ExternalLoginIdentity.__table__,
                     WebLoginChallenge.__table__,
                     WebSession.__table__,
                 ],

@@ -16,6 +16,7 @@
 | 连接 Claude、Codex 或其他 MCP 客户端 | [连接 MCP 客户端](how-to/connect-mcp-client.md) |
 | 保存当前浏览器页面中的字幕 | [使用浏览器伴侣](how-to/use-browser-companion.md) |
 | 通过 Telegram 或微信使用资料库 | [接入 LangBot](how-to/connect-langbot.md) |
+| 为网站启用 Microsoft、微信网站或 QQ 登录 | [配置外部账号登录](how-to/configure-external-login.md) |
 | 部署公开服务 | [部署 StashSeek Chat](how-to/deploy-production.md) |
 | 备份、升级或解决运行故障 | [操作指南目录](how-to/README.md) |
 | 查询配置、命令或接口定义 | [参考手册](reference/README.md) |

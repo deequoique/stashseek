@@ -40,8 +40,10 @@ function renderPage(
     supported_platforms: ["youtube"],
     browser_companion: true,
     web_login_channels: ["telegram"],
+    external_login_providers: [],
     save_enabled: true,
     max_save_batch_size: 10,
+
     transcript_pagination: true,
     archive: true,
     summary_generation: false,
@@ -248,8 +250,10 @@ describe("library page", () => {
             loadCapabilities={vi.fn().mockResolvedValue({
               supported_platforms: ["youtube"],
               web_login_channels: ["telegram"],
+              external_login_providers: [],
               save_enabled: false,
               max_save_batch_size: 10,
+
               transcript_pagination: true,
               archive: true,
               summary_generation: false,

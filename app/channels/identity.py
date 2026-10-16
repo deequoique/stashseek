@@ -31,6 +31,7 @@ from app.models import (
     ChannelLinkToken,
     ContentItem,
     ConversationThread,
+    ExternalLoginIdentity,
     IngestDispatch,
     McpAccessGrant,
     Segment,
@@ -340,9 +341,21 @@ def _merge_tenants(db: Session, source_user_id: int, target_user_id: int) -> Non
     # Some legacy/unit fixtures intentionally create only the pre-Web schema.
     # Production reaches this path only after the head migration, where both
     # tables are present and therefore locked/revoked transactionally.
-    bind = db.get_bind()
+    bind = db.connection()
     has_web_sessions = inspect(bind).has_table("web_session")
     has_mcp_grants = inspect(bind).has_table("mcp_access_grant")
+    has_external_logins = inspect(bind).has_table("external_login_identity")
+    if has_external_logins:
+        # Email anchors and provider mappings must move together. Their
+        # composite FK is deferred until this ownership transaction commits.
+        # Restrictive root deletion makes omission fail instead of losing a
+        # user's already-proved website login method.
+        db.scalars(
+            select(ExternalLoginIdentity)
+            .where(ExternalLoginIdentity.app_user_id.in_([source_user_id, target_user_id]))
+            .order_by(ExternalLoginIdentity.id)
+            .with_for_update()
+        ).all()
     # Credentials belonging to the tenant being absorbed must never become
     # live source credentials.  Keep revoked rows as audit history under the
     # surviving user before deleting the target root.
@@ -441,6 +454,12 @@ def _merge_tenants(db: Session, source_user_id: int, target_user_id: int) -> Non
         .where(ChannelIdentity.app_user_id == target_user_id)
         .values(app_user_id=source_user_id)
     )
+    if has_external_logins:
+        db.execute(
+            update(ExternalLoginIdentity)
+            .where(ExternalLoginIdentity.app_user_id == target_user_id)
+            .values(app_user_id=source_user_id)
+        )
     db.execute(
         update(ChannelLinkToken)
         .where(ChannelLinkToken.app_user_id == target_user_id)

@@ -117,6 +117,16 @@ h2 { line-height: 1.1; }
 .login-companion-link { min-height: 44px; display: inline-flex; flex: 0 0 auto; align-items: center; padding: 0 0.9rem; border: 1px solid var(--line); border-radius: 999px; color: var(--accent-dark); font-size: 0.75rem; font-weight: 850; text-decoration: none; }
 .login-companion-link:hover, .login-companion-link:focus-visible { border-color: rgba(187, 75, 47, 0.48); background: rgba(187, 75, 47, 0.06); }
 .login-card h1 { max-width: 8ch; margin-bottom: 1.15rem; font-size: clamp(2.55rem, 9vw, 4.35rem); }
+.external-login-methods { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+.external-login-methods > p, .external-binding-purpose { color: var(--muted); font-size: 0.82rem; line-height: 1.65; }
+.external-login-methods > div { display: grid; gap: 0.6rem; }
+.external-login-method { width: 100%; min-height: 48px; padding: 0.75rem 1rem; border: 1px solid var(--line); border-radius: 0.8rem 0.8rem 0.8rem 0.3rem; background: var(--paper); color: var(--ink); font-weight: 800; text-align: left; }
+.external-login-method:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
+.external-login-card > .wordmark { margin-bottom: 1.5rem; }
+.external-login-card h1 { max-width: none; font-size: clamp(1.8rem, 7vw, 3rem); overflow-wrap: anywhere; }
+.external-login-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.25rem 0.75rem; }
+.external-session-notice { color: var(--muted); font-size: 0.88rem; line-height: 1.65; }
+.external-login-card .email-login-confirmation { overflow-wrap: anywhere; }
 
 @keyframes login-halftone-drift {
   from { transform: translate3d(-1.8%, -1.2%, 0) scale(1.02) rotate(-0.8deg); }

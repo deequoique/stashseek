@@ -52,6 +52,15 @@ are loaded on demand, with auth hooks
 outside the protected-page Suspense boundary so chunk loading cannot postpone
 Session validation.
 
+External website login adds a clean anonymous `/login/external` route. Its
+expected unauthenticated Session probe uses `probeLoginSession()` and does not
+invoke protected-route global invalidation. `LoginRoute` discards prior private
+cache once, preserves only public capabilities/freshness, and remounts a fresh
+client without repeatedly treating new login observers as old private data. See
+[External Login](./external-login.md) for the complete probe, binding, uncertainty
+recovery and activation contract. This exception does not weaken the normal
+protected `session_invalid` handler.
+
 ---
 
 ## Server State

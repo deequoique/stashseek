@@ -99,6 +99,7 @@ class ChannelIdentity(Base):
             name="uq_channel_identity_external",
         ),
         Index("ix_channel_identity_user", "app_user_id"),
+        UniqueConstraint("id", "app_user_id", name="uq_channel_identity_owner"),
     )
 
 
@@ -227,6 +228,69 @@ class WebLoginChallenge(Base):
     )
 
 
+class ExternalLoginIdentity(Base):
+    """A proved website-provider identity anchored to one exact email identity."""
+
+    __tablename__ = "external_login_identity"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    application_id: Mapped[str] = mapped_column(Text, nullable=False)
+    namespace: Mapped[str] = mapped_column(Text, nullable=False)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_user.id", ondelete="RESTRICT"), nullable=False
+    )
+    channel_identity_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("provider", "application_id", "namespace", "subject", name="uq_external_login_principal"),
+        ForeignKeyConstraint(
+            ["channel_identity_id", "app_user_id"],
+            ["channel_identity.id", "channel_identity.app_user_id"],
+            name="fk_external_login_anchor_owner", deferrable=True, initially="DEFERRED",
+        ),
+        CheckConstraint("provider IN ('microsoft', 'wechat_website', 'qq')", name="ck_external_login_provider"),
+        CheckConstraint("length(application_id) BETWEEN 1 AND 512 AND length(namespace) BETWEEN 1 AND 1024 AND length(subject) BETWEEN 1 AND 1024", name="ck_external_login_principal_bounds"),
+        Index("ix_external_login_user", "app_user_id"),
+        Index("ix_external_login_anchor", "channel_identity_id"),
+    )
+
+
+class ExternalLoginFlow(Base):
+    """Browser-bound one-time authorization; SDK material is encrypted at rest."""
+
+    __tablename__ = "external_login_flow"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    state_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    csrf_token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    requester_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    application_id: Mapped[str] = mapped_column(Text, nullable=False)
+    configuration_id: Mapped[str] = mapped_column(Text, nullable=False)
+    phase: Mapped[str] = mapped_column(Text, nullable=False, server_default="created")
+    material_ciphertext: Mapped[str | None] = mapped_column(Text)
+    namespace: Mapped[str | None] = mapped_column(Text)
+    subject: Mapped[str | None] = mapped_column(Text)
+    failure_code: Mapped[str | None] = mapped_column(Text)
+    completed_session_hash: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("provider IN ('microsoft', 'wechat_website', 'qq')", name="ck_external_flow_provider"),
+        CheckConstraint("phase IN ('created', 'exchanging', 'email_required', 'completed', 'failed', 'cancelled')", name="ck_external_flow_phase"),
+        Index("ix_external_flow_expires", "expires_at"),
+        Index("ix_external_flow_requester_created", "requester_hash", "created_at"),
+    )
+
+
 class WebAuthChallenge(Base):
     """One-time, HMAC-protected email login challenge."""
 
@@ -234,6 +298,9 @@ class WebAuthChallenge(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     email: Mapped[str] = mapped_column(Text, nullable=False)
+    external_login_flow_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("external_login_flow.id", ondelete="CASCADE")
+    )
     code_hash: Mapped[str] = mapped_column(Text, nullable=False)
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -265,6 +332,9 @@ class WebSession(Base):
         nullable=False,
     )
     login_channel: Mapped[str] = mapped_column(Text, nullable=False)
+    external_login_identity_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("external_login_identity.id", ondelete="RESTRICT")
+    )
     # Channel-assisted sessions predate this linkage.  Email-auth sessions
     # populate it; existing upstream sessions intentionally leave it NULL.
     channel_identity_id: Mapped[int | None] = mapped_column(
@@ -281,6 +351,12 @@ class WebSession(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
+        CheckConstraint(
+            "(external_login_identity_id IS NULL AND login_channel IN ('web', 'email', 'telegram', 'wechat')) OR "
+            "(external_login_identity_id IS NOT NULL AND login_channel IN ('microsoft', 'wechat_website', 'qq') AND channel_identity_id IS NOT NULL)",
+            name="ck_web_session_external_provenance",
+        ),
+        Index("ix_web_session_external_identity", "external_login_identity_id"),
         Index("ix_web_session_user_expires", "app_user_id", "expires_at"),
         Index("ix_web_session_expires_at", "expires_at"),
         Index(

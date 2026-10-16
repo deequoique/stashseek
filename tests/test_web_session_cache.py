@@ -314,6 +314,136 @@ def test_web_auth_cache_hit_skips_database_and_revoke_outage_fails_closed():
         service.resolve_session(raw_token, now=now + timedelta(seconds=2))
 
 
+def _auth_database_runtime(*, cache_mode, last_used_age, expire_on_commit=False):
+    engine = create_engine("sqlite://")
+    for table in (AppUser.__table__, ChannelIdentity.__table__, WebSession.__table__):
+        table.create(engine)
+    factory = sessionmaker(engine, expire_on_commit=expire_on_commit)
+    now = datetime(2026, 10, 14, 12, tzinfo=UTC)
+    raw_token = "synthetic-session-token"
+    with factory() as db:
+        db.add(AppUser(id=7))
+        db.add(
+            ChannelIdentity(
+                id=8,
+                app_user_id=7,
+                channel="web",
+                account_id="web",
+                external_user_id="synthetic@example.test",
+            )
+        )
+        db.add(
+            WebSession(
+                id=9,
+                public_id="synthetic-session",
+                app_user_id=7,
+                channel_identity_id=8,
+                token_hash=_token_hash(raw_token),
+                csrf_token_hash=_token_hash("synthetic-csrf"),
+                login_channel="web",
+                expires_at=now + timedelta(hours=1),
+                last_used_at=now - timedelta(seconds=last_used_age),
+            )
+        )
+        db.commit()
+    settings = Settings(
+        database_url="sqlite://",
+        notebook_agent_env="development",
+        web_auth_enabled=False,
+        web_auth_secret="x" * 32,
+        email_provider=None,
+    )
+    redis = _Redis()
+    cache = None
+    if cache_mode != "none":
+        cache = RedisSessionCache(redis, ttl_seconds=0 if cache_mode == "disabled" else 60)
+        redis.fail = cache_mode == "outage"
+    service = WebAuthService(
+        factory,
+        settings,
+        InMemoryEmailSender(),
+        InMemoryLoginRateLimiter(settings),
+        session_cache=cache,
+    )
+    return service, engine, factory, redis, raw_token, now
+
+
+@pytest.mark.parametrize("cache_mode", ["none", "disabled", "miss", "outage"])
+@pytest.mark.parametrize("last_used_age", [1, 61])
+@pytest.mark.parametrize("expire_on_commit", [False, True])
+def test_authoritative_session_projection_uses_one_select_across_transaction_end(
+    cache_mode, last_used_age, expire_on_commit
+):
+    service, engine, factory, redis, raw_token, now = _auth_database_runtime(
+        cache_mode=cache_mode,
+        last_used_age=last_used_age,
+        expire_on_commit=expire_on_commit,
+    )
+    statements: list[str] = []
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _record(_connection, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+
+    resolved = service.resolve_session(raw_token, now=now)
+
+    selects = [value for value in statements if value.lstrip().upper().startswith("SELECT")]
+    updates = [value for value in statements if value.lstrip().upper().startswith("UPDATE")]
+    assert len(selects) == 1
+    assert "JOIN app_user" in selects[0]
+    assert "JOIN channel_identity" in selects[0]
+    assert len(updates) == (1 if last_used_age >= 60 else 0)
+    assert resolved == AuthenticatedWebSession(
+        9,
+        TenantContext(7, 8, "web", "web", "synthetic@example.test"),
+        now + timedelta(hours=1),
+        "synthetic-session",
+        _token_hash("synthetic-csrf"),
+    )
+    service.validate_csrf_for_session(resolved, "synthetic-csrf")
+    with pytest.raises(InvalidSession):
+        service.validate_csrf_for_session(resolved, "incorrect-csrf")
+    if cache_mode in {"none", "disabled"}:
+        assert redis.calls == []
+    with factory() as db:
+        session = db.get(WebSession, 9)
+        expected = now if last_used_age >= 60 else now - timedelta(seconds=last_used_age)
+        assert session.last_used_at.replace(tzinfo=UTC) == expected
+
+
+@pytest.mark.parametrize(
+    ("model", "field", "value"),
+    [
+        (WebSession, "revoked_at", datetime(2026, 10, 14, 11, tzinfo=UTC)),
+        (WebSession, "expires_at", datetime(2026, 10, 14, 12, tzinfo=UTC)),
+        (AppUser, "disabled_at", datetime(2026, 10, 14, 11, tzinfo=UTC)),
+        (ChannelIdentity, "disabled_at", datetime(2026, 10, 14, 11, tzinfo=UTC)),
+        (ChannelIdentity, "channel", "telegram"),
+        (ChannelIdentity, "account_id", "other-account"),
+        (ChannelIdentity, "app_user_id", 999),
+    ],
+)
+def test_authoritative_session_projection_retains_security_filters(model, field, value):
+    service, engine, factory, _redis, raw_token, now = _auth_database_runtime(
+        cache_mode="outage", last_used_age=1
+    )
+    record_ids = {WebSession: 9, AppUser: 7, ChannelIdentity: 8}
+    with factory() as db:
+        setattr(db.get(model, record_ids[model]), field, value)
+        db.commit()
+    selects: list[str] = []
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _record(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            selects.append(statement)
+
+    with pytest.raises(InvalidSession):
+        service.resolve_session(raw_token, now=now)
+
+    assert len(selects) == 1
+
+
 def test_user_session_cache_invalidation_runs_only_after_commit():
     engine = create_engine(
         "sqlite://",

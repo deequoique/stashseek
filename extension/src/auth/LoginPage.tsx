@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useLocation } from "react-router";
 
@@ -7,6 +7,8 @@ import {
   createLoginChallenge,
   exchangeChallenge,
   getChallengeStatus,
+  logout,
+  probeLoginSession,
   requestEmailChallenge,
   verifyEmailChallenge,
 } from "../api/client";
@@ -23,8 +25,16 @@ import { BROWSER_COMPANION_DOWNLOAD_URL } from "../app/browserCompanion";
 import { useRouteNavigate } from "../app/RouteTransition";
 import { capabilitiesQueryOptions } from "../chat/conversationQueries";
 import { EmailLoginFlow, type EmailStep } from "./EmailLoginFlow";
+import { ExternalLoginMethods } from "./ExternalLoginMethods";
 
 type ChannelAvailability = "checking" | "available" | "disabled" | "unavailable";
+
+// The external-login continuation is a cookie/302 flow anchored on an http(s)
+// origin; a chrome-extension:// side panel never receives those SameSite
+// cookies, so its entry points stay hidden until a Bearer handoff exists.
+const extensionWorkspace = typeof chrome !== "undefined"
+  && Boolean(chrome.storage?.local)
+  && globalThis.location?.protocol === "chrome-extension:";
 
 function hasAccountLinkSuccess(state: unknown): boolean {
   return (
@@ -54,6 +64,10 @@ interface LoginPageProps {
   requestEmailChallenge?: (email: string) => Promise<{ status: "accepted" }>;
   verifyEmailChallenge?: (email: string, code: string) => Promise<SessionInfo>;
   onAuthenticated?: (session: SessionInfo) => void;
+  onAnonymous?: () => void;
+  probeSession?: (signal?: AbortSignal) => Promise<SessionInfo | null>;
+  signOut?: () => Promise<void>;
+  onSignedOut?: () => void;
 }
 
 export function LoginPage({
@@ -64,6 +78,10 @@ export function LoginPage({
   requestEmailChallenge: sendEmailChallenge = requestEmailChallenge,
   verifyEmailChallenge: confirmEmailChallenge = verifyEmailChallenge,
   onAuthenticated,
+  probeSession = probeLoginSession,
+  signOut = logout,
+  onSignedOut,
+  onAnonymous,
 }: LoginPageProps) {
   const navigate = useRouteNavigate();
   const location = useLocation();
@@ -73,35 +91,73 @@ export function LoginPage({
   const [code, setCode] = useState("");
   const [emailStep, setEmailStep] = useState<EmailStep>("email");
   const [emailError, setEmailError] = useState<string | null>(null);
+  const mounted = useRef(false);
+  const generation = useRef(0);
+  useEffect(() => {
+    mounted.current = true;
+    generation.current += 1;
+    return () => { mounted.current = false; generation.current += 1; };
+  }, []);
+  function current(requestGeneration?: number) { return mounted.current && requestGeneration === generation.current; }
   const capabilities = useQuery(capabilitiesQueryOptions(loadCapabilities));
+  const externalProviders = !extensionWorkspace && capabilities.isSuccess
+    ? capabilities.data.external_login_providers ?? []
+    : [];
+  const loginSession = useQuery({
+    queryKey: ["login-session-probe"], queryFn: ({ signal }) => probeSession(signal),
+    enabled: externalProviders.length > 0, retry: false, gcTime: 0, staleTime: 0,
+  });
+  const signOutMutation = useMutation({
+    mutationFn: signOut, gcTime: 0,
+    onMutate: () => generation.current,
+    onSuccess: (_response, _variables, requestGeneration) => {
+      if (!current(requestGeneration)) return;
+      if (onSignedOut) onSignedOut();
+      else void loginSession.refetch();
+    },
+  });
   const mutation = useMutation({
+    gcTime: 0,
     mutationFn: (channel: LegacyLoginChannel) => createChallenge(channel),
-    onSuccess: setChallenge,
+    onMutate: () => generation.current,
+    onSuccess: (value, _variables, requestGeneration) => { if (current(requestGeneration)) setChallenge(value); },
   });
   const status = useQuery({
     queryKey: ["login-challenge", challenge?.public_id],
     queryFn: () => getStatus(challenge!.public_id, challenge!.browser_secret),
     enabled: challenge !== null,
     retry: false,
+    gcTime: 0,
     refetchInterval: challengePollInterval,
   });
   const exchange = useMutation({
+    gcTime: 0,
     mutationFn: () => exchangeSession(challenge!.public_id, challenge!.browser_secret),
-    onSuccess: activate,
+    onMutate: () => generation.current,
+    onSuccess: (session, _variables, requestGeneration) => { if (current(requestGeneration)) activate(session); },
   });
   const emailChallenge = useMutation({
+    gcTime: 0,
     mutationFn: (value: string) => sendEmailChallenge(value),
-    onSuccess: () => {
+    onMutate: () => generation.current,
+    onSuccess: (_response, _variables, requestGeneration) => {
+      if (!current(requestGeneration)) return;
       setEmailStep("code");
       setCode("");
       setEmailError(null);
     },
   });
   const emailVerify = useMutation({
+    gcTime: 0,
     mutationFn: ({ address, value }: { address: string; value: string }) =>
       confirmEmailChallenge(address, value),
-    onSuccess: activate,
+    onMutate: () => generation.current,
+    onSuccess: (session, _variables, requestGeneration) => { if (current(requestGeneration)) activate(session); },
   });
+
+  useEffect(() => {
+    if (mounted.current && externalProviders.length > 0 && loginSession.isSuccess && loginSession.data === null) onAnonymous?.();
+  }, [externalProviders.length, loginSession.data, loginSession.isSuccess, onAnonymous]);
 
   useEffect(() => {
     if (!hasAccountLinkSuccess(location.state)) return;
@@ -112,6 +168,7 @@ export function LoginPage({
   }, [location.pathname, location.state, navigate]);
 
   function activate(session: SessionInfo) {
+    if (!mounted.current) return;
     if (onAuthenticated) onAuthenticated(session);
     else navigate("/library", { replace: true });
   }
@@ -126,22 +183,27 @@ export function LoginPage({
   const loginFailed = mutation.isError || status.isError || exchange.isError;
   const telegramAvailability = channelAvailability(capabilities, "telegram");
   const wechatAvailability = channelAvailability(capabilities, "wechat");
+  const hasLegacyMethods = capabilities.data?.web_login_channels.some((channel) => channel === "telegram" || channel === "wechat");
+  const checkingSession = externalProviders.length > 0 && loginSession.isPending;
+  const existingSession = externalProviders.length > 0 ? loginSession.data : null;
 
   function startChannelLogin(channel: LegacyLoginChannel) {
     if (
       channelAvailability(capabilities, channel) !== "available" ||
-      mutation.isPending
+      mutation.isPending || emailChallenge.isPending || emailVerify.isPending
     ) return;
     mutation.mutate(channel);
   }
 
   function restartLogin() {
+    generation.current += 1;
     setChallenge(null);
     mutation.reset();
     exchange.reset();
   }
 
   function resetEmailLogin() {
+    generation.current += 1;
     setEmailStep("email");
     setCode("");
     setEmailError(null);
@@ -203,7 +265,15 @@ export function LoginPage({
           </p>
         ) : null}
 
-        {emailEnabled ? (
+        {existingSession ? (
+          <div className="external-session-notice" role="status">
+            <p>此浏览器已登录。请继续当前资料库，或退出后使用其他账号。</p>
+            <button className="button button--primary button--wide" type="button" onClick={() => activate(existingSession)}>继续当前资料库</button>
+            <button className="login-back-button" type="button" disabled={signOutMutation.isPending} onClick={() => signOutMutation.mutate()}>退出后切换账号</button>
+            {signOutMutation.isError ? <p role="alert">退出未完成，请重试；当前登录仍保留。</p> : null}
+          </div>
+        ) : checkingSession ? <p role="status">正在确认当前登录…</p> : <>
+        {emailEnabled && !challenge ? (
           <EmailLoginFlow
             email={email}
             code={code}
@@ -223,7 +293,10 @@ export function LoginPage({
             onSubmitCode={submitCode}
             onChangeEmail={resetEmailLogin}
           />
-        ) : challenge ? (
+        ) : null}
+        {!challenge ? <ExternalLoginMethods providers={externalProviders} disabled={loginSession.isError || emailChallenge.isPending || emailVerify.isPending || mutation.isPending} /> : null}
+        {loginSession.isError && externalProviders.length > 0 ? <p role="alert">无法确认当前登录，请重试。<button className="text-button" type="button" onClick={() => void loginSession.refetch()}>重新检查</button></p> : null}
+        {challenge ? (
           <div className="login-flow">
             <div className="challenge-card" aria-live="polite">
               <span className="step-number">01</span>
@@ -243,7 +316,7 @@ export function LoginPage({
               ← 更换登录方式
             </button>
           </div>
-        ) : (
+        ) : !emailEnabled || hasLegacyMethods ? (
           <div className="login-method-panel">
             <div className="login-method-heading">
               <span>登录方式</span>
@@ -251,13 +324,13 @@ export function LoginPage({
             </div>
             <div className="login-methods" aria-label="选择登录方式">
               <LoginMethodOption
-                ariaLabel="使用微信登录"
+                ariaLabel={emailEnabled || externalProviders.includes("wechat_website") ? "使用微信聊天账号登录" : "使用微信登录"}
                 icon={<WechatBrandIcon />}
                 iconClassName="login-method__icon--wechat"
-                title="微信"
+                title={emailEnabled || externalProviders.includes("wechat_website") ? "微信聊天账号" : "微信"}
                 status={channelStatusLabel(wechatAvailability, mutation.isPending && mutation.variables === "wechat")}
                 statusTone={channelStatusTone(wechatAvailability)}
-                disabled={wechatAvailability !== "available" || mutation.isPending}
+                disabled={wechatAvailability !== "available" || mutation.isPending || emailChallenge.isPending || emailVerify.isPending}
                 onClick={() => startChannelLogin("wechat")}
               />
               <LoginMethodOption
@@ -267,7 +340,7 @@ export function LoginPage({
                 title="Telegram"
                 status={channelStatusLabel(telegramAvailability, mutation.isPending && mutation.variables === "telegram")}
                 statusTone={channelStatusTone(telegramAvailability)}
-                disabled={telegramAvailability !== "available" || mutation.isPending}
+                disabled={telegramAvailability !== "available" || mutation.isPending || emailChallenge.isPending || emailVerify.isPending}
                 onClick={() => startChannelLogin("telegram")}
               />
             </div>
@@ -288,8 +361,8 @@ export function LoginPage({
               <p className="login-capability-note" aria-live="polite">正在加载登录方式…</p>
             ) : null}
           </div>
-        )}
-        {!emailEnabled && loginFailed ? (
+        ) : null}
+        {loginFailed ? (
           <div>
             <p className="inline-error" role="alert">
               {challenge ? "登录没有完成，请重新获取登录指令。" : "暂时无法开始登录，请重试。"}
@@ -301,6 +374,7 @@ export function LoginPage({
             ) : null}
           </div>
         ) : null}
+        </>}
         <p className="privacy-note">登录后只会显示你自己的资料库。</p>
       </section>
     </main>

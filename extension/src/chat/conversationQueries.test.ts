@@ -6,7 +6,8 @@ import { conversationHistoryQueryOptions, conversationTurnsQueryOptions, preload
 
 const capabilities: Capabilities = {
   supported_platforms: ["youtube"], browser_companion: true, web_login_channels: ["email"],
-save_enabled: true, max_save_batch_size: 10,
+  external_login_providers: [],
+  save_enabled: true, max_save_batch_size: 10,
 transcript_pagination: true,
   archive: true, summary_generation: false, chat: true,
 };
