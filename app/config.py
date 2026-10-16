@@ -472,8 +472,10 @@ class Settings:
     trash_retention_days: int = field(
         default_factory=lambda: _env_int("TRASH_RETENTION_DAYS", 30)
     )
+    # Once a day by default: every purge sweep is a PostgreSQL visit, and an
+    # idle Neon compute can only scale to zero between visits.
     trash_purge_interval_seconds: int = field(
-        default_factory=lambda: _env_int("TRASH_PURGE_INTERVAL_SECONDS", 3600)
+        default_factory=lambda: _env_int("TRASH_PURGE_INTERVAL_SECONDS", 86400)
     )
     trash_purge_batch_size: int = field(
         default_factory=lambda: _env_int("TRASH_PURGE_BATCH_SIZE", 20)
@@ -514,6 +516,14 @@ class Settings:
     # compatibility but are no longer scheduled by the worker.
     ingest_notification_interval_seconds: int = field(
         default_factory=lambda: _env_int("INGEST_NOTIFICATION_INTERVAL_SECONDS", 600)
+    )
+    # The 600-second tick above is gated by a Redis repair index and normally
+    # issues no PostgreSQL statement.  This ungated full repair rebuilds that
+    # index from PostgreSQL and is the bound on a lost-Redis notification delay.
+    ingest_notification_full_sweep_interval_seconds: int = field(
+        default_factory=lambda: _env_int(
+            "INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS", 86400
+        )
     )
     ingest_notification_batch_size: int = field(
         default_factory=lambda: _env_int("INGEST_NOTIFICATION_BATCH_SIZE", 20)
@@ -942,6 +952,10 @@ class Settings:
             self._validate_asr()
         if self.ingest_notification_interval_seconds <= 0:
             raise ValueError("INGEST_NOTIFICATION_INTERVAL_SECONDS must be positive")
+        if self.ingest_notification_full_sweep_interval_seconds <= 0:
+            raise ValueError(
+                "INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS must be positive"
+            )
         if (
             self.ingest_notification_batch_size <= 0
             or self.ingest_notification_batch_size > 100
