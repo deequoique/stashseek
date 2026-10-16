@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify test-host assertion and read-only study queries."}
+{"file": ".trellis/tasks/09-12-qmsum-explainmeetsum-golden-set/design.md", "reason": "Verify scorer/eligibility reuse and artifact inventory untouched."}
+{"file": ".trellis/tasks/10-06-meeting-qa-quality/research/findings-20261006.md", "reason": "Cross-check reported numbers against prior measurements."}

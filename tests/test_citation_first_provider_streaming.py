@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import replace
 
 import pytest
@@ -15,6 +16,7 @@ from app.agent.streaming import AgentStreamEvent
 from app.agent.types import AgentRequest, Citation
 from app.channels.types import TenantContext
 from app.config import Settings
+from app.diagnostics import RequestDiagnostics
 
 
 def _request(question: str = "查资料") -> AgentRequest:
@@ -178,6 +180,64 @@ def _empty_stream_model():
     return FunctionModel(stream_function=stream)
 
 
+def _stream_model_with_deltas(deltas: list[str]):
+    """Yield an exact, caller-chosen delta sequence for one section stream."""
+
+    async def stream(_messages, _info):
+        for value in deltas:
+            yield value
+            await asyncio.sleep(0)
+
+    return FunctionModel(stream_function=stream)
+
+
+def _citations_range(start: int, count: int, item_id: int = 7) -> list[Citation]:
+    return [
+        Citation(
+            item_id=item_id,
+            segment_id=start + offset,
+            title="来源视频",
+            excerpt="字幕依据",
+            url="https://example.test/video?t=11",
+            start_sec=11,
+        )
+        for offset in range(count)
+    ]
+
+
+def _overcap_plan_model():
+    """A plan citing 12 distinct ids across two grounded sections (cap is 8)."""
+
+    def model(_messages, _info):
+        return ModelResponse(
+            parts=[
+                TextPart(
+                    json.dumps(
+                        {
+                            "kind": "grounded",
+                            "sections": [
+                                {
+                                    "section_id": "section-a",
+                                    "task": "概括第一组证据",
+                                    "status": "grounded",
+                                    "citation_ids": list(range(101, 109)),
+                                },
+                                {
+                                    "section_id": "section-b",
+                                    "task": "概括第二组证据",
+                                    "status": "grounded",
+                                    "citation_ids": list(range(109, 113)),
+                                },
+                            ],
+                        }
+                    )
+                )
+            ]
+        )
+
+    return FunctionModel(model)
+
+
 @pytest.mark.parametrize(
     ("first", "second"),
     [
@@ -321,17 +381,21 @@ async def test_empty_provider_stream_uses_one_delta_fallback():
     assert events[-1].answer.status == "ok"
 
 
-def test_plan_rejects_duplicate_and_unsupported_citations():
+def test_plan_allows_duplicate_citations_but_rejects_unsupported_with_citations():
     from pydantic import ValidationError
     from app.agent.types import AnswerStreamPlan
 
-    with pytest.raises(ValidationError):
-        AnswerStreamPlan(
-            kind="grounded",
-            sections=[
-                {"section_id": "a", "task": "重复引用", "status": "grounded", "citation_ids": [11, 11]}
-            ],
-        )
+    # A repeated or cross-section duplicate citation is no longer rejected at
+    # construction time; ``normalize_section_citations`` normalizes it inside
+    # the stream-plan output validator instead (decision F1).
+    plan = AnswerStreamPlan(
+        kind="grounded",
+        sections=[
+            {"section_id": "a", "task": "重复引用", "status": "grounded", "citation_ids": [11, 11]}
+        ],
+    )
+    assert plan.sections[0].citation_ids == [11, 11]
+
     with pytest.raises(ValidationError):
         AnswerStreamPlan(
             kind="grounded",
@@ -340,3 +404,84 @@ def test_plan_rejects_duplicate_and_unsupported_citations():
                 {"section_id": "b", "task": "有证据", "status": "grounded", "citation_ids": [12]},
             ],
         )
+
+
+@pytest.mark.asyncio
+async def test_whitespace_only_stream_delta_does_not_abort_the_section():
+    citation = _citation()
+    agent = KnowledgeAgent(
+        _primary_model(),
+        replace(Settings(), agent_timeout_seconds=2),
+        lambda _request: _Services([citation]),
+        composer_model=_plan_model(),
+        stream_model=_stream_model_with_deltas(["文本", "\n\n", "更多文本"]),
+    )
+
+    events = [event async for event in agent.stream(_request())]
+
+    assert not any(event.type == "section_aborted" for event in events)
+    completed = events[-1]
+    assert completed.type == "completed"
+    assert completed.answer is not None
+    assert completed.answer.status == "ok"
+    assert "文本\n\n更多文本 [S11]" in completed.answer.text
+
+
+@pytest.mark.asyncio
+async def test_forbidden_text_delta_still_aborts_the_section():
+    citation = _citation()
+    agent = KnowledgeAgent(
+        _primary_model(),
+        replace(Settings(), agent_timeout_seconds=2),
+        lambda _request: _Services([citation]),
+        composer_model=_plan_model(),
+        stream_model=_stream_model_with_deltas(["文本", "http://x"]),
+    )
+
+    events = [event async for event in agent.stream(_request())]
+
+    assert any(event.type == "section_aborted" for event in events)
+    completed = events[-1]
+    assert completed.type == "completed"
+    assert completed.answer is not None
+    assert completed.answer.status == "failed"
+    assert "http://x" not in "".join(
+        event.text or "" for event in events if event.type == "text_delta"
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_plan_over_cap_selection_is_clamped_with_diagnostics(caplog):
+    citations = _citations_range(101, 12)
+    diagnostics = RequestDiagnostics.start("request", 1, "a" * 32)
+    agent = KnowledgeAgent(
+        _primary_model(),
+        replace(Settings(), agent_timeout_seconds=2),
+        lambda _request: _Services(citations),
+        composer_model=_overcap_plan_model(),
+        stream_model=_stream_model(),
+    )
+
+    with caplog.at_level(logging.INFO, logger="notebook_agent.runtime"):
+        events = [
+            event
+            async for event in agent.stream(_request(), diagnostics=diagnostics)
+        ]
+
+    completed = events[-1]
+    assert completed.type == "completed"
+    assert completed.answer is not None
+    assert completed.answer.status == "ok"
+    cited_ids = sorted(citation.segment_id for citation in completed.answer.citations)
+    assert cited_ids == [101, 102, 103, 104, 109, 110, 111, 112]
+
+    payloads = [
+        record.diagnostic_payload
+        for record in caplog.records
+        if hasattr(record, "diagnostic_payload")
+    ]
+    normalized = [p for p in payloads if p.get("stage") == "citation_normalized"]
+    assert len(normalized) == 1
+    assert normalized[0]["failure_reason"] == "too_many_segments"
+    assert normalized[0]["result_count"] == 8
+    assert normalized[0]["retry_count"] == 4

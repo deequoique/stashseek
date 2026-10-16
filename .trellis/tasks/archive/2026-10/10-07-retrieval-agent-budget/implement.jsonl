@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Current one-retrieval-per-step contract, budgets, Composer handoff, and 'retrieval model settings unchanged' clause being changed."}
+{"file": ".trellis/spec/backend/agent-execution-streaming.md", "reason": "Primary-stage tool lifecycle projection; skipped events and step semantics surface here."}
+{"file": ".trellis/spec/backend/provider-tls-diagnostics.md", "reason": "Diagnostics stage/field allow-list and redaction for the new stage_usage event."}
+{"file": ".trellis/tasks/archive/2026-10/10-06-meeting-qa-quality/research/findings-20261006.md", "reason": "Evidence: parallel calls despite parallel_tool_calls=False, skipped-call counts, thinking tokens, limit hits."}
+{"file": ".trellis/tasks/archive/2026-10/10-06-meeting-qa-quality/research/meeting_agent_prodpath.reference.py", "reason": "Production-path harness to reuse for the verification rerun."}
+{"file": ".trellis/tasks/archive/2026-10/10-06-meeting-qa-quality/research/postfix-rerun-20261006.comparison.txt", "reason": "Baseline numbers the rerun is compared against."}

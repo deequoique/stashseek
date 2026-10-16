@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend conventions index."}
+{"file": ".trellis/spec/backend/browser-companion-capture.md", "reason": ">512-cue capture skips per-cue semantic embedding; 120 s hard segment boundary must be preserved."}
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Composer evidence projection; excerpt cap change (C3) affects what the answer agent sees."}
+{"file": ".trellis/tasks/10-06-meeting-qa-quality/research/findings-20261006.md", "reason": "Measured chunk-size distribution and root cause of split-at-every-boundary."}
+{"file": ".trellis/tasks/10-06-meeting-qa-quality/research/prodpath-rerun-20261006.ingest-stats.json", "reason": "Per-meeting baseline chunk stats to compare against after the fix."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse existing helpers (_units, _hard_cut, _diversify_hits, scorer) instead of re-implementing."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Changes cross ingest → retrieval → answer layers; check contracts on both sides."}

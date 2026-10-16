@@ -118,6 +118,24 @@ def test_answer_draft_has_disposition_and_no_duplicate_top_level_selection():
             }
         )
 
+    # DeepSeek may append this legacy metadata key, but only its null form is
+    # tolerated; provider-authored content must not enter the answer contract.
+    assert AnswerDraft.model_validate(
+        {
+            "kind": "grounded",
+            "sections": [{"text": "supported", "citation_ids": [10]}],
+            "sections_note": None,
+        }
+    ).sections_note is None
+    with pytest.raises(ValidationError):
+        AnswerDraft.model_validate(
+            {
+                "kind": "grounded",
+                "sections": [{"text": "supported", "citation_ids": [10]}],
+                "sections_note": "untrusted metadata",
+            }
+        )
+
     with pytest.raises(ValidationError):
         AnswerDraft.model_validate(
             {

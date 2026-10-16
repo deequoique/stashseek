@@ -19,6 +19,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
+| [Ingestion Chunking and Embedding](./ingestion-chunking-embedding.md) | Semantic-first transcript chunking (80–200 words, ≤120 s, deepest-dip cut, whole-cue overlap), embedding budget guard, composer excerpt cap, and per-batch transient embedding retry | Active |
 | [YouTube Connector](./youtube-connector.md) | Subtitle-track selection and yt-dlp runtime contract | Active |
 | [Bilibili Connector](./bilibili-connector.md) | Strict video URL admission, public yt-dlp metadata/SRT, and browser/ASR fallback | Active |
 | [LangBot Channel Runtime](./langbot-channel-runtime.md) | Required bridge readiness, fail-closed routing, and channel privacy | Active |

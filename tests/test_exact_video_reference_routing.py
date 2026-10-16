@@ -664,7 +664,7 @@ async def test_management_tools_are_hidden_for_explicit_url_questions():
 
     result = await runtime.run(_request("https://youtu.be/M7lc1UVf-VE 讲了什么"))
 
-    assert result.answer.error_code is None
+    assert result.answer.error_code == "search_required"
     assert "list_saved_items" not in visible_tools
     assert "get_saved_item" not in visible_tools
     assert "delete_saved_items" not in visible_tools
