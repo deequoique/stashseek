@@ -72,6 +72,8 @@ def test_youtube_arguments_and_result(tmp_path):
     assert "--ignore-config" in args and "--no-cache-dir" in args and "--no-playlist" in args
     assert pairs["-f"] == AUDIO_FORMAT_SELECTOR == EXPECTED_AUDIO_FORMAT_SELECTOR
     assert pairs["--max-filesize"] == "1000"
+    # Every media request carries Range (Bilibili's cosov CDN node 567s without).
+    assert pairs["--http-chunk-size"] == "10M"
     assert pairs["--socket-timeout"] == "30.0"
     assert pairs["-o"] == f"{tmp_path}/audio.%(ext)s"
     # Audio uses yt-dlp's default client selection: android_vr media URLs 403.
@@ -114,7 +116,11 @@ def test_bilibili_uses_canonical_url_and_no_youtube_args(tmp_path):
 
     args, kwargs = runner.calls[0]
     assert args[-1] == BILIBILI_CANONICAL
-    assert dict(zip(args, args[1:]))["-f"] == EXPECTED_AUDIO_FORMAT_SELECTOR
+    pairs = dict(zip(args, args[1:]))
+    assert pairs["-f"] == EXPECTED_AUDIO_FORMAT_SELECTOR
+    # Every media request carries Range: Bilibili's overseas COS CDN node
+    # (upos-sz-mirrorcosov.bilivideo.com) answers a non-Range GET with HTTP 567.
+    assert pairs["--http-chunk-size"] == "10M"
     assert "--extractor-args" not in args
     # No proxy configured: the child inherits no proxy variables.
     assert not any("proxy" in name.lower() for name in kwargs["env"])
@@ -344,6 +350,25 @@ def test_other_bilibili_failures_are_terminal_audio_unavailable(tmp_path):
 
     assert caught.value.error_code == "asr_audio_unavailable"
     assert "SECRET" not in str(caught.value)
+
+
+def test_bilibili_http_567_is_terminal_audio_unavailable(tmp_path):
+    # Documents current behaviour: the cosov CDN node's non-Range 567 is not
+    # classified (the chunked download in the argv avoids triggering it).
+    runner = Runner(
+        returncode=1,
+        stderr=(
+            "ERROR: [download] Got error: HTTP Error 567: Unknown Status. "
+            "Giving up after 10 retries"
+        ),
+        filename=None,
+    )
+
+    with pytest.raises(AsrError) as caught:
+        download_audio(platform="bilibili", url=BILIBILI_URL, dest_dir=tmp_path, settings=_settings(), runner=runner)
+
+    assert caught.value.error_code == "asr_audio_unavailable"
+    assert len(runner.calls) == 1
 
 
 @pytest.mark.parametrize(

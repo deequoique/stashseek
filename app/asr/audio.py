@@ -30,6 +30,12 @@ AUDIO_FORMAT_SELECTOR = (
     "bestaudio[abr>=40][abr<=72][ext=m4a]/bestaudio[abr>=40][abr<=72]"
     "/worstaudio[abr>=40]/bestaudio"
 )
+# Every media request carries a ``Range`` header.  Bilibili's overseas COS CDN
+# node (``upos-sz-mirrorcosov.bilivideo.com``) answers a GET without ``Range``
+# with the non-standard HTTP 567, while Akamai accepts both; which node a
+# download gets is assigned per playurl call.  Chunked download makes yt-dlp
+# send ``Range`` on all of them and is harmless for YouTube.
+_HTTP_CHUNK_SIZE = "10M"
 _MAX_SOCKET_TIMEOUT_SECONDS = 30.0
 _TOO_LARGE_MARKER = "larger than max-filesize"
 _INCOMPLETE_SUFFIXES = frozenset({"part", "ytdl", "temp"})
@@ -158,6 +164,8 @@ def download_audio(
         str(min(_MAX_SOCKET_TIMEOUT_SECONDS, timeout)),
         "-f",
         AUDIO_FORMAT_SELECTOR,
+        "--http-chunk-size",
+        _HTTP_CHUNK_SIZE,
         "--max-filesize",
         str(max_bytes),
         "-o",
