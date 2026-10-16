@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/guides/branch-and-delegation-workflow.md", "reason": "dev-branch rule, DB override, no-commit"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "code standards and forbidden patterns"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "stable error codes, redaction"}
+{"file": ".trellis/spec/backend/ingest-completion-queue.md", "reason": "verify one completion event per dispatch and terminal-state rules"}
+{"file": ".trellis/spec/backend/youtube-connector.md", "reason": "verify proxy/CA env and no raw stderr leakage"}
+{"file": ".trellis/spec/backend/deployment-lifecycle.md", "reason": "verify unit/deploy-script/launcher changes"}
+{"file": ".trellis/spec/backend/provider-tls-diagnostics.md", "reason": "verify outbound TLS and diagnostics allow-lists"}
