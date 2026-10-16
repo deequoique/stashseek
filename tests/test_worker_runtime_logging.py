@@ -45,15 +45,30 @@ def _isolated_runtime_logger():
     other handlers on this shared logger. Detach them (without closing handlers
     this fixture did not create), start from the library defaults, and restore
     the exact original handlers, level and propagate flag afterwards.
+
+    Two further leaks silently drop records before they reach any handler:
+
+    * ``tests/test_migration_roundtrip_postgres.py`` runs Alembic, whose
+      ``migrations/env.py`` calls ``logging.config.fileConfig`` with the default
+      ``disable_existing_loggers=True``. That sets ``LOGGER.disabled = True``
+      for the rest of the process.
+    * ``logging.disable(...)`` raises a process-wide level floor
+      (``logging.root.manager.disable``).
+
+    Both are reset for the test and restored afterwards.
     """
 
     original_handlers = list(LOGGER.handlers)
     original_level = LOGGER.level
     original_propagate = LOGGER.propagate
+    original_disabled = LOGGER.disabled
+    original_global_disable = logging.root.manager.disable
     for handler in original_handlers:
         LOGGER.removeHandler(handler)
     LOGGER.setLevel(logging.NOTSET)
     LOGGER.propagate = True
+    LOGGER.disabled = False
+    logging.disable(logging.NOTSET)
     try:
         yield
     finally:
@@ -63,6 +78,8 @@ def _isolated_runtime_logger():
             LOGGER.addHandler(handler)
         LOGGER.setLevel(original_level)
         LOGGER.propagate = original_propagate
+        LOGGER.disabled = original_disabled
+        logging.disable(original_global_disable)
 
 
 def _settings(log_dir: Path) -> SimpleNamespace:
