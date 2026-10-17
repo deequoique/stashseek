@@ -55,7 +55,7 @@ export interface PageQaController {
 }
 
 /** Player not loaded yet: worth reading again shortly. */
-const RETRYABLE_READ_ERRORS = new Set(["stale_player_response", "kaltura_entry_missing"]);
+const RETRYABLE_READ_ERRORS = new Set(["stale_player_response", "kaltura_entry_missing", "caption_player_not_ready"]);
 const MAX_READ_RETRIES = 3;
 
 function emptySession(identity: PageIdentity, conversationId: string): VideoSession {

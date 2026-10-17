@@ -170,6 +170,30 @@ describe("side panel page states", () => {
     expect(env.worker.readPage).toHaveBeenCalledTimes(2);
   });
 
+  it("retries a read while the YouTube player is not ready, then accepts the page", async () => {
+    const env = makeEnvironment();
+    env.worker.readPage.mockRejectedValueOnce(new WorkerError("caption_player_not_ready"));
+    await renderReady(env);
+
+    expect(await screen.findByText("字幕可用 · 官方字幕 · 2 条")).toBeInTheDocument();
+    expect(env.worker.readPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks the user to play the video when the player stays unready, and re-reads on demand", async () => {
+    const env = makeEnvironment();
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      env.worker.readPage.mockRejectedValueOnce(new WorkerError("caption_player_not_ready"));
+    }
+    const user = await renderReady(env);
+
+    expect(await screen.findByText("播放器还没准备好：请先播放视频几秒，再点「重新读取」。")).toBeInTheDocument();
+    expect(env.worker.readPage).toHaveBeenCalledTimes(4);
+    await user.click(screen.getByRole("button", { name: "重新读取" }));
+
+    expect(await screen.findByText("字幕可用 · 官方字幕 · 2 条")).toBeInTheDocument();
+    expect(env.worker.readPage).toHaveBeenCalledTimes(5);
+  });
+
   it("hides the Q&A but keeps saving when the server does not offer page Q&A", async () => {
     const env = makeEnvironment({ pageQa: false });
     await renderReady(env);

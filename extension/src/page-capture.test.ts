@@ -989,6 +989,355 @@ describe("YouTube caption adapter", () => {
   });
 });
 
+describe("YouTube caption proof-of-origin token (pot)", () => {
+  const POT = "SECRET_POT_VALUE";
+  const OTHER_POT = "OTHER_VIDEO_POT";
+  const bareUrl = (lang: string, kind?: string): string => `https://www.youtube.com/api/timedtext?v=${YOUTUBE_ID}&ei=TRACK_EI&caps=asr&opi=1&exp=xbt&xoaf=5&hl=en&ip=0.0.0.0&ipbits=0&expire=1&sparams=ip%2Cipbits%2Cexpire%2Cv&signature=TRACK_SIGNATURE&key=yt8${kind ? `&kind=${kind}` : ""}&lang=${lang}`;
+  // The player's own request: same video, plus pot/potc and client parameters.
+  const potUrl = (videoId = YOUTUBE_ID, pot = POT): string => `https://www.youtube.com/api/timedtext?v=${videoId}&ei=OBSERVED_EI&lang=en&fmt=json3&potc=1&pot=${pot}&xorb=2&xobt=3&xovt=3&cbrand=apple&cbr=Chrome&cbrver=140.0.0.0&c=WEB&cver=2.20261016.00.00&cplayer=UNIPLAYER&cos=Macintosh&cosver=10_15_7&cplatform=DESKTOP&unrelated=drop-me`;
+
+  type FakeObserverCallback = (list: { getEntries: () => Array<{ name: string }> }) => void;
+  class FakeObserver {
+    static instances: FakeObserver[] = [];
+    observed: unknown[] = [];
+    disconnected = false;
+    constructor(readonly callback: FakeObserverCallback) { FakeObserver.instances.push(this); }
+    observe(options: unknown): void { this.observed.push(options); }
+    disconnect(): void { this.disconnected = true; }
+    emit(name: string): void { this.callback({ getEntries: () => [{ name }] }); }
+  }
+
+  type Fixture = {
+    tracks: Array<Record<string, unknown>>;
+    /** What `getOption("captions", "track")` returns; `{}` means captions are off. */
+    captionTrack?: Record<string, unknown>;
+    adShowing?: boolean;
+    /** Resource-timeline entries that already exist. */
+    entries?: string[];
+    /** Requests the player makes (seen by the observer) when its first track is set. */
+    emitOnFirstSet?: string[];
+  };
+
+  function stubPlayerPage(fixture: Fixture) {
+    FakeObserver.instances = [];
+    const entries = fixture.entries ?? [];
+    let sets = 0;
+    const player = {
+      classList: { contains: (name: string) => name === "ad-showing" && fixture.adShowing === true },
+      getPlayerResponse: () => youtubeResponse(YOUTUBE_ID, fixture.tracks),
+      getOption: vi.fn(() => fixture.captionTrack ?? {}),
+      loadModule: vi.fn(),
+      unloadModule: vi.fn(),
+      toggleSubtitles: vi.fn(),
+      toggleSubtitlesOn: vi.fn(),
+      setOption: vi.fn<(namespace: string, option: string, value?: unknown) => void>(() => {
+        sets += 1;
+        if (sets === 1) {
+          for (const name of fixture.emitOnFirstSet ?? []) FakeObserver.instances.forEach((observer) => observer.emit(name));
+        }
+      }),
+    };
+    vi.stubGlobal("location", {
+      href: `https://www.youtube.com/watch?v=${YOUTUBE_ID}`,
+      hostname: "www.youtube.com",
+      pathname: "/watch",
+    });
+    vi.stubGlobal("document", {
+      title: "Current title - YouTube",
+      getElementById: (id: string) => (id === "movie_player" ? player : null),
+    });
+    vi.stubGlobal("performance", { getEntriesByType: () => entries.map((name) => ({ name })) });
+    vi.stubGlobal("PerformanceObserver", FakeObserver);
+    return player;
+  }
+
+  /** Caption responses are empty unless the request carries the pot, like the real endpoint. */
+  function potOnlyFetch() {
+    return vi.fn(async (url: string) => url.includes(`pot=${POT}`)
+      ? { ok: true, text: async () => JSON.stringify(json3("read with pot")) }
+      : { ok: true, text: async () => "" });
+  }
+
+  const params = (call: unknown[]): URLSearchParams => new URL(String(call[0])).searchParams;
+
+  it("reuses a matching pot request already in the resource timeline without touching the captions", async () => {
+    const player = stubPlayerPage({
+      tracks: [{ languageCode: "en", baseUrl: bareUrl("en") }],
+      entries: [potUrl(OTHER_YOUTUBE_ID, OTHER_POT), "https://www.youtube.com/api/stats/playback?pot=nope", potUrl()],
+    });
+    const fetchStub = potOnlyFetch();
+    vi.stubGlobal("fetch", fetchStub);
+    const consoleSpies = (["log", "info", "warn", "error", "debug"] as const).map((method) => vi.spyOn(console, method));
+
+    const result = await captureYouTubePage();
+
+    expect(result.status).toBe("captured");
+    if (result.status === "captured") expect(result.capture.caption.cues[0]?.text).toBe("read with pot");
+    expect(fetchStub).toHaveBeenCalledOnce();
+    const query = params(fetchStub.mock.calls[0]!);
+    expect(query.get("fmt")).toBe("json3");
+    expect(query.get("pot")).toBe(POT);
+    for (const [key, value] of Object.entries({
+      potc: "1", c: "WEB", cver: "2.20261016.00.00", cplayer: "UNIPLAYER", cos: "Macintosh", cosver: "10_15_7",
+      cplatform: "DESKTOP", cbr: "Chrome", cbrver: "140.0.0.0", cbrand: "apple", xorb: "2", xobt: "3", xovt: "3",
+    })) expect(query.get(key)).toBe(value);
+    // The track keeps its own identity and signature; nothing else is copied from the player's request.
+    expect(query.get("ei")).toBe("TRACK_EI");
+    expect(query.get("signature")).toBe("TRACK_SIGNATURE");
+    expect(query.get("lang")).toBe("en");
+    expect(query.get("unrelated")).toBeNull();
+    expect(player.setOption).not.toHaveBeenCalled();
+    expect(player.loadModule).not.toHaveBeenCalled();
+    expect(player.unloadModule).not.toHaveBeenCalled();
+    expect(player.toggleSubtitles).not.toHaveBeenCalled();
+    expect(FakeObserver.instances).toHaveLength(0);
+    expect(JSON.stringify(result)).not.toContain(POT);
+    for (const spy of consoleSpies) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("applies the pot to the WebVTT and original-URL fallbacks of the same track", async () => {
+    stubPlayerPage({ tracks: [{ languageCode: "en", baseUrl: bareUrl("en") }], entries: [potUrl()] });
+    const fetchStub = vi.fn(async (url: string) => url.includes("fmt=json3")
+      ? { ok: true, text: async () => "" }
+      : url.includes("fmt=vtt")
+        ? { ok: true, text: async () => "" }
+        : { ok: true, text: async () => "<transcript><text start=\"1\" dur=\"2\">xml with pot</text></transcript>" });
+    vi.stubGlobal("fetch", fetchStub);
+
+    const result = await captureYouTubePage();
+
+    expect(result.status).toBe("captured");
+    if (result.status === "captured") expect(result.capture.caption.cues[0]?.text).toBe("xml with pot");
+    expect(fetchStub).toHaveBeenCalledTimes(3);
+    for (const call of fetchStub.mock.calls) expect(params(call).get("pot")).toBe(POT);
+    expect(params(fetchStub.mock.calls[2]!).get("fmt")).toBeNull();
+  });
+
+  it("enables a track to observe the player's own request, then turns captions back off", async () => {
+    vi.useFakeTimers();
+    const player = stubPlayerPage({
+      tracks: [{ languageCode: "en", baseUrl: bareUrl("en") }],
+      entries: [potUrl(OTHER_YOUTUBE_ID, OTHER_POT)],
+      emitOnFirstSet: [potUrl(OTHER_YOUTUBE_ID, OTHER_POT), potUrl()],
+    });
+    const fetchStub = potOnlyFetch();
+    vi.stubGlobal("fetch", fetchStub);
+    const consoleSpies = (["log", "info", "warn", "error", "debug"] as const).map((method) => vi.spyOn(console, method));
+
+    const pending = captureYouTubePage();
+    await vi.advanceTimersByTimeAsync(2_000);
+    const result = await pending;
+
+    expect(result.status).toBe("captured");
+    if (result.status === "captured") expect(result.capture.caption.cues[0]?.text).toBe("read with pot");
+    expect(player.loadModule).toHaveBeenCalledWith("captions");
+    expect(player.setOption).toHaveBeenCalledOnce();
+    expect(player.setOption).toHaveBeenCalledWith("captions", "track", { languageCode: "en" });
+    expect(player.unloadModule).toHaveBeenCalledWith("captions");
+    expect(player.loadModule.mock.invocationCallOrder[0]).toBeLessThan(player.setOption.mock.invocationCallOrder[0]!);
+    expect(player.setOption.mock.invocationCallOrder[0]).toBeLessThan(player.unloadModule.mock.invocationCallOrder[0]!);
+    expect(FakeObserver.instances).toHaveLength(1);
+    expect(FakeObserver.instances[0]!.observed).toEqual([{ type: "resource" }]);
+    expect(FakeObserver.instances[0]!.disconnected).toBe(true);
+    // The other video's pot was never used; only this video's pot reached the caption fetch.
+    expect(fetchStub).toHaveBeenCalledOnce();
+    expect(JSON.stringify(fetchStub.mock.calls)).not.toContain(OTHER_POT);
+    expect(params(fetchStub.mock.calls[0]!).get("pot")).toBe(POT);
+    expect(JSON.stringify(result)).not.toContain(POT);
+    for (const spy of consoleSpies) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("asks for an auto-generated track by kind so the player requests the ASR captions", async () => {
+    vi.useFakeTimers();
+    const player = stubPlayerPage({
+      tracks: [{ kind: "asr", languageCode: "en", baseUrl: bareUrl("en", "asr") }],
+      emitOnFirstSet: [potUrl()],
+    });
+    vi.stubGlobal("fetch", potOnlyFetch());
+
+    const pending = captureYouTubePage();
+    await vi.advanceTimersByTimeAsync(2_000);
+    const result = await pending;
+
+    expect(result.status).toBe("captured");
+    if (result.status === "captured") expect(result.capture.caption.source).toBe("auto_caption");
+    expect(player.setOption).toHaveBeenCalledWith("captions", "track", { languageCode: "en", kind: "asr" });
+  });
+
+  it("restores the viewer's original caption track when captions were on", async () => {
+    vi.useFakeTimers();
+    const original = { languageCode: "fr", languageName: "Français", vss_id: ".fr" };
+    const player = stubPlayerPage({
+      tracks: [
+        { languageCode: "en", baseUrl: bareUrl("en") },
+        { languageCode: "fr", baseUrl: bareUrl("fr") },
+      ],
+      captionTrack: original,
+      emitOnFirstSet: [potUrl()],
+    });
+    const fetchStub = potOnlyFetch();
+    vi.stubGlobal("fetch", fetchStub);
+
+    const pending = captureYouTubePage();
+    await vi.advanceTimersByTimeAsync(2_000);
+    const result = await pending;
+
+    // A different track is requested so the player has to fetch again; the viewer's track is read.
+    expect(result.status).toBe("captured");
+    if (result.status === "captured") expect(result.capture.caption.language).toBe("fr");
+    expect(player.setOption).toHaveBeenCalledTimes(2);
+    expect(player.setOption.mock.calls[0]).toEqual(["captions", "track", { languageCode: "en" }]);
+    expect(player.setOption.mock.calls[1]![2]).toBe(original);
+    expect(player.unloadModule).not.toHaveBeenCalled();
+    expect(params(fetchStub.mock.calls[0]!).get("lang")).toBe("fr");
+  });
+
+  it("fails with caption_player_not_ready when the player never requests captions, and still restores them", async () => {
+    vi.useFakeTimers();
+    const player = stubPlayerPage({
+      tracks: [{ languageCode: "en", baseUrl: bareUrl("en") }],
+      // A request for another video must not satisfy the wait.
+      emitOnFirstSet: [potUrl(OTHER_YOUTUBE_ID, OTHER_POT)],
+    });
+    const fetchStub = potOnlyFetch();
+    vi.stubGlobal("fetch", fetchStub);
+
+    const pending = captureYouTubePage();
+    await vi.advanceTimersByTimeAsync(12_000);
+    const result = await pending;
+
+    expect(result).toEqual({ status: "failed", error: "caption_player_not_ready" });
+    // The track request is repeated once, then captions go back to off.
+    expect(player.setOption).toHaveBeenCalledTimes(2);
+    expect(player.unloadModule).toHaveBeenCalledOnce();
+    expect(FakeObserver.instances[0]!.disconnected).toBe(true);
+    // Without a pot only the empty bare responses were seen.
+    expect(fetchStub).toHaveBeenCalled();
+    expect(JSON.stringify(fetchStub.mock.calls)).not.toContain(OTHER_POT);
+    expect(JSON.stringify(result)).not.toContain(OTHER_POT);
+  });
+
+  it("does not toggle the captions while an ad is showing and asks to retry", async () => {
+    const player = stubPlayerPage({
+      tracks: [{ languageCode: "en", baseUrl: bareUrl("en") }],
+      adShowing: true,
+      emitOnFirstSet: [potUrl()],
+    });
+    const fetchStub = potOnlyFetch();
+    vi.stubGlobal("fetch", fetchStub);
+
+    await expect(captureYouTubePage()).resolves.toEqual({ status: "failed", error: "caption_player_not_ready" });
+
+    expect(player.getOption).not.toHaveBeenCalledWith("captions", "tracklist");
+    expect(player.setOption).not.toHaveBeenCalled();
+    expect(player.loadModule).not.toHaveBeenCalled();
+    expect(player.unloadModule).not.toHaveBeenCalled();
+    expect(player.toggleSubtitles).not.toHaveBeenCalled();
+    expect(player.toggleSubtitlesOn).not.toHaveBeenCalled();
+    expect(FakeObserver.instances).toHaveLength(0);
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it("still reads captions during an ad when this video's pot request is already in the timeline", async () => {
+    const player = stubPlayerPage({
+      tracks: [{ languageCode: "en", baseUrl: bareUrl("en") }],
+      adShowing: true,
+      entries: [potUrl()],
+    });
+    vi.stubGlobal("fetch", potOnlyFetch());
+
+    const result = await captureYouTubePage();
+
+    expect(result.status).toBe("captured");
+    expect(player.setOption).not.toHaveBeenCalled();
+  });
+
+  it("reports a player that is on the page but exposes no caption API as not ready", async () => {
+    vi.stubGlobal("location", { href: `https://www.youtube.com/watch?v=${YOUTUBE_ID}`, hostname: "www.youtube.com", pathname: "/watch" });
+    vi.stubGlobal("document", {
+      title: "Current title - YouTube",
+      getElementById: () => ({ classList: { contains: () => false } }),
+    });
+    vi.stubGlobal("performance", { getEntriesByType: () => [] });
+    vi.stubGlobal("ytInitialPlayerResponse", youtubeResponse(YOUTUBE_ID, [{ languageCode: "en", baseUrl: bareUrl("en") }]));
+    vi.stubGlobal("fetch", potOnlyFetch());
+
+    await expect(captureYouTubePage()).resolves.toEqual({ status: "failed", error: "caption_player_not_ready" });
+  });
+
+  it("keeps the legacy bare-URL read when there is no player at all", async () => {
+    vi.stubGlobal("location", { href: `https://www.youtube.com/watch?v=${YOUTUBE_ID}`, hostname: "www.youtube.com", pathname: "/watch" });
+    vi.stubGlobal("document", { title: "Current title - YouTube" });
+    vi.stubGlobal("performance", { getEntriesByType: () => [] });
+    vi.stubGlobal("ytInitialPlayerResponse", youtubeResponse(YOUTUBE_ID, [{ languageCode: "en", baseUrl: bareUrl("en") }]));
+    const fetchStub = vi.fn(async () => ({ ok: true, text: async () => "" }));
+    vi.stubGlobal("fetch", fetchStub);
+
+    await expect(captureYouTubePage()).resolves.toEqual({ status: "failed", error: "caption_parse_failed" });
+    for (const call of fetchStub.mock.calls) expect(params(call).get("pot")).toBeNull();
+  });
+
+  it("does not use a pot request that points at an untrusted host or path", async () => {
+    stubPlayerPage({
+      tracks: [{ languageCode: "en", baseUrl: bareUrl("en") }],
+      entries: [
+        `https://evil.example/api/timedtext?v=${YOUTUBE_ID}&pot=${POT}`,
+        `https://www.youtube.com/api/timedtext/other?v=${YOUTUBE_ID}&pot=${POT}`,
+        `http://www.youtube.com/api/timedtext?v=${YOUTUBE_ID}&pot=${POT}`,
+      ],
+      adShowing: true,
+    });
+    const fetchStub = potOnlyFetch();
+    vi.stubGlobal("fetch", fetchStub);
+
+    await expect(captureYouTubePage()).resolves.toEqual({ status: "failed", error: "caption_player_not_ready" });
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it("surfaces caption_player_not_ready through the coordinator as a stable error", async () => {
+    const executeScript = vi.fn(async () => [{ result: { status: "failed", error: "caption_player_not_ready" } }]);
+    vi.stubGlobal("chrome", { scripting: { executeScript } });
+
+    await expect(captureActivePage(7, `https://www.youtube.com/watch?v=${YOUTUBE_ID}`)).rejects.toThrow("caption_player_not_ready");
+  });
+
+  it("survives the MV3 function serialization boundary on the pot path", async () => {
+    const observers: FakeObserver[] = [];
+    class SerializedObserver extends FakeObserver {
+      constructor(callback: FakeObserverCallback) { super(callback); observers.push(this); }
+    }
+    const player = {
+      classList: { contains: () => false },
+      getOption: () => ({}),
+      loadModule: vi.fn(),
+      unloadModule: vi.fn(),
+      setOption: vi.fn(() => observers.forEach((observer) => observer.emit(potUrl()))),
+    };
+    const fetchStub = potOnlyFetch();
+    const adapter = recreateAdapter(captureYouTubePage, {
+      Date,
+      clearTimeout,
+      URL,
+      location: { href: `https://www.youtube.com/watch?v=${YOUTUBE_ID}`, hostname: "www.youtube.com", pathname: "/watch" },
+      document: { title: "Serialized player - YouTube", getElementById: () => player },
+      setTimeout,
+      performance: { getEntriesByType: () => [] },
+      PerformanceObserver: SerializedObserver,
+      ytInitialPlayerResponse: youtubeResponse(YOUTUBE_ID, [{ languageCode: "en", baseUrl: bareUrl("en") }]),
+      fetch: fetchStub,
+    });
+
+    const result = await adapter();
+
+    expect(result.status).toBe("captured");
+    if (result.status === "captured") expect(result.capture.caption.cues[0]?.text).toBe("read with pot");
+    expect(player.setOption).toHaveBeenCalledOnce();
+    expect(player.unloadModule).toHaveBeenCalledWith("captions");
+    expect(observers[0]?.disconnected).toBe(true);
+    expect(JSON.stringify(result)).not.toContain(POT);
+  });
+});
+
 describe("Kaltura caption adapter", () => {
   it("reads a top-level ntulearnv1 TextTrack and keeps its page URL secret-free", async () => {
     const track = { kind: "subtitles", mode: "disabled", language: "en", cues: [{ startTime: 1, endTime: 2, text: "Top-level subtitle" }] };

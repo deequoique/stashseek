@@ -113,6 +113,98 @@ reusing the captions already read.
   prompt fences the transcript as data, and output passes the existing
   natural-answer validation (no URLs or HTML in model text).
 
+
+### R7 YouTube captions need the player's proof-of-origin token (found in Chrome smoke, 2026-10-17)
+
+- Caption `baseUrl`s from the player response carry no `pot`. Fetching them
+  returns HTTP 200 with an **empty body** in every format (JSON3, VTT, XML), so
+  the panel showed `caption_parse_failed` on every YouTube video. This was
+  verified on `aircAruvnKk`: the plain URL returned 0 bytes. The player's own
+  request (with `pot`/`potc` plus client params) returned 304 events, and the
+  same `pot` also worked for another language track.
+- The adapter must get a `pot`-bearing timedtext URL **for the current video
+  id**, in this order:
+  1. from the page's existing resource entries;
+  2. otherwise by briefly enabling captions through the player API, observing
+     the request, and restoring the user's previous caption state (this works
+     while paused).
+
+  It then applies `pot`, `potc` and the client params to the chosen track and
+  reads JSON3.
+- `pot` and every signed query value stay inside the page. They are never
+  returned, submitted or logged.
+- An unstarted player that issues no caption request maps to a retryable
+  `caption_player_not_ready`, with copy asking the user to play the video for a
+  few seconds and retry.
+
+### R8 「收藏视频」 button (user request, 2026-10-17)
+
+- The panel shows a primary 「收藏视频」 action on every supported video page.
+  It saves the video to the user's library independently of Q&A. It does not
+  require the user to ask a question first, and it reuses captions already read
+  when available.
+- **Decision (user, 2026-10-17): capture first, then fall back to server URL
+  import.**
+  - When captions are readable in the browser, save through capture.v1
+    (`SAVE_CAPTURE`). This is fast and also covers subtitles that need login.
+  - When the read fails, the video has no captions, or no capture device is
+    paired, submit the canonical video URL through the existing library batch
+    import (`submitVideoBatch`, extension session Bearer). The server connector
+    then fetches the video, with ASR when enabled.
+  - Result copy covers four cases: queued, already in the library, needs speech
+    transcription, and failed with a reason. It also links to the item in the
+    workspace.
+- 「收藏视频」 replaces 「保存到资料库」 as the primary action at the top of the
+  page view.
+- **The fallback is automatic** (user clarification, 2026-10-17). One click on
+  「收藏视频」 is the whole user action. The panel decides the path by itself:
+  capture.v1 or server URL import, plus reading captions if they were not read
+  yet. It never asks the user to open or paste a link.
+
+### R9 Import progress with "what the agent is doing" and an ETA (user request, 2026-10-17)
+
+- **Presentation** (user clarification, 2026-10-17): progress appears **inside the
+  conversation thread** as a tool-call-style block, like Claude's tool use. It
+  is not a separate card area.
+  - Clicking 「收藏视频」 appends a 「收藏视频」 action entry to the panel's thread.
+  - The entry uses the same visual language as the workspace
+    `chat/ExecutionTimeline.tsx`: a running spinner on the current step, a
+    check on finished steps, failed and skipped states, and the ability to
+    collapse once done.
+  - Steps:
+    - 已提交 → 获取视频信息与字幕 (URL path) or 已读取页面字幕 (capture path)
+    - → 语音转写中 (only when ASR runs)
+    - → 切分段落
+    - → 生成检索向量
+    - → 完成，可以在资料库里搜索和提问
+  - Under the current step the entry shows elapsed time and
+    「预计还需约 N 分钟」, updated live until a terminal state: ready, needs
+    action, or failed.
+- **Q&A turns use the same block.** Before the streamed answer, a short
+  timeline shows the client-side steps:
+  - 读取视频字幕 (N 段, language);
+  - 播放位置 mm:ss;
+  - 生成回答 (running until the first delta, then done).
+
+  No server change is needed for these steps.
+- The public `lifecycle` (queued/processing/...) is too coarse for this. The
+  library item projection gains a read-only, closed `stage` field derived from
+  the internal ingest state (fetching, transcribing, chunking, embedding, ...),
+  plus the time the current stage started. No lifecycle enum change.
+  - Coordinate with `10-16-extension-asr-copy`, which wanted an ASR hint on the
+    same projection. `stage = transcribing` covers it, so only one field is
+    added.
+- The ETA is a heuristic on the client. It uses video duration, the path
+  (captions vs ASR) and the current stage, with conservative per-stage rates
+  kept in one table so they can be calibrated later.
+  - When it cannot estimate, it shows elapsed time only and never makes up a
+    precise number.
+  - When a stage overruns its estimate, the copy changes to 「比预计久，仍在处理」.
+- Polling uses the existing item read with the extension session. Every 2–3 s
+  while the card is visible it fetches; it stops at a terminal state or when
+  the panel closes. Reopening the panel on the same video resumes the card for
+  an unfinished item.
+
 ## Acceptance criteria
 
 - [ ] Clicking the icon opens the side panel. There is no popup. Login, connect,
@@ -146,11 +238,30 @@ reusing the captions already read.
 - [ ] Extension checks pass: unit tests, typecheck, lint, both builds, and both
       audits (with `sidePanel` in the expected permissions).
 
+## Acceptance criteria (added 2026-10-17)
+
+- [ ] On a captioned YouTube video, the panel reads captions with the player's `pot`. Verified in Chrome on at least two videos, and the user's caption on/off state is unchanged afterwards.
+- [ ] Unit tests cover:
+  - reusing an existing `pot` entry;
+  - the toggle-and-restore path;
+  - ignoring entries for another video id;
+  - `pot` absent from every returned capture or error.
+- [ ] 「收藏视频」 saves the current video from the panel without asking a question first.
+  - With readable captions it uses capture.v1.
+  - On a read failure or a caption-less video it falls back to URL import, and the item appears in the library.
+  - Tests cover both paths and the 「already in the library」 result.
+- [ ] The fallback needs no extra user action beyond one click.
+- [ ] While importing, a tool-call-style 「收藏视频」 block in the thread shows the current step, completed steps, elapsed time and an ETA.
+- [ ] Q&A turns show the client-side steps above the answer.
+  - It updates until ready, needs action, or failed.
+  - Server tests cover the `stage` projection for each ingest state.
+  - Extension tests cover the step mapping, the ETA heuristic (including the overrun copy), and polling start/stop.
+
 ## Out of scope
 
 - Batch or list-page import
 - In-browser ASR
 - Map-reduce full-video summaries
-- Bilibili
+- Bilibili, which moved to child task `10-17-bilibili-side-panel` (2026-10-17)
 - Continuing a page thread from the web (shown read-only there)
 - Chrome Web Store submission

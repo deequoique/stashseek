@@ -24,6 +24,7 @@ const WORKER_COPY: Record<string, string> = {
   caption_fetch_failed: "页面字幕暂时读取失败，请刷新视频页面后重试。",
   caption_parse_failed: "页面字幕格式暂时无法解析，请刷新视频页面后重试。",
   stale_player_response: "视频页面刚刚切换，插件没有使用旧视频字幕；请稍后重试。",
+  caption_player_not_ready: "播放器还没准备好：请先播放视频几秒，再点「重新读取」。",
   kaltura_entry_missing: "没有识别到 Kaltura 视频，请确认视频已加载后刷新页面重试。",
   capture_unavailable: "页面结构可能已经变化，请刷新视频页面或升级插件后重试。",
   capture_conflict: "这个视频正在保存或处理中，请稍后再试。",

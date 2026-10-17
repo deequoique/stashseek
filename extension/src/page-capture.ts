@@ -6,6 +6,7 @@ type SafeCaptureError =
   | "kaltura_entry_missing"
   | "caption_fetch_failed"
   | "caption_parse_failed"
+  | "caption_player_not_ready"
   | "stale_player_response";
 
 export type CaptureAttempt =
@@ -22,6 +23,7 @@ const SAFE_ERRORS = new Set<SafeCaptureError>([
   "kaltura_entry_missing",
   "caption_fetch_failed",
   "caption_parse_failed",
+  "caption_player_not_ready",
   "stale_player_response",
 ]);
 
@@ -792,6 +794,150 @@ export async function captureYouTubePage(): Promise<CaptureAttempt> {
         capture: baseCapture({ status: "available", source: isAuto(track) ? "auto_caption" : "official_cc", language, cues }),
       };
     };
+    // Caption URLs in the player response carry no proof-of-origin token (`pot`):
+    // /api/timedtext answers them with 200 and an empty body. The player adds
+    // `pot` and client parameters to its own timedtext requests, so lift them
+    // from such a request for this video. The values stay inside this function:
+    // they are applied to caption fetches and never returned, stored or logged.
+    type PotParams = Array<[string, string]>;
+    type CaptionPlayer = {
+      getOption?: (namespace: string, option: string) => unknown;
+      setOption?: (namespace: string, option: string, value?: unknown) => unknown;
+      loadModule?: (name: string) => unknown;
+      unloadModule?: (name: string) => unknown;
+      toggleSubtitles?: () => unknown;
+      toggleSubtitlesOn?: () => unknown;
+    };
+    const POT_CLIENT_KEYS = ["potc", "c", "cver", "cplayer", "cos", "cosver", "cplatform", "cbr", "cbrver", "cbrand", "xorb", "xobt", "xovt"];
+    const MAX_POT_PARAM_CHARS = 2_048;
+    const POT_WAIT_MS = 3_500;
+    const POT_REAPPLY_AFTER_MS = 1_200;
+    const potParamsFromUrl = (value: unknown): PotParams | null => {
+      if (typeof value !== "string" || value.length > 16_384 || !value.includes("/api/timedtext")) return null;
+      try {
+        const url = new URL(value, currentUrl);
+        const host = url.hostname.toLowerCase();
+        if (url.protocol !== "https:" || url.username || url.password
+          || !(host === "youtube.com" || host.endsWith(".youtube.com")) || url.pathname !== "/api/timedtext") return null;
+        if (url.searchParams.get("v") !== id) return null;
+        const pot = url.searchParams.get("pot");
+        if (!pot || pot.length > MAX_POT_PARAM_CHARS) return null;
+        const params: PotParams = [["pot", pot]];
+        for (const key of POT_CLIENT_KEYS) {
+          const found = url.searchParams.get(key);
+          if (found !== null && found.length <= MAX_POT_PARAM_CHARS) params.push([key, found]);
+        }
+        return params;
+      } catch {
+        return null;
+      }
+    };
+    const potFromResources = (): PotParams | null => {
+      try {
+        const timing = page.performance;
+        if (!timing || typeof timing.getEntriesByType !== "function") return null;
+        const entries = timing.getEntriesByType("resource");
+        for (let index = entries.length - 1; index >= 0; index -= 1) {
+          const params = potParamsFromUrl(entries[index]?.name);
+          if (params) return params;
+        }
+      } catch { /* Resource timing is best effort. */ }
+      return null;
+    };
+    const adShowing = (): boolean => {
+      try {
+        const element = typeof document.getElementById === "function" ? document.getElementById("movie_player") : null;
+        return Boolean(element?.classList?.contains("ad-showing"));
+      } catch {
+        return false;
+      }
+    };
+    const captionPlayer = ([playerElement, page.movie_player] as unknown[]).find(
+      (holder): holder is CaptionPlayer => Boolean(holder) && typeof (holder as CaptionPlayer).setOption === "function",
+    ) ?? null;
+    const activeCaptionTrack = (player: CaptionPlayer): Record<string, unknown> | null => {
+      try {
+        const value = player.getOption?.("captions", "track");
+        if (!value || typeof value !== "object") return null;
+        const language = (value as Record<string, unknown>).languageCode;
+        return typeof language === "string" && language.length > 0 ? value as Record<string, unknown> : null;
+      } catch {
+        return null;
+      }
+    };
+    const pause = (milliseconds: number) => new Promise<void>((resolve) => { setTimeout(resolve, milliseconds); });
+    // Briefly turns a caption track on so the player requests it, watches for that
+    // request, then puts the viewer's caption state back (also works while paused).
+    const discoverPotByEnablingCaptions = async (player: CaptionPlayer): Promise<PotParams | null> => {
+      const previous = activeCaptionTrack(player);
+      // With captions already on, ask for a different track so the player has to fetch again.
+      const requested = (previous ? ordered.find((track) => track.languageCode !== previous.languageCode) : undefined)
+        ?? ordered[0] ?? tracks[0]!;
+      const requestedLanguage = typeof requested.languageCode === "string" && requested.languageCode.length > 0
+        ? requested.languageCode
+        : null;
+      const trackOption = requestedLanguage
+        ? { languageCode: requestedLanguage, ...(isAuto(requested) ? { kind: "asr" } : {}) }
+        : null;
+      if (!trackOption && typeof player.toggleSubtitlesOn !== "function") return null;
+      const apply = (): void => {
+        if (trackOption) player.setOption?.("captions", "track", trackOption);
+        else player.toggleSubtitlesOn?.();
+      };
+      const seen: { params: PotParams | null } = { params: null };
+      let observer: PerformanceObserver | null = null;
+      let touched = false;
+      try {
+        const Observer = page.PerformanceObserver;
+        if (typeof Observer === "function") {
+          try {
+            observer = new Observer((list) => {
+              for (const entry of list.getEntries()) seen.params = potParamsFromUrl(entry.name) ?? seen.params;
+            });
+            observer.observe({ type: "resource" });
+          } catch {
+            observer = null;
+          }
+        }
+        touched = true;
+        try { player.loadModule?.("captions"); } catch { /* The module may already be loaded. */ }
+        apply();
+        const startedAt = Date.now();
+        const waitUntil = Math.min(startedAt + POT_WAIT_MS, captureDeadline - 2_500);
+        let reapplied = false;
+        while (!seen.params && Date.now() < waitUntil && isCurrentVideo()) {
+          await pause(100);
+          seen.params = seen.params ?? potFromResources();
+          if (!seen.params && !reapplied && Date.now() - startedAt >= POT_REAPPLY_AFTER_MS) {
+            reapplied = true;
+            try { apply(); } catch { /* Keep waiting for the first request. */ }
+          }
+        }
+      } catch { /* Restore the caption state below whatever happened. */ } finally {
+        try { observer?.disconnect(); } catch { /* Already disconnected. */ }
+        if (touched) {
+          try {
+            if (previous) player.setOption?.("captions", "track", previous);
+            else if (typeof player.unloadModule === "function") player.unloadModule("captions");
+            else player.toggleSubtitles?.();
+          } catch { /* Restoring the viewer's caption state is best effort. */ }
+        }
+      }
+      return seen.params;
+    };
+    let potParams: PotParams | null = potFromResources();
+    if (!potParams) {
+      // Never touch the captions while an ad owns the player; a retry follows the ad.
+      if (adShowing()) return fail("caption_player_not_ready");
+      if (captionPlayer) potParams = await discoverPotByEnablingCaptions(captionPlayer);
+    }
+    if (!isCurrentVideo()) return fail("stale_player_response");
+    const withPot = (url: URL): URL => {
+      const next = new URL(url);
+      for (const [key, value] of potParams ?? []) next.searchParams.set(key, value);
+      return next;
+    };
+
     const errors: SafeCaptureError[] = [];
     for (const track of ordered) {
       const rawUrl = typeof track.baseUrl === "string" ? track.baseUrl : "";
@@ -806,7 +952,7 @@ export async function captureYouTubePage(): Promise<CaptureAttempt> {
         errors.push("caption_fetch_failed");
         continue;
       }
-      const jsonUrl = new URL(baseCaptionUrl);
+      const jsonUrl = withPot(baseCaptionUrl);
       jsonUrl.searchParams.set("fmt", "json3");
       let jsonResponse: Response;
       try {
@@ -825,9 +971,9 @@ export async function captureYouTubePage(): Promise<CaptureAttempt> {
       } catch { /* Try text formats using fresh requests. */ }
       errors.push("caption_parse_failed");
 
-      const vttUrl = new URL(baseCaptionUrl);
+      const vttUrl = withPot(baseCaptionUrl);
       vttUrl.searchParams.set("fmt", "vtt");
-      const fallbackUrls = Array.from(new Set([vttUrl.toString(), baseCaptionUrl.toString()]));
+      const fallbackUrls = Array.from(new Set([vttUrl.toString(), withPot(baseCaptionUrl).toString()]));
       for (const fallbackUrl of fallbackUrls) {
         let fallbackResponse: Response;
         try {
@@ -1074,6 +1220,9 @@ export async function captureYouTubePage(): Promise<CaptureAttempt> {
       }
     }
     if (!isCurrentVideo()) return fail("stale_player_response");
+    // Without a pot the timed-text endpoints return empty bodies, so a failure
+    // here says nothing about the captions: the player just was not ready.
+    if (!potParams && (captionPlayer || playerElement || page.movie_player)) return fail("caption_player_not_ready");
     return fail(errors.includes("caption_fetch_failed") ? "caption_fetch_failed" : "caption_parse_failed");
   } catch {
     return fail("capture_unavailable");
