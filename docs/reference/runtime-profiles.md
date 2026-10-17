@@ -16,6 +16,10 @@ manager，也不会替你配置主机、TLS 或公网 DNS。
 MCP endpoint。`full` 和 `langbot` 中 worker 与 Beat 是两个独立 OS 进程；
 一个 supervisor 只允许一个 Beat。
 
+未提供 `--profile` 且没有已有 `STASHSEEK_PROFILE`/
+`NOTEBOOK_AGENT_PROFILE` 时，launcher 选择 `read`。需要保存、后台导入或
+渠道运行时，必须显式选择 `full` 或 `langbot`。
+
 是否由 launcher 启动 PostgreSQL、Redis、MinIO，取决于配置目标：本地
 loopback 依赖可以进入它拥有的 Compose project；`DATABASE_URL`、远程
 `REDIS_URL` 或远程 `MINIO_ENDPOINT_URL` 会把对应服务视为外部依赖。外部

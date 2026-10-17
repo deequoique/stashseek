@@ -20,6 +20,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -549,6 +550,7 @@ class ContentItem(Base):
             "user_id", "platform", "platform_id",
             name="uq_content_item_user_platform_platform_id",
         ),
+        UniqueConstraint("id", "user_id", name="uq_content_item_id_user_id"),
         Index(
             "ix_content_item_user_saved_at",
             "user_id",
@@ -580,6 +582,136 @@ class ContentItem(Base):
             "ix_content_item_content_hash",
             "content_hash",
             postgresql_where=content_hash.isnot(None),
+        ),
+    )
+
+
+class MediaAsset(Base):
+    """Tenant-owned media identity and lifecycle metadata."""
+
+    __tablename__ = "media_asset"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False
+    )
+    content_item_id: Mapped[int] = mapped_column(
+        BigInteger, nullable=False
+    )
+    segment_id: Mapped[int | None] = mapped_column(BigInteger)
+    media_type: Mapped[str] = mapped_column(Text, nullable=False)
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    video_start_sec: Mapped[float | None] = mapped_column(Numeric(12, 3))
+    video_end_sec: Mapped[float | None] = mapped_column(Numeric(12, 3))
+    state: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="pending"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "media_type IN ('image', 'video')",
+            name="ck_media_asset_media_type",
+        ),
+        CheckConstraint(
+            "state IN ('pending', 'ready', 'failed', 'archived', 'deleted')",
+            name="ck_media_asset_state",
+        ),
+        CheckConstraint(
+            "sha256 ~ '^[0-9a-fA-F]{64}$'",
+            name="ck_media_asset_sha256",
+        ),
+        CheckConstraint(
+            "(video_start_sec IS NULL AND video_end_sec IS NULL) OR "
+            "(media_type = 'video' AND video_start_sec IS NOT NULL AND "
+            "video_end_sec IS NOT NULL AND video_start_sec >= 0 AND "
+            "video_end_sec >= video_start_sec)",
+            name="ck_media_asset_video_range",
+        ),
+        UniqueConstraint("app_user_id", "sha256", name="uq_media_asset_user_sha256"),
+        UniqueConstraint("id", "app_user_id", name="uq_media_asset_id_app_user_id"),
+        ForeignKeyConstraint(
+            ["content_item_id", "app_user_id"],
+            ["content_item.id", "content_item.user_id"],
+            name="fk_media_asset_content_item_tenant",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["segment_id"],
+            ["segment.id"],
+            name="fk_media_asset_segment_id_segment",
+            ondelete="SET NULL",
+        ),
+        Index("ix_media_asset_user_state", "app_user_id", "state", "id"),
+        Index("ix_media_asset_content_item_state", "content_item_id", "state"),
+    )
+
+
+class MediaEmbedding(Base):
+    """Versioned WeMM vector in the frozen 1024-dimensional query space."""
+
+    __tablename__ = "media_embedding"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    media_asset_id: Mapped[str] = mapped_column(
+        Text, nullable=False
+    )
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False
+    )
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    revision: Mapped[str] = mapped_column(Text, nullable=False)
+    protocol_version: Mapped[str] = mapped_column(Text, nullable=False)
+    dimensions: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1024"
+    )
+    embedding_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1"
+    )
+    embedding: Mapped[list[float]] = mapped_column(Vector(1024), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("dimensions = 1024", name="ck_media_embedding_dimensions"),
+        CheckConstraint(
+            "embedding_version > 0", name="ck_media_embedding_version"
+        ),
+        CheckConstraint("length(model) > 0", name="ck_media_embedding_model"),
+        CheckConstraint("length(revision) > 0", name="ck_media_embedding_revision"),
+        CheckConstraint(
+            "length(protocol_version) > 0",
+            name="ck_media_embedding_protocol_version",
+        ),
+        UniqueConstraint(
+            "media_asset_id",
+            "model",
+            "revision",
+            "protocol_version",
+            "dimensions",
+            "embedding_version",
+            name="uq_media_embedding_asset_space_version",
+        ),
+        ForeignKeyConstraint(
+            ["media_asset_id", "app_user_id"],
+            ["media_asset.id", "media_asset.app_user_id"],
+            name="fk_media_embedding_media_asset_tenant",
+            ondelete="CASCADE",
+        ),
+        Index(
+            "ix_media_embedding_user_space",
+            "app_user_id",
+            "model",
+            "revision",
+            "protocol_version",
+            "dimensions",
         ),
     )
 
@@ -909,13 +1041,6 @@ class Segment(Base):
             name="loc_ck",
         ),
         UniqueConstraint("item_id", "seq", name="uq_segment_item_id_seq"),
-        Index(
-            "ix_segment_embedding_hnsw",
-            "embedding",
-            postgresql_using="hnsw",
-            postgresql_with={"m": 16, "ef_construction": 64},
-            postgresql_ops={"embedding": "vector_cosine_ops"},
-        ),
         Index("ix_segment_fts_gin", "fts", postgresql_using="gin"),
         Index(
             "ix_segment_text_trgm_gin",

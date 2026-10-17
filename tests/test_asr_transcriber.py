@@ -43,7 +43,7 @@ def _settings(**overrides):
         "dashscope_api_key": None,
         "openai_api_key": None,
         "asr_whisper_fallback_enabled": True,
-        "youtube_proxy_url": None,
+        "us_video_proxy_url": None,
     }
     values.update(overrides)
     return SimpleNamespace(**values)

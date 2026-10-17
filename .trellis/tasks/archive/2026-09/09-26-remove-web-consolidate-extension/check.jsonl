@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/browser-companion-capture.md", "reason": "Preserve capture secrecy; intentionally replace companion-only product boundary with explicit session scope"}
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "Reuse session/tenant/runtime boundary"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Migrate frontend quality checks to extension"}
+{"file": ".trellis/spec/backend/agent-execution-streaming.md", "reason": "Preserve streamed answer/event contract"}
+{"check":"backend_api_deployment","status":"passed","evidence":"39 focused pytest tests passed; python compileall and git diff --check passed"}
+{"check":"openapi_contract","status":"passed","evidence":"scripts/export_web_openapi.py --check passed; four extension auth paths present"}
+{"check":"extension_api_typecheck","status":"passed","evidence":"focused TypeScript check for worker/popup/api client passed"}
+{"check":"extension_full_suite","status":"environment_blocked","evidence":"Node 20 is installed while CI requires Node 22; local node_modules lacks React/jsdom, so full Vitest/typecheck/build/lint/audit were not runnable locally"}
+{"check":"sol_final_review","status":"passed","evidence":"GPT-6 Sol found no remaining product P0/P1 after auth, OpenAPI, middleware, CI ordering, and capture-grant isolation fixes"}

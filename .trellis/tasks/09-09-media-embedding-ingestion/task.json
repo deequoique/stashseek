@@ -1,0 +1,28 @@
+{
+  "id": "media-embedding-ingestion",
+  "name": "media-embedding-ingestion",
+  "title": "实现图片视频摄入与 WeMM Embedding",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-09-09",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-09-wemm-multimodal-embedding-migration",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "实现图片/视频片段的异步 WeMM 摄入、幂等和重试。"
+  }
+}

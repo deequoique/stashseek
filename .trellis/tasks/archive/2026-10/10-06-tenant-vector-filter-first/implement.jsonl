@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Alembic single-head rule, direct-URL migrations, Neon branch discipline, no DSN printing."}
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Retrieval contract (search_segments, SEARCH_CANDIDATE_POOL_LIMIT, diversification) that vector_search feeds; spec to update."}
+{"file": ".trellis/spec/backend/ingestion-chunking-embedding.md", "reason": "Current segment size distribution (affects per-tenant row counts and exact-scan cost)."}
+{"file": ".trellis/tasks/09-09-media-asset-vector-index/prd.md", "reason": "Owning task of the media migration being re-parented; requirement line to append."}
+{"file": ".trellis/tasks/archive/2026-10/10-06-meeting-qa-quality/research/findings-20261006.md", "reason": "Background incl. R7 ANN diagnostic and test-branch facts."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Change spans ORM, migration, retrieval and another task's WIP migration."}

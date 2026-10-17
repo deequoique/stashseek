@@ -121,7 +121,7 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
 
-# 完整运行时：MCP、后台整理和可选渠道 gateway
+# 完整运行时：MCP、后台整理和可选渠道 gateway（需显式选择；省略 profile 默认 read）
 ./scripts/stashseek init --profile full
 ./scripts/stashseek start --profile full
 ```

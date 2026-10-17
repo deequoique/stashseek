@@ -84,8 +84,13 @@ transcribe_dispatch_task (queue asr, concurrency 1, time_limit 3600 / soft 3480)
   - transcript text
   - raw yt-dlp or ffmpeg stderr
   - provider bodies
-- **Child processes.** YouTube children get the child-only proxy and CA environment. The yt-dlp audio child (YouTube and Bilibili) receives a copy of that environment without secret-named variables (`*API_KEY*`, `*SECRET*`, `*PASSWORD*`, `*TOKEN*`, `DATABASE_URL`, `REDIS_URL`). ffmpeg gets a minimal allow-listed environment.
+- **YouTube audio client.** The audio download (`app/asr/audio.py`) uses yt-dlp's default client selection and passes no `--extractor-args youtube:player_client=...`. `android_vr`, which the subtitle connector keeps, lists audio formats but its media URLs return 403, and `mweb`/`tv_simply`/`web_embedded` need a GVS PO token. This requires yt-dlp >= 2026.8.19.
+- **Audio bitrate.** The audio download selects a speech-adequate low-bitrate stream: `-f` is `AUDIO_FORMAT_SELECTOR` (`bestaudio[abr>=40][abr<=72][ext=m4a]/bestaudio[abr>=40][abr<=72]/worstaudio[abr>=40]/bestaudio`). ASR models resample to 16 kHz mono, and the YouTube residential proxy is billed per GB: this costs about 22 MB per audio hour (YouTube format 139, about 49 kbps) instead of about 58 MB for `bestaudio` (about 129 kbps). The 40 kbps floor skips YouTube's ~30 kbps "ultralow" formats, and the final `bestaudio` keeps the old behavior when no stream has a known `abr` in range.
+- **Chunked download.** The yt-dlp audio child always gets `--http-chunk-size 10M` (`_HTTP_CHUNK_SIZE` in `app/asr/audio.py`), so every media request carries a `Range` header. Bilibili's playurl API sometimes assigns the overseas Tencent COS node `upos-sz-mirrorcosov.bilivideo.com`, which rejects any non-Range media GET with the Bilibili-specific HTTP 567 (`HTTP Error 567: Unknown Status`, terminal `asr_audio_unavailable`); the Akamai node accepts both. Removing the flag makes Bilibili ASR fail intermittently, depending on the CDN node assigned. It is harmless for YouTube.
+- **Child processes.** When `US_VIDEO_PROXY_URL` is set, the yt-dlp audio child for both YouTube and Bilibili gets the connector's child-only proxy and CA environment (`build_proxy_environment`), so the audio download leaves through the US residential egress like metadata and subtitles. Without it the child inherits the worker environment. In both cases the child receives a copy without secret-named variables (`*API_KEY*`, `*SECRET*`, `*PASSWORD*`, `*TOKEN*`, `DATABASE_URL`, `REDIS_URL`). ffmpeg gets a minimal allow-listed environment.
+- **Download failure codes.** Transient (retryable) and never retried without the proxy: `youtube_rate_limited`, `youtube_proxy_unavailable`, `youtube_proxy_timeout`, `youtube_proxy_authentication_failed`, and the Bilibili equivalents `bilibili_rate_limited` (429, 412, `-352`), `bilibili_proxy_unavailable`, `bilibili_proxy_timeout`, `bilibili_proxy_authentication_failed`. Timeouts are `*_proxy_timeout` with a proxy and `*_fetch_timeout` without. Everything else is the terminal `asr_audio_unavailable`. Raw yt-dlp stderr never enters an exception.
 - **Temporary audio.** Delete it in `finally`. Operations add the MinIO rule `asr-tmp/` expire 1 day as a backstop.
+- **Worker diagnostics.** `asr_transcription` and the handoff/completion diagnostics are emitted on the `notebook_agent.runtime` logger as one JSON line each, on stdout (journald) and in `STASHSEEK_LOG_DIR`. Celery workers do not run the CLI startup, so `app/ingest/tasks.py` installs `configure_runtime_logging()` from an `after_setup_logger` handler. The handler binds the real stdout (`sys.__stdout__` when stdout is already Celery's `LoggingProxy`), is idempotent, and swallows any failure. Without it these records reach the worker log as a bare `diagnostic` line with no payload. Covered by `tests/test_worker_runtime_logging.py`.
 
 ## Configuration
 
@@ -102,7 +107,7 @@ Validation happens only when `ASR_ENABLED=true`:
 
 - Fake-transport Fun-ASR tests for request shape, polling, failures and parsing.
 - whisper tests for segment offsets, and for audio over 24 MB without ffmpeg.
-- Download tests for arguments, environment and error classification.
+- Download tests for arguments, environment and error classification, including the Bilibili proxy environment, `bilibili_proxy_*` codes and the 412 rate-limit mapping. Both platforms' argv must contain `--http-chunk-size 10M`, and a Bilibili `HTTP Error 567` stays terminal `asr_audio_unavailable`.
 - Transcriber tests for fallback rules, cleanup and admission.
 - Route tests for signature cases, headers and the disabled state.
 - `tests/test_asr_ingest_flow.py` for handoff, the single event, publish-failure convergence, error codes and backfill.
@@ -123,3 +128,7 @@ Validation happens only when `ASR_ENABLED=true`:
 - Correct: hand off only a `youtube` capture, and keep `ntu_kaltura` at `needs_asr`.
 - Wrong: let a capture-origin item reach the chunker with its capture chapters (`start_sec`) → `KeyError: 'start_time'`.
 - Correct: run it through the connector path, whose `fetch_meta` replaces the chapters with platform (`start_time`) chapters.
+- Wrong: pass `--extractor-args youtube:player_client=android_vr` to the audio download → formats list, then `HTTP Error 403` on the media.
+- Correct: pass no `player_client` override for audio and keep yt-dlp >= 2026.8.19.
+- Wrong: select audio with `bestaudio` alone → about 129 kbps on YouTube and about 317 kbps on Bilibili, several times the proxy GB the transcript needs.
+- Correct: use the bounded-abr selector (`bestaudio[abr>=40][abr<=72][ext=m4a]/bestaudio[abr>=40][abr<=72]/worstaudio[abr>=40]/bestaudio`).

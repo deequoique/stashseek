@@ -1,17 +1,37 @@
-"""Small injectable client for Zhipu's OpenAI-compatible embedding API."""
+"""Embedding provider contracts and the existing Zhipu text adapter."""
 
 from __future__ import annotations
 
+import http.client
 import json
 import math
+import random
 import ssl
-from typing import Protocol
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, Literal, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+# Transient embedding failures are retried per batch, never per item. The
+# bounds keep worst-case added latency well under the acceptance target of
+# ~10 seconds per batch regardless of jitter draws.
+_MAX_EMBED_ATTEMPTS = 3
+_RETRY_BASE_DELAY_SECONDS = 1.0
+_RETRY_MAX_DELAY_SECONDS = 4.0
+_RETRY_BACKOFF_MULTIPLIER = 2.0
+
 
 class EmbeddingError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, code: str = "embedding_error") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class EmbeddingInputError(EmbeddingError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, code="invalid_input")
 
 
 class EmbeddingProvider(Protocol):
@@ -20,6 +40,42 @@ class EmbeddingProvider(Protocol):
     dimensions: int
 
     def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+
+@dataclass(frozen=True)
+class EmbeddingSpaceMetadata:
+    model: str
+    protocol_version: str
+    dimensions: int
+    revision: str | None = None
+
+
+@dataclass(frozen=True)
+class MediaObjectReference:
+    """Opaque object-store identity; never a URL, path, or payload."""
+
+    object_id: str
+    modality: Literal["image", "video"]
+    content_hash: str | None = None
+
+
+@dataclass(frozen=True)
+class MultimodalInput:
+    """One text or opaque media reference in the shared embedding space."""
+
+    modality: Literal["text", "image", "video"]
+    content: str | MediaObjectReference
+
+
+class MultimodalEmbeddingProvider(Protocol):
+    """Boundary for providers that embed text and media in one space."""
+
+    metadata: EmbeddingSpaceMetadata
+
+    def embed(self, texts: list[str]) -> list[list[float]]: ...
+    def embed_multimodal(
+        self, inputs: list[MultimodalInput]
+    ) -> list[list[float]]: ...
 
 
 class ZhipuEmbedder:
@@ -34,6 +90,8 @@ class ZhipuEmbedder:
         dimensions: int = 1536,
         batch_size: int = MAX_BATCH_SIZE,
         ssl_context: ssl.SSLContext | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        rng: random.Random | None = None,
     ) -> None:
         if not api_key:
             raise ValueError("ZHIPU_API_KEY is required for embedding")
@@ -49,6 +107,9 @@ class ZhipuEmbedder:
         self.dimensions = dimensions
         self.batch_size = batch_size
         self._ssl_context = ssl_context
+        # Injectable so tests exercise retry/backoff without real sleeping.
+        self._sleep = sleep
+        self._rng = rng if rng is not None else random.Random()
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -74,11 +135,7 @@ class ZhipuEmbedder:
                 "Content-Type": "application/json",
             },
         )
-        try:
-            with urlopen(request, timeout=60, context=self._ssl_context) as response:
-                data = json.load(response)
-        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
-            raise EmbeddingError("embedding request failed") from exc
+        data = self._fetch_batch_response(request)
         try:
             rows = data.get("data", [])
             if not isinstance(rows, list):
@@ -89,18 +146,102 @@ class ZhipuEmbedder:
             if [row["index"] for row in ordered] != list(range(len(texts))):
                 raise EmbeddingError("embedding response index mismatch")
             vectors = [row["embedding"] for row in ordered]
-            for vector in vectors:
-                if not isinstance(vector, list) or len(vector) != self.dimensions:
-                    raise EmbeddingError("embedding response dimension mismatch")
-                if any(
-                    isinstance(value, bool)
-                    or not isinstance(value, (int, float))
-                    or not math.isfinite(value)
-                    for value in vector
-                ):
-                    raise EmbeddingError("embedding response contains invalid values")
-            return [[float(value) for value in vector] for vector in vectors]
+            return [
+                _normalize_vector(
+                    vector,
+                    dimensions=self.dimensions,
+                    dimension_error="embedding response dimension mismatch",
+                    value_error="embedding response contains invalid values",
+                )
+                for vector in vectors
+            ]
         except (EmbeddingError, KeyError, TypeError, ValueError) as exc:
             if isinstance(exc, EmbeddingError):
                 raise
             raise EmbeddingError("embedding response is invalid") from exc
+
+    def _fetch_batch_response(self, request: Request) -> Any:
+        """Perform the network request, retrying only transient failures.
+
+        Only the failing batch is re-sent; the whole item is never re-embedded
+        here. Permanent failures (e.g. non-retryable HTTP 4xx, malformed JSON)
+        raise immediately without consuming a retry.
+        """
+
+        last_exc: BaseException | None = None
+        for attempt in range(_MAX_EMBED_ATTEMPTS):
+            try:
+                with urlopen(
+                    request, timeout=60, context=self._ssl_context
+                ) as response:
+                    return json.load(response)
+            except (
+                HTTPError,
+                URLError,
+                TimeoutError,
+                http.client.HTTPException,
+                OSError,
+                json.JSONDecodeError,
+            ) as exc:
+                last_exc = exc
+                is_last_attempt = attempt == _MAX_EMBED_ATTEMPTS - 1
+                if is_last_attempt or not self._is_transient_error(exc):
+                    raise EmbeddingError("embedding request failed") from exc
+                self._sleep(self._retry_delay_seconds(attempt))
+        # Unreachable: the loop above always returns or raises before exiting,
+        # but an explicit raise keeps the method's control flow unambiguous.
+        raise EmbeddingError("embedding request failed") from last_exc
+
+    @staticmethod
+    def _is_transient_error(exc: BaseException) -> bool:
+        if isinstance(exc, HTTPError):
+            # Other 4xx (e.g. 400 invalid request, 401 unauthorized) are
+            # permanent; 429 and 5xx are transient provider/throttle failures.
+            return exc.code == 429 or 500 <= exc.code < 600
+        if isinstance(exc, json.JSONDecodeError):
+            return False
+        return isinstance(
+            exc, (http.client.HTTPException, OSError, URLError, TimeoutError)
+        )
+
+    def _retry_delay_seconds(self, attempt_index: int) -> float:
+        cap = min(
+            _RETRY_MAX_DELAY_SECONDS,
+            _RETRY_BASE_DELAY_SECONDS * (_RETRY_BACKOFF_MULTIPLIER**attempt_index),
+        )
+        return self._rng.uniform(0, cap)
+
+
+def _normalize_vector(
+    vector: object,
+    *,
+    dimensions: int,
+    dimension_error: str,
+    value_error: str,
+) -> list[float]:
+    if not isinstance(vector, list) or len(vector) != dimensions:
+        raise EmbeddingError(dimension_error)
+    normalized: list[float] = []
+    for value in vector:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise EmbeddingError(value_error)
+        try:
+            converted = float(value)
+        except (OverflowError, ValueError) as exc:
+            raise EmbeddingError(value_error) from exc
+        if not math.isfinite(converted):
+            raise EmbeddingError(value_error)
+        normalized.append(converted)
+    return normalized
+
+
+def __getattr__(name: str):
+    """Resolve the optional local adapter without creating an import cycle."""
+
+    if name not in {"WemmEmbedder", "WemmLocalEmbedder"}:
+        raise AttributeError(name)
+    from app.ingest.wemm_local import WemmLocalEmbedder
+
+    globals()["WemmLocalEmbedder"] = WemmLocalEmbedder
+    globals()["WemmEmbedder"] = WemmLocalEmbedder
+    return WemmLocalEmbedder

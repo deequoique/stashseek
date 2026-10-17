@@ -39,6 +39,7 @@ from app.agent.autonomy import TodoValidationError, TurnTodoItem
 from app.api.library_schemas import ErrorResponse
 from app.channels.errors import IdentityError
 from app.channels.identity import consume_link_token, create_link_token
+from app.channels.source_codec import decode_sources, text_source_payloads
 from app.channels.service import _link_failure
 from app.channels.types import ChannelEnvelope, TenantContext
 from app.models import AppUser, ChannelIdentity, ConversationThread, ConversationTurn
@@ -149,6 +150,21 @@ class ConversationCitationResponse(BaseModel):
     start_sec: float | None = None
 
 
+class ConversationMediaCitationResponse(BaseModel):
+    """Browser-safe projection of validated media evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    evidence_id: str
+    media_id: str
+    item_id: int
+    title: str | None = None
+    location: str | None = None
+    start_sec: float | None = None
+    end_sec: float | None = None
+    evidence: list[str] = Field(default_factory=list)
+
+
 class ConversationResponse(BaseModel):
     """Stable compatibility response for the retained conversation surface."""
 
@@ -157,6 +173,9 @@ class ConversationResponse(BaseModel):
     status: str
     text: str
     citations: list[ConversationCitationResponse] = Field(default_factory=list)
+    media_citations: list[ConversationMediaCitationResponse] = Field(
+        default_factory=list, exclude_if=lambda value: not value
+    )
     action_results: list[dict] = Field(default_factory=list)
     thread_id: str | None = None
     error_code: str | None = None
@@ -450,6 +469,9 @@ class ConversationTurnResponse(BaseModel):
     status: str
     error_code: str | None = None
     citations: list[ConversationCitationResponse] = Field(default_factory=list)
+    media_citations: list[ConversationMediaCitationResponse] = Field(
+        default_factory=list, exclude_if=lambda value: not value
+    )
     action_results: list[dict] = Field(default_factory=list)
     created_at: datetime
 
@@ -629,6 +651,7 @@ def build_conversation_router(
                 )
                 for citation in answer.citations
             ],
+            media_citations=_safe_media_citations(answer.media_citations),
             action_results=[_safe_result(value) for value in answer.action_results],
             thread_id=answer.thread_id,
             error_code=answer.error_code,
@@ -653,12 +676,9 @@ def build_conversation_router(
         internal retrieval identifiers alongside the user-facing citation.
         """
 
-        if not isinstance(value, list):
-            return []
+        value = text_source_payloads(value)
         citations: list[ConversationCitationResponse] = []
         for source in value:
-            if not isinstance(source, dict):
-                continue
             title = source.get("title")
             excerpt = source.get("excerpt")
             url = source.get("url")
@@ -674,6 +694,29 @@ def build_conversation_router(
                 )
             )
         return citations
+
+    def _safe_media_citations(value: object) -> list[ConversationMediaCitationResponse]:
+        """Expose only codec-validated media rows with real positive item IDs."""
+
+        if isinstance(value, (list, tuple)):
+            rows = []
+            for item in value:
+                if hasattr(item, "model_dump"):
+                    payload = item.model_dump(mode="json")
+                elif isinstance(item, dict):
+                    payload = dict(item)
+                else:
+                    continue
+                payload["kind"] = "media"
+                rows.append(payload)
+            decoded = decode_sources(rows)
+        else:
+            decoded = decode_sources(value)
+        result: list[ConversationMediaCitationResponse] = []
+        for citation in decoded.media:
+            payload = citation.model_dump(mode="json")
+            result.append(ConversationMediaCitationResponse(**payload))
+        return result
 
     def _thread_item_projection(
         thread: ConversationThread,
@@ -862,6 +905,9 @@ def build_conversation_router(
                         status=turn.answer_status,
                         error_code=turn.error_code,
                         citations=_safe_citations(turn.sources),
+                        media_citations=_safe_media_citations(
+                            decode_sources(turn.sources).media
+                        ),
                         action_results=[_safe_result(value) for value in turn.action_results]
                         if isinstance(turn.action_results, list)
                         else [],
@@ -1662,6 +1708,7 @@ __all__ = [
     "ConversationResponse",
     "ConversationStreamEvent",
     "ConversationTurnResponse",
+    "ConversationMediaCitationResponse",
     "ConversationTurnsResponse",
     "LinkTokenInput",
     "LinkTokenResponse",

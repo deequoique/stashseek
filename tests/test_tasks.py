@@ -46,7 +46,7 @@ def test_worker_connector_resolves_trusted_ca_before_construction(monkeypatch):
     settings = replace(
         Settings(),
         tls_ca_bundle="/operator/ca.pem",
-        youtube_proxy_url="http://127.0.0.1:18080",
+        us_video_proxy_url="http://127.0.0.1:18080",
     )
     calls = []
     monkeypatch.setattr("app.ingest.tasks.get_settings", lambda: settings)
@@ -678,6 +678,85 @@ def test_long_connector_transcript_keeps_per_cue_semantic_embedding():
     assert 0 < len(embedder.calls[1]) < cue_count
 
 
+def test_semantic_budget_guard_skips_per_cue_embedding_when_insufficient(monkeypatch):
+    cue_count = 100
+    item = type(
+        "Item",
+        (),
+        {
+            "id": 46,
+            "user_id": 7,
+            "platform": "youtube",
+            "platform_id": "dQw4w9WgXcQ",
+            "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "chapters": [],
+            "state": "pending",
+            "raw_object_key": None,
+            "raw_format": "json3",
+            "content_hash": None,
+            "text_source": "none",
+            "lang": None,
+            "fail_reason": None,
+            "deleted_at": None,
+            "purge_claimed_at": None,
+        },
+    )()
+
+    class DB:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return None
+        def get(self, model, _item_id):
+            assert model is ContentItem
+            return item
+        def commit(self): return None
+        def refresh(self, _value): return None
+        def execute(self, _statement): return None
+        def add(self, _value): return None
+
+    # 60 chars/cue * 100 cues == 6000 cue chars. The guard rejects per-cue
+    # embedding whenever cue_chars + 1.2 * cue_chars exceeds the remaining
+    # budget (13200 > 13100 here), while still leaving enough budget for the
+    # much smaller final per-chunk vectors call below.
+    cues = [Cue(index, index + 0.8, "a" * 60) for index in range(cue_count)]
+
+    class Connector:
+        platform = "youtube"
+
+        def fetch_meta(self, _platform_id):
+            return None
+
+        def fetch_text(self, _platform_id):
+            return TextResult(b"connector transcript", cues, "official_cc", "en")
+
+    class Store:
+        def put(self, *_args): return None
+
+    class Embedder:
+        def __init__(self): self.calls = []
+        def embed(self, values):
+            self.calls.append(list(values))
+            return [[1.0, 0.0] for _ in values]
+
+    embedder = Embedder()
+    limits = replace(Settings(), ingest_max_embedding_chars_per_item=13100)
+    monkeypatch.setattr("app.ingest.tasks.get_settings", lambda: limits)
+
+    state = process_item(
+        item.id,
+        connector=Connector(),
+        embedder=embedder,
+        object_store=Store(),
+        session_factory=lambda: DB(),
+    )
+
+    assert state == "ready"
+    # The pre-flight budget guard rejects per-cue embedding for this item, so
+    # only the final per-chunk embedding call reaches the provider, and the
+    # ingest still completes instead of raising IngestLimitExceeded.
+    assert len(embedder.calls) == 1
+    assert 0 < len(embedder.calls[0]) < cue_count
+
+
 def test_bilibili_srt_uses_format_specific_object_key_and_content_type():
     item = type(
         "Item",
@@ -1185,3 +1264,98 @@ def test_worker_embedder_receives_verified_ca(monkeypatch):
 
     assert captured["api_key"] == "worker-key"
     assert captured["ssl_context"] is context
+
+
+def _repair_hook_fixture(monkeypatch, *, event_id=99):
+    """Real post-commit hooks over a fake session with a stubbed outbox row."""
+
+    from app.ingest.notification_repair_index import InMemoryNotificationRepairIndex
+
+    index = InMemoryNotificationRepairIndex()
+    enqueued = []
+    monkeypatch.setattr(
+        "app.ingest.tasks._ensure_completion_event",
+        lambda *_args, **_kwargs: (event_id, True),
+    )
+    monkeypatch.setattr(
+        "app.ingest.tasks._notification_repair_index",
+        lambda settings=None: index,
+    )
+    monkeypatch.setattr(
+        "app.ingest.tasks.get_settings",
+        lambda: SimpleNamespace(ingest_notification_claim_timeout_seconds=300),
+    )
+    monkeypatch.setattr(
+        "app.ingest.tasks.enqueue_ingest_notification",
+        lambda found_id: enqueued.append(found_id) or "task-id",
+    )
+    dispatch = IngestDispatch(
+        id=71, public_id="dispatch", item_id=41, request_key="request",
+        attempt=1, state="running",
+    )
+    item = ContentItem(
+        id=41, user_id=57, platform="youtube", platform_id="dQw4w9WgXcQ",
+        kind="video", url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        state="ready",
+    )
+    return index, enqueued, dispatch, item, (lambda: DispatchDB(dispatch, item))
+
+
+def test_complete_dispatch_indexes_the_event_for_repair_then_enqueues(monkeypatch):
+    import math
+    import time
+
+    index, enqueued, _dispatch, _item, factory = _repair_hook_fixture(monkeypatch)
+
+    before = time.time()
+    assert _complete_dispatch(
+        71, "task-1", process_state="ready", session_factory=factory
+    ) == 99
+    after = time.time()
+
+    assert enqueued == [99]
+    assert before + 300 <= index.score(99) <= math.ceil(after + 300)
+
+
+def test_mark_dispatch_failed_indexes_the_event_for_repair_then_enqueues(
+    monkeypatch,
+):
+    import math
+    import time
+
+    index, enqueued, _dispatch, item, factory = _repair_hook_fixture(monkeypatch)
+    item.state = "fetching"
+
+    before = time.time()
+    assert _mark_dispatch_failed(
+        71, RuntimeError("boom"), session_factory=factory
+    ) == 99
+    after = time.time()
+
+    assert enqueued == [99]
+    assert before + 300 <= index.score(99) <= math.ceil(after + 300)
+
+
+def test_deleted_item_claim_indexes_the_event_without_a_targeted_enqueue(
+    monkeypatch,
+):
+    import math
+    import time
+
+    index, enqueued, _dispatch, item, factory = _repair_hook_fixture(monkeypatch)
+    dispatch = IngestDispatch(
+        id=71, public_id="dispatch", item_id=41, request_key="request",
+        attempt=1, state="pending",
+    )
+    item.state = "pending"
+    item.deleted_at = datetime.now(UTC)
+
+    before = time.time()
+    assert _claim_dispatch(
+        71, "task-1", session_factory=lambda: DispatchDB(dispatch, item)
+    ) is None
+    after = time.time()
+
+    assert enqueued == []  # historical contract: no targeted task from here
+    # Nothing else will look at it, so the next gated tick must.
+    assert before <= index.score(99) <= math.ceil(after)

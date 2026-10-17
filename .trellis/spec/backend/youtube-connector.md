@@ -135,12 +135,21 @@ personal use, only the two YouTube connector subprocesses may use an on-demand
 home egress. The rest of the worker and every other service must retain its
 existing direct route.
 
+`US_VIDEO_PROXY_URL` (formerly `YOUTUBE_PROXY_URL`) now names the US residential
+egress for every server-side video fetch. The same setting also routes the
+Bilibili yt-dlp child and the ASR audio download child (see
+`bilibili-connector.md` and `asr-transcription.md`). The child-proxy environment
+and the `<prefix>_proxy_*` stderr classification live in
+`app/connectors/proxy_env.py` (`build_proxy_environment`,
+`classify_proxy_failure`); `YouTubeConnector` delegates to them with
+`prefix="youtube"` and must not carry its own copy.
+
 ### 2. Signatures
 
 Application environment:
 
 ```text
-YOUTUBE_PROXY_URL=http://127.0.0.1:18080  # optional
+US_VIDEO_PROXY_URL=http://127.0.0.1:18080  # optional
 ```
 
 Connector construction:
@@ -149,7 +158,7 @@ Connector construction:
 YouTubeConnector(
     max_transcript_bytes=settings.ingest_max_raw_transcript_bytes,
     fetch_timeout_seconds=settings.youtube_fetch_timeout_seconds,
-    proxy_url=settings.youtube_proxy_url,
+    proxy_url=settings.us_video_proxy_url,
 )
 ```
 
@@ -167,15 +176,20 @@ The production invocation is:
 
 ### 3. Contracts
 
-- `YOUTUBE_PROXY_URL` is absent for direct/rollback behavior. When present it
+- `US_VIDEO_PROXY_URL` is absent for direct/rollback behavior. When present it
   must use scheme `http`, host `127.0.0.1` or `localhost`, and an explicit port
   from 1 through 65535. Credentials, path (including `/`), query, fragment,
   whitespace, external hosts, and IPv6 are rejected during `Settings`
-  construction.
+  construction. Error text names `US_VIDEO_PROXY_URL` and never echoes the value.
+- The old name is a startup error, not an alias: if `YOUTUBE_PROXY_URL` is
+  present in the process environment (even empty), `Settings` raises
+  `YOUTUBE_PROXY_URL was renamed to US_VIDEO_PROXY_URL; move the value and remove
+  the old variable`. A missed rename must fail loudly rather than silently send
+  video fetches over the blocked direct route.
 - `_connector()` configures the trusted CA before constructing
   `YouTubeConnector`, then passes the validated proxy value.
-- A proxied connector copies the current process environment without mutating
-  `os.environ`, preserves `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE`, sets both
+- A proxied connector copies (via `build_proxy_environment`) the current process
+  environment without mutating `os.environ`, preserves `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE`, sets both
   uppercase and lowercase HTTP/HTTPS proxy variables, removes ambient
   `ALL_PROXY` variants, and replaces `NO_PROXY` variants with loopback-only
   values.
@@ -221,7 +235,7 @@ The production invocation is:
 - Good: `http://127.0.0.1:18080`, both child environments contain the same
   proxy and verified CA values, and stopping the tunnel produces
   `youtube_proxy_unavailable` with one proxied attempt.
-- Base: `YOUTUBE_PROXY_URL` is absent, so existing local direct behavior and
+- Base: `US_VIDEO_PROXY_URL` is absent, so existing local direct behavior and
   subprocess inheritance remain unchanged.
 - Bad: set worker-global proxy variables, allow `http://proxy.example`, leave
   `.youtube.com` in ambient `NO_PROXY`, retry after proxy failure without an
@@ -250,7 +264,7 @@ The production invocation is:
 #### Wrong
 
 ```python
-os.environ["HTTPS_PROXY"] = settings.youtube_proxy_url
+os.environ["HTTPS_PROXY"] = settings.us_video_proxy_url
 result = subprocess.run(yt_dlp_args)
 if result.returncode:
     result = subprocess.run(yt_dlp_args, env_without_proxy)
@@ -276,3 +290,98 @@ if result.returncode:
 The real implementation also supplies lowercase proxy variables, preserves
 both trusted CA variables, removes ambient `ALL_PROXY`, and gives an equivalent
 environment copy to the bounded subtitle child.
+
+## Scenario: Server-local residential egress
+
+### 1. Scope / Trigger
+
+Trigger: the production IP stays blocked and the home egress cannot run
+unattended. A paid sticky residential proxy replaces the Mac tunnel behind the
+same server loopback port. The application contract above is unchanged; only
+the process listening on server `127.0.0.1:18080` differs.
+
+### 2. Signatures
+
+```text
+deploy/youtube-egress/tinyproxy.conf.example   -> /etc/notebook-agent/youtube-egress/tinyproxy.conf (root 0600)
+deploy/youtube-egress/tinyproxy.filter         -> /etc/notebook-agent/youtube-egress/tinyproxy.filter (root 0600)
+deploy/systemd/notebook-agent-youtube-egress.service
+deploy/youtube-egress/apparmor-local-tinyproxy -> /etc/apparmor.d/local/tinyproxy (root 0644)
+US_VIDEO_PROXY_URL=http://127.0.0.1:18080       # unchanged, credential-free
+```
+
+### 3. Contracts
+
+- Provider credentials exist only in the tinyproxy `Upstream http user:pass@host:port`
+  line. They never enter `notebook-agent.env`, `US_VIDEO_PROXY_URL`, PostgreSQL,
+  logs, or command lines; the loopback/credential-free `Settings` validation is
+  not relaxed.
+- The unit runs tinyproxy in the foreground as `DynamicUser=yes` and receives
+  both files through `LoadCredential`; the config's `Filter` path is the fixed
+  `/run/credentials/notebook-agent-youtube-egress.service/filter`.
+- tinyproxy listens and allows only `127.0.0.1:18080`, permits only CONNECT 443,
+  and default-denies every host outside the seven anchored ERE rules shared
+  with the home helper: `youtube.com`, `googlevideo.com`, `bilibili.com`,
+  `hdslb.com`, `bilivideo.com`, `bilivideo.cn`, and `^upos-[a-z0-9-]+\.akamaized\.net$`
+  (the Akamai rule is restricted to Bilibili's `upos-` mirrors; never allow all
+  of `akamaized.net`). `FilterExtended Yes` is used because Ubuntu 22.04 ships
+  tinyproxy 1.11.0 without `FilterType`.
+- `LogLevel Notice` is required in both the server config and the home helper:
+  it logs filter refusals (`Proxying refused on filtered domain "..."`) without
+  logging allowed CONNECTs, so a CDN host missing from the filter is visible in
+  the journal. `Warning` hides refusals.
+- The unit, `/etc/notebook-agent/youtube-egress/` paths and AppArmor override
+  keep their `youtube-egress` names although they serve every video platform.
+- The upstream must be a sticky session: signed subtitle/audio URLs are bound
+  to the metadata request's exit IP, and metadata and subtitle fetches run in
+  separate children. The current provider is Evomi Core Residential
+  (`core-residential.evomi.com:1000`, HTTP), whose generator appends
+  `_country-US_session-<id>` to the password; tinyproxy accepts this because
+  the password only has to exclude `@` and whitespace.
+- Home egress and residential egress are mutually exclusive on port 18080; the
+  home helper's server-port preflight fails closed while the unit is active.
+- Ubuntu's apparmor package confines `/usr/bin/tinyproxy` to
+  `/etc/tinyproxy/tinyproxy.conf`. The repo's AppArmor local override adds only
+  read access to the two credentials-directory files and is installed before the
+  unit starts; the base profile stays enforcing and is reloaded with
+  `apparmor_parser -r /etc/apparmor.d/tinyproxy`.
+- The distro `tinyproxy.service` is masked before `apt install`, so no default
+  instance ever binds port 8888.
+- The release deploy script does not manage this unit; it is operator-installed
+  infrastructure like `notebook-agent-asr-worker.service`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required outcome |
+| --- | --- |
+| CONNECT to a host outside the seven filter rules, a look-alike host (`evil-bilibili.com`, `bilibili.com.evil.net`, `example.akamaized.net`), or port other than 443 | tinyproxy 403; nothing reaches the paid upstream. yt-dlp reports the refused tunnel as `Unable to connect to proxy`, so the worker sees `<prefix>_proxy_unavailable`. |
+| Wrong credentials or exhausted balance (upstream 407) | `youtube_proxy_authentication_failed`; no direct retry. |
+| Unit stopped | `youtube_proxy_unavailable`; no direct retry. |
+| AppArmor override missing | tinyproxy exits with `Could not open config file "/run/credentials/..."` (status 70) and a kernel `apparmor="DENIED"` record; workers see `youtube_proxy_unavailable`. |
+| Sticky exit IP flagged | `youtube_rate_limited` / `youtube_fetch_failed`; operator changes the provider session value and restarts only the egress unit. |
+
+### 5. Good / Base / Bad Cases
+
+- Good: unit active, `ss` shows only `127.0.0.1:18080`, `example.com` via the
+  proxy returns 403, a public video yields metadata and non-empty subtitles.
+- Base: unit absent or stopped and `US_VIDEO_PROXY_URL` unset; direct behavior.
+- Bad: credentials in `US_VIDEO_PROXY_URL` or the worker env file, tinyproxy on
+  `0.0.0.0`, the distro `tinyproxy.service` left running, or a per-request
+  rotating upstream.
+
+### 6. Tests Required
+
+- Statically assert the example config is loopback-only, CONNECT-443-only,
+  default-deny, uses the credentials-directory filter path, and carries only a
+  placeholder `Upstream` credential.
+- Assert the server filter and the home helper's embedded filter are exactly the
+  same seven rules, and that the rules allow the measured Bilibili hosts and
+  reject look-alikes (`tests/test_video_egress_proxy.py`).
+- Assert `LogLevel Notice` in both the example config and the helper.
+- Assert `Settings` reads `US_VIDEO_PROXY_URL`, rejects the same unsafe shapes
+  naming it, and raises the rename error when `YOUTUBE_PROXY_URL` is present
+  (including empty).
+- Assert the unit uses `DynamicUser`, `LoadCredential` for both files, runs
+  tinyproxy in the foreground, and does not load the application env file.
+- Assert the AppArmor override grants read access to exactly the unit's two
+  credential paths and nothing broader (no globs, no write access).

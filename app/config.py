@@ -101,6 +101,23 @@ def _env_bool(name: str, default: bool) -> bool:
     raise ValueError(f"{name} must be a boolean")
 
 
+@dataclass(frozen=True)
+class _WemmEnv:
+    """Defer optional provider parsing until constructor flags are known."""
+
+    name: str
+    default: str | int | bool
+
+    def resolve(self, *, enabled: bool):
+        if not enabled:
+            return self.default
+        if isinstance(self.default, bool):
+            return _env_bool(self.name, self.default)
+        if isinstance(self.default, int):
+            return _env_int(self.name, self.default)
+        return _env(self.name, self.default)
+
+
 def _compat_env_bool(canonical: str, legacy: str, default: bool) -> bool:
     value = _compat_env(canonical, legacy)
     if value is None:
@@ -165,14 +182,14 @@ def _validate_langbot_outbound_url(value: str) -> None:
         )
 
 
-def _validate_youtube_proxy_url(value: str | None) -> None:
-    """Restrict the temporary YouTube proxy contract to a local tunnel."""
+def _validate_us_video_proxy_url(value: str | None) -> None:
+    """Restrict the US video egress proxy to a credential-free loopback URL."""
 
     if value is None:
         return
     if not isinstance(value, str) or value != value.strip() or not value:
         raise ValueError(
-            "YOUTUBE_PROXY_URL must be a credential-free loopback HTTP URL "
+            "US_VIDEO_PROXY_URL must be a credential-free loopback HTTP URL "
             "with an explicit port"
         )
     parsed = urlsplit(value)
@@ -180,7 +197,7 @@ def _validate_youtube_proxy_url(value: str | None) -> None:
         port = parsed.port
     except ValueError as exc:
         raise ValueError(
-            "YOUTUBE_PROXY_URL must be a credential-free loopback HTTP URL "
+            "US_VIDEO_PROXY_URL must be a credential-free loopback HTTP URL "
             "with an explicit port"
         ) from exc
     if (
@@ -195,7 +212,7 @@ def _validate_youtube_proxy_url(value: str | None) -> None:
         or "#" in value
     ):
         raise ValueError(
-            "YOUTUBE_PROXY_URL must be a credential-free loopback HTTP URL "
+            "US_VIDEO_PROXY_URL must be a credential-free loopback HTTP URL "
             "with an explicit port"
         )
 
@@ -313,6 +330,42 @@ class Settings:
         default_factory=lambda: _env_int("EMBEDDING_BATCH_SIZE", 64)
     )
 
+    # --- Optional local WeMM multimodal embedding ---
+    # Disabled by default so existing text ingestion/retrieval is unchanged.
+    wemm_enabled: bool = field(default_factory=lambda: _WemmEnv("WEMM_ENABLED", False))
+    wemm_model: str = field(
+        default_factory=lambda: _WemmEnv(
+            "WEMM_MODEL", "tencent/WeMM-Embedding-2B"
+        )
+    )
+    wemm_revision: str | None = field(
+        default_factory=lambda: _WemmEnv(
+            "WEMM_REVISION",
+            "bbd6cd4bf52cfc6716f752a2df80b2706720bd95",
+        )
+    )
+    wemm_dimensions: int = field(
+        default_factory=lambda: _WemmEnv("WEMM_DIMENSIONS", 1024)
+    )
+    wemm_device: str = field(
+        default_factory=lambda: _WemmEnv("WEMM_DEVICE", "cpu")
+    )
+    wemm_batch_size: int = field(
+        default_factory=lambda: _WemmEnv("WEMM_BATCH_SIZE", 1)
+    )
+    wemm_max_inputs: int = field(
+        default_factory=lambda: _WemmEnv("WEMM_MAX_INPUTS", 32)
+    )
+    wemm_max_text_chars: int = field(
+        default_factory=lambda: _WemmEnv("WEMM_MAX_TEXT_CHARS", 8_192)
+    )
+    wemm_max_media_bytes: int = field(
+        default_factory=lambda: _WemmEnv("WEMM_MAX_MEDIA_BYTES", 128 * 1024 * 1024)
+    )
+    multimodal_retrieval_enabled: bool = field(
+        default_factory=lambda: _env_bool("MULTIMODAL_RETRIEVAL_ENABLED", False)
+    )
+
     # --- Postgres / SQLAlchemy ---
     database_url: str = field(default_factory=lambda: _build_database_url())
 
@@ -375,8 +428,8 @@ class Settings:
     youtube_fetch_timeout_seconds: float = field(
         default_factory=lambda: _env_float("YOUTUBE_FETCH_TIMEOUT_SECONDS", 30.0)
     )
-    youtube_proxy_url: str | None = field(
-        default_factory=lambda: _env("YOUTUBE_PROXY_URL")
+    us_video_proxy_url: str | None = field(
+        default_factory=lambda: _env("US_VIDEO_PROXY_URL")
     )
     bilibili_fetch_timeout_seconds: float = field(
         default_factory=lambda: _env_float("BILIBILI_FETCH_TIMEOUT_SECONDS", 30.0)
@@ -458,7 +511,7 @@ class Settings:
         default_factory=lambda: _env_int("AGENT_TOOL_CALLS_LIMIT", 10)
     )
     agent_output_token_limit: int = field(
-        default_factory=lambda: _env_int("AGENT_OUTPUT_TOKEN_LIMIT", 2000)
+        default_factory=lambda: _env_int("AGENT_OUTPUT_TOKEN_LIMIT", 3000)
     )
     agent_composer_max_tokens: int = field(
         default_factory=lambda: _env_int("AGENT_COMPOSER_MAX_TOKENS", 1000)
@@ -472,8 +525,10 @@ class Settings:
     trash_retention_days: int = field(
         default_factory=lambda: _env_int("TRASH_RETENTION_DAYS", 30)
     )
+    # Once a day by default: every purge sweep is a PostgreSQL visit, and an
+    # idle Neon compute can only scale to zero between visits.
     trash_purge_interval_seconds: int = field(
-        default_factory=lambda: _env_int("TRASH_PURGE_INTERVAL_SECONDS", 3600)
+        default_factory=lambda: _env_int("TRASH_PURGE_INTERVAL_SECONDS", 86400)
     )
     trash_purge_batch_size: int = field(
         default_factory=lambda: _env_int("TRASH_PURGE_BATCH_SIZE", 20)
@@ -514,6 +569,14 @@ class Settings:
     # compatibility but are no longer scheduled by the worker.
     ingest_notification_interval_seconds: int = field(
         default_factory=lambda: _env_int("INGEST_NOTIFICATION_INTERVAL_SECONDS", 600)
+    )
+    # The 600-second tick above is gated by a Redis repair index and normally
+    # issues no PostgreSQL statement.  This ungated full repair rebuilds that
+    # index from PostgreSQL and is the bound on a lost-Redis notification delay.
+    ingest_notification_full_sweep_interval_seconds: int = field(
+        default_factory=lambda: _env_int(
+            "INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS", 86400
+        )
     )
     ingest_notification_batch_size: int = field(
         default_factory=lambda: _env_int("INGEST_NOTIFICATION_BATCH_SIZE", 20)
@@ -754,6 +817,36 @@ class Settings:
         default_factory=lambda: _env("WEB_TRUSTED_PROXY_HOSTS", "") or ""
     )
 
+    def _validate_wemm(self) -> None:
+        if not isinstance(self.wemm_model, str) or not self.wemm_model.strip():
+            raise ValueError("WEMM_MODEL must not be empty")
+        if self.wemm_dimensions < 1:
+            raise ValueError("WEMM_DIMENSIONS must be positive")
+        if not isinstance(self.wemm_device, str) or not self.wemm_device.strip() or any(
+            character.isspace() for character in self.wemm_device
+        ):
+            raise ValueError("WEMM_DEVICE must be a non-whitespace device")
+        if not 1 <= self.wemm_batch_size <= 8:
+            raise ValueError("WEMM_BATCH_SIZE must be between 1 and 8")
+        if not 1 <= self.wemm_max_inputs <= 32:
+            raise ValueError("WEMM_MAX_INPUTS must be between 1 and 32")
+        if not 1 <= self.wemm_max_text_chars <= 8_192:
+            raise ValueError("WEMM_MAX_TEXT_CHARS must be between 1 and 8192")
+        if not 1 <= self.wemm_max_media_bytes <= 128 * 1024 * 1024:
+            raise ValueError("WEMM_MAX_MEDIA_BYTES must be between 1 and 134217728")
+        revision = self.wemm_revision
+        if (
+            not isinstance(revision, str)
+            or not revision
+            or revision != revision.strip()
+            or any(character.isspace() for character in revision)
+            or len(revision) != 40
+            or any(character not in "0123456789abcdef" for character in revision)
+        ):
+            raise ValueError(
+                "WEMM_ENABLED requires a 40-character commit SHA in WEMM_REVISION"
+            )
+
     def _validate_asr(self) -> None:
         if not isinstance(self.dashscope_api_key, str) or not self.dashscope_api_key.strip():
             raise ValueError("DASHSCOPE_API_KEY is required when ASR_ENABLED=true")
@@ -796,6 +889,18 @@ class Settings:
             raise ValueError("ASR_POLL_INTERVAL_SECONDS must be between 1 and 60")
 
     def __post_init__(self) -> None:
+        if isinstance(self.wemm_enabled, _WemmEnv):
+            object.__setattr__(
+                self,
+                "wemm_enabled",
+                self.wemm_enabled.resolve(enabled=self.multimodal_retrieval_enabled),
+            )
+        wemm_active = self.multimodal_retrieval_enabled and self.wemm_enabled
+        for name, value in vars(self).items():
+            if isinstance(value, _WemmEnv):
+                object.__setattr__(self, name, value.resolve(enabled=wemm_active))
+        if wemm_active:
+            self._validate_wemm()
         if self.notebook_agent_env not in {"development", "production"}:
             raise ValueError("STASHSEEK_ENV must be development or production")
         if (
@@ -977,11 +1082,22 @@ class Settings:
             raise ValueError("YOUTUBE_FETCH_TIMEOUT_SECONDS must be positive")
         if self.bilibili_fetch_timeout_seconds <= 0:
             raise ValueError("BILIBILI_FETCH_TIMEOUT_SECONDS must be positive")
-        _validate_youtube_proxy_url(self.youtube_proxy_url)
+        if "YOUTUBE_PROXY_URL" in os.environ:
+            # Renamed, not aliased: silently ignoring the old key would send
+            # video fetches over the direct (blocked) route after a release.
+            raise ValueError(
+                "YOUTUBE_PROXY_URL was renamed to US_VIDEO_PROXY_URL; "
+                "move the value and remove the old variable"
+            )
+        _validate_us_video_proxy_url(self.us_video_proxy_url)
         if self.asr_enabled:
             self._validate_asr()
         if self.ingest_notification_interval_seconds <= 0:
             raise ValueError("INGEST_NOTIFICATION_INTERVAL_SECONDS must be positive")
+        if self.ingest_notification_full_sweep_interval_seconds <= 0:
+            raise ValueError(
+                "INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS must be positive"
+            )
         if (
             self.ingest_notification_batch_size <= 0
             or self.ingest_notification_batch_size > 100

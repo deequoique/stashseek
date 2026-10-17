@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify every DB path goes to the Neon test branch and retrieval sessions are read-only."}
+{"file": ".trellis/tasks/archive/2026-10/10-06-rq1-retrieval-quality/design.md", "reason": "Verify metric definitions are unchanged (AC4 val-30 reproduction)."}
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Verify the baseline setting still mirrors production retrieval."}

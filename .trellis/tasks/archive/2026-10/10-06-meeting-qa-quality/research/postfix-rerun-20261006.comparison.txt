@@ -1,0 +1,48 @@
+== pre-fix (10-06 prodpath)
+  segments=10161 median_words=12 share<=5w=0.324
+  answered 18/30  categories={'stream guard whitespace': 6, 'completed': 18, 'stream plan >8': 3, 'composer too_many/duplicate': 3}
+  normalized events: cases=0
+  limits cases=11 kinds={'output_tokens': 10, 'tool_calls': 1} tools executed=108 skipped=60
+  latency median=17.4s
+  retrieval (n=28): hit@1=0.179 hit@3=0.429 hit@5=0.536 recall@5=0.147 pool_hit=0.750 pool_recall=0.384 pool_words=607
+  citations (n=16 answered+eligible): cited_any_gold=0.562 gold_recall=0.269 chunk_precision=0.318 group_any=0.344
+== post-fix
+  segments=1349 median_words=155 share<=5w=0.000
+  answered 30/30  categories={'completed': 30}
+  normalized events: cases=9
+  limits cases=6 kinds={'output_tokens': 6} tools executed=68 skipped=37
+  latency median=13.7s
+  retrieval (n=28): hit@1=0.321 hit@3=0.571 hit@5=0.714 recall@5=0.397 pool_hit=0.929 pool_recall=0.715 pool_words=2090
+  citations (n=28 answered+eligible): cited_any_gold=0.893 gold_recall=0.571 chunk_precision=0.476 group_any=0.664
+
+== per case (pre -> post)
+  Bed002:specific:2          stream guard whitespace      -> completed                    hit@5 0.0 -> 1.0
+  Bed002:specific:4          completed                    -> completed                    hit@5 0.0 -> 1.0
+  Bed002:specific:5          completed                    -> completed                    hit@5 0.0 -> 0.0
+  Bed010:specific:1          stream guard whitespace      -> completed                    hit@5 1.0 -> 1.0
+  Bed015:specific:2          completed                    -> completed                    hit@5 None -> None
+  Bmr026:specific:0          stream plan >8               -> completed                    hit@5 1.0 -> 1.0
+  Bro005:specific:3          completed                    -> completed                    hit@5 0.0 -> 0.0
+  Bro011:specific:3          completed                    -> completed                    hit@5 1.0 -> 1.0
+  Bro022:specific:0          stream guard whitespace      -> completed                    hit@5 1.0 -> 1.0
+  Bro022:specific:3          stream guard whitespace      -> completed                    hit@5 0.0 -> 1.0
+  ES2006b:specific:3         completed                    -> completed                    hit@5 0.0 -> 0.0
+  ES2006b:specific:5         completed                    -> completed                    hit@5 1.0 -> 1.0
+  ES2006c:specific:2         stream guard whitespace      -> completed                    hit@5 0.0 -> 0.0
+  ES2006d:specific:2         completed                    -> completed                    hit@5 1.0 -> 1.0
+  ES2009b:specific:3         completed                    -> completed                    hit@5 0.0 -> 0.0
+  ES2009c:specific:0         composer too_many/duplicate  -> completed                    hit@5 1.0 -> 0.0
+  IS1006a:specific:4         completed                    -> completed                    hit@5 0.0 -> 1.0
+  IS1006c:specific:8         completed                    -> completed                    hit@5 None -> None
+  TS3009c:specific:0         completed                    -> completed                    hit@5 0.0 -> 1.0
+  TS3010a:specific:1         completed                    -> completed                    hit@5 1.0 -> 1.0
+  education_0:specific:4     completed                    -> completed                    hit@5 1.0 -> 1.0
+  education_0:specific:8     stream guard whitespace      -> completed                    hit@5 1.0 -> 1.0
+  education_10:specific:1    completed                    -> completed                    hit@5 1.0 -> 1.0
+  education_10:specific:11   stream plan >8               -> completed                    hit@5 0.0 -> 1.0
+  education_18:specific:2    completed                    -> completed                    hit@5 1.0 -> 0.0
+  education_18:specific:3    composer too_many/duplicate  -> completed                    hit@5 0.0 -> 1.0
+  education_18:specific:5    completed                    -> completed                    hit@5 1.0 -> 1.0
+  education_22:specific:4    completed                    -> completed                    hit@5 1.0 -> 1.0
+  education_22:specific:6    stream plan >8               -> completed                    hit@5 0.0 -> 1.0
+  education_22:specific:8    composer too_many/duplicate  -> completed                    hit@5 1.0 -> 0.0

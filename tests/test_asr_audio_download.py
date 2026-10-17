@@ -15,13 +15,18 @@ YOUTUBE_CANONICAL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 BILIBILI_URL = "https://www.bilibili.com/video/BV1GJ411x7h7?spm_id_from=333"
 BILIBILI_CANONICAL = "https://www.bilibili.com/video/BV1GJ411x7h7"
 PROXY = "http://127.0.0.1:18080"
+# Speech-adequate low-bitrate audio: the YouTube proxy is billed per GB.
+EXPECTED_AUDIO_FORMAT_SELECTOR = (
+    "bestaudio[abr>=40][abr<=72][ext=m4a]/bestaudio[abr>=40][abr<=72]"
+    "/worstaudio[abr>=40]/bestaudio"
+)
 
 
 def _settings(**overrides):
     values = {
         "asr_max_audio_bytes": 1_000,
         "asr_download_timeout_seconds": 120,
-        "youtube_proxy_url": None,
+        "us_video_proxy_url": None,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -65,11 +70,15 @@ def test_youtube_arguments_and_result(tmp_path):
     assert args[:3] == [sys.executable, "-m", "yt_dlp"]
     pairs = dict(zip(args, args[1:]))
     assert "--ignore-config" in args and "--no-cache-dir" in args and "--no-playlist" in args
-    assert pairs["-f"] == AUDIO_FORMAT_SELECTOR == "bestaudio[ext=m4a]/bestaudio"
+    assert pairs["-f"] == AUDIO_FORMAT_SELECTOR == EXPECTED_AUDIO_FORMAT_SELECTOR
     assert pairs["--max-filesize"] == "1000"
+    # Every media request carries Range (Bilibili's cosov CDN node 567s without).
+    assert pairs["--http-chunk-size"] == "10M"
     assert pairs["--socket-timeout"] == "30.0"
     assert pairs["-o"] == f"{tmp_path}/audio.%(ext)s"
-    assert pairs["--extractor-args"] == "youtube:player_client=android_vr"
+    # Audio uses yt-dlp's default client selection: android_vr media URLs 403.
+    assert "--extractor-args" not in args
+    assert not any("player_client" in arg for arg in args)
     # Only the canonical URL (tracking query removed) is passed, and last.
     assert args[-1] == YOUTUBE_CANONICAL
     assert not any(arg.startswith("--cookies") for arg in args)
@@ -94,26 +103,63 @@ def test_socket_timeout_never_exceeds_the_total_budget(tmp_path):
     assert dict(zip(args, args[1:]))["--socket-timeout"] == "10.0"
 
 
-def test_bilibili_uses_canonical_url_no_youtube_args_and_no_proxy(tmp_path):
+def test_bilibili_uses_canonical_url_and_no_youtube_args(tmp_path):
     runner = Runner(filename="audio.webm")
 
     audio = download_audio(
         platform="bilibili",
         url=BILIBILI_URL,
         dest_dir=tmp_path,
-        settings=_settings(youtube_proxy_url=PROXY),
+        settings=_settings(),
         runner=runner,
     )
 
     args, kwargs = runner.calls[0]
     assert args[-1] == BILIBILI_CANONICAL
+    pairs = dict(zip(args, args[1:]))
+    assert pairs["-f"] == EXPECTED_AUDIO_FORMAT_SELECTOR
+    # Every media request carries Range: Bilibili's overseas COS CDN node
+    # (upos-sz-mirrorcosov.bilivideo.com) answers a non-Range GET with HTTP 567.
+    assert pairs["--http-chunk-size"] == "10M"
     assert "--extractor-args" not in args
-    # A configured YouTube proxy never applies here.
+    # No proxy configured: the child inherits no proxy variables.
     assert not any("proxy" in name.lower() for name in kwargs["env"])
     assert audio.content_type == "audio/webm"
 
 
-def test_proxy_environment_is_child_only_and_youtube_only(tmp_path, monkeypatch):
+def test_bilibili_audio_child_gets_the_child_only_proxy_environment(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("SSL_CERT_FILE", "/ca/bundle.pem")
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/ca/bundle.pem")
+    monkeypatch.setenv("ALL_PROXY", "socks5://ambient:1080")
+    monkeypatch.setenv("NO_PROXY", ".bilibili.com")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-secret-value")
+    before = dict(os.environ)
+    runner = Runner(filename="audio.m4a")
+
+    download_audio(
+        platform="bilibili",
+        url=BILIBILI_URL,
+        dest_dir=tmp_path,
+        settings=_settings(us_video_proxy_url=PROXY),
+        runner=runner,
+    )
+
+    args, kwargs = runner.calls[0]
+    env = kwargs["env"]
+    assert args[-1] == BILIBILI_CANONICAL
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        assert env[name] == PROXY
+    assert env["NO_PROXY"] == env["no_proxy"] == "127.0.0.1,localhost,::1"
+    assert "ALL_PROXY" not in env and "all_proxy" not in env
+    assert env["SSL_CERT_FILE"] == env["REQUESTS_CA_BUNDLE"] == "/ca/bundle.pem"
+    assert "DASHSCOPE_API_KEY" not in env
+    assert dict(os.environ) == before  # parent environment is untouched
+    assert "HTTPS_PROXY" not in os.environ
+
+
+def test_youtube_proxy_environment_is_child_only(tmp_path, monkeypatch):
     monkeypatch.setenv("SSL_CERT_FILE", "/ca/bundle.pem")
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/ca/bundle.pem")
     monkeypatch.setenv("ALL_PROXY", "socks5://ambient:1080")
@@ -125,7 +171,7 @@ def test_proxy_environment_is_child_only_and_youtube_only(tmp_path, monkeypatch)
         platform="youtube",
         url=YOUTUBE_URL,
         dest_dir=tmp_path,
-        settings=_settings(youtube_proxy_url=PROXY),
+        settings=_settings(us_video_proxy_url=PROXY),
         runner=runner,
     )
 
@@ -156,6 +202,7 @@ SECRET_ENV = {
         ("youtube", YOUTUBE_URL, None),
         ("youtube", YOUTUBE_URL, PROXY),
         ("bilibili", BILIBILI_URL, None),
+        ("bilibili", BILIBILI_URL, PROXY),
     ],
 )
 def test_yt_dlp_child_environment_never_contains_provider_secrets(
@@ -173,7 +220,7 @@ def test_yt_dlp_child_environment_never_contains_provider_secrets(
         platform=platform,
         url=url,
         dest_dir=tmp_path,
-        settings=_settings(youtube_proxy_url=proxy),
+        settings=_settings(us_video_proxy_url=proxy),
         runner=runner,
     )
 
@@ -252,7 +299,7 @@ def test_youtube_transient_failures_are_classified_without_stderr(tmp_path, stde
             platform="youtube",
             url=YOUTUBE_URL,
             dest_dir=tmp_path,
-            settings=_settings(youtube_proxy_url=proxy),
+            settings=_settings(us_video_proxy_url=proxy),
             runner=runner,
         )
 
@@ -279,14 +326,83 @@ def test_other_youtube_failures_are_terminal_audio_unavailable(tmp_path, stderr)
     assert "SECRET" not in str(caught.value)
 
 
-def test_bilibili_failure_classification(tmp_path):
-    limited = Runner(returncode=1, stderr="ERROR: -352 risk control", filename=None)
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "ERROR: -352 risk control",
+        "ERROR: Unable to download webpage: HTTP Error 412: Precondition Failed",
+    ],
+)
+def test_bilibili_rate_limit_and_risk_control_are_transient(tmp_path, stderr):
+    limited = Runner(returncode=1, stderr=stderr, filename=None)
+
     with pytest.raises(TransientFetchError, match="^bilibili_rate_limited$"):
         download_audio(platform="bilibili", url=BILIBILI_URL, dest_dir=tmp_path, settings=_settings(), runner=limited)
 
-    other = Runner(returncode=1, stderr="ERROR: HTTP Error 412", filename=None)
+    assert len(limited.calls) == 1
+
+
+def test_other_bilibili_failures_are_terminal_audio_unavailable(tmp_path):
+    other = Runner(returncode=1, stderr="ERROR: Video unavailable https://x.example/?sig=SECRET", filename=None)
+
     with pytest.raises(AsrError) as caught:
         download_audio(platform="bilibili", url=BILIBILI_URL, dest_dir=tmp_path, settings=_settings(), runner=other)
+
+    assert caught.value.error_code == "asr_audio_unavailable"
+    assert "SECRET" not in str(caught.value)
+
+
+def test_bilibili_http_567_is_terminal_audio_unavailable(tmp_path):
+    # Documents current behaviour: the cosov CDN node's non-Range 567 is not
+    # classified (the chunked download in the argv avoids triggering it).
+    runner = Runner(
+        returncode=1,
+        stderr=(
+            "ERROR: [download] Got error: HTTP Error 567: Unknown Status. "
+            "Giving up after 10 retries"
+        ),
+        filename=None,
+    )
+
+    with pytest.raises(AsrError) as caught:
+        download_audio(platform="bilibili", url=BILIBILI_URL, dest_dir=tmp_path, settings=_settings(), runner=runner)
+
+    assert caught.value.error_code == "asr_audio_unavailable"
+    assert len(runner.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("stderr", "proxy", "code"),
+    [
+        ("ERROR: unable to connect to proxy http://127.0.0.1:18080", PROXY, "bilibili_proxy_unavailable"),
+        ("ERROR: HTTP Error 407: Proxy Authentication Required", PROXY, "bilibili_proxy_authentication_failed"),
+        ("ERROR: proxy timed out", PROXY, "bilibili_proxy_timeout"),
+    ],
+)
+def test_bilibili_proxy_failures_are_classified_without_stderr(tmp_path, stderr, proxy, code):
+    secret = "https://upos.example/video.m4a?sig=SUPER-SECRET"
+    runner = Runner(returncode=1, stderr=f"{stderr} {secret}", filename=None)
+
+    with pytest.raises(TransientFetchError) as caught:
+        download_audio(
+            platform="bilibili",
+            url=BILIBILI_URL,
+            dest_dir=tmp_path,
+            settings=_settings(us_video_proxy_url=proxy),
+            runner=runner,
+        )
+
+    assert str(caught.value) == code
+    assert "SUPER-SECRET" not in str(caught.value)
+    assert len(runner.calls) == 1  # no retry, in particular none without the proxy
+
+
+def test_bilibili_proxy_failure_without_a_proxy_is_terminal(tmp_path):
+    runner = Runner(returncode=1, stderr="ERROR: unable to connect to proxy", filename=None)
+
+    with pytest.raises(AsrError) as caught:
+        download_audio(platform="bilibili", url=BILIBILI_URL, dest_dir=tmp_path, settings=_settings(), runner=runner)
+
     assert caught.value.error_code == "asr_audio_unavailable"
 
 
@@ -295,7 +411,8 @@ def test_bilibili_failure_classification(tmp_path):
     [
         ("youtube", YOUTUBE_URL, None, "youtube_fetch_timeout"),
         ("youtube", YOUTUBE_URL, PROXY, "youtube_proxy_timeout"),
-        ("bilibili", BILIBILI_URL, PROXY, "bilibili_fetch_timeout"),
+        ("bilibili", BILIBILI_URL, None, "bilibili_fetch_timeout"),
+        ("bilibili", BILIBILI_URL, PROXY, "bilibili_proxy_timeout"),
     ],
 )
 def test_timeouts_are_transient_with_stable_codes(tmp_path, platform, url, proxy, code):
@@ -306,7 +423,7 @@ def test_timeouts_are_transient_with_stable_codes(tmp_path, platform, url, proxy
             platform=platform,
             url=url,
             dest_dir=tmp_path,
-            settings=_settings(youtube_proxy_url=proxy),
+            settings=_settings(us_video_proxy_url=proxy),
             runner=runner,
         )
 

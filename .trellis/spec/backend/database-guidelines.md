@@ -123,16 +123,21 @@ development compute costs the same as a serving one.
 # profile `read` -> components ("mcp",). No worker, no Beat, no DB polling.
 ./scripts/stashseek start --profile read
 
-# profile `full` -> ("worker", "beat", "mcp", "gateway"). Beat polls the DB.
+# profile `full` -> ("worker", "beat", "mcp", "gateway"). While idle, Beat's
+# periodic jobs are Redis-gated or daily, so they do not touch the DB.
 ./scripts/stashseek start --profile full
 ./scripts/stashseek stop
 ```
 
 ```dotenv
-# Beat's bounded notification repair sweep queries PostgreSQL once per tick.
+# Beat's notification repair tick reads a disposable Redis repair index first and
+# queries PostgreSQL only when something is due (or Redis cannot be read).
 # Normal delivery is event-triggered through Celery.
 INGEST_NOTIFICATION_INTERVAL_SECONDS=600
-TRASH_PURGE_INTERVAL_SECONDS=3600
+# Ungated full repair + index rebuild, and the recycle-bin purge: one database
+# visit per day each. Keep both at 86400 unless a shorter period is justified.
+INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS=86400
+TRASH_PURGE_INTERVAL_SECONDS=86400
 ```
 
 ### 3. Contracts
@@ -144,9 +149,27 @@ TRASH_PURGE_INTERVAL_SECONDS=3600
 - Terminal completion events enqueue
   `app.ingest.tasks.deliver_ingest_notification_task` with the internal event
   ID after commit. Its targeted claim path never runs the global candidate
-  scan. `app.ingest.tasks.deliver_pending_ingest_notifications_task` remains a
-  bounded repair sweep every `INGEST_NOTIFICATION_INTERVAL_SECONDS` (default
-  600) for enqueue/broker failures and historical backlog.
+  scan. `app.ingest.tasks.deliver_pending_ingest_notifications_task` remains
+  the repair tick every `INGEST_NOTIFICATION_INTERVAL_SECONDS` (default 600)
+  for enqueue/broker failures and historical backlog, but it is gated by a
+  Redis repair index: with nothing due, the tick issues **zero** PostgreSQL
+  statements (no session, no heartbeat backlog query) and emits only a numeric
+  `notification_poller_heartbeat` with `idle_skipped=1`. See
+  `ingest-completion-queue.md` for the index contract.
+- A periodic job that must reach PostgreSQL unconditionally runs at most once a
+  day by default: the ungated full repair
+  (`INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS`, default 86400) and the
+  recycle-bin purge (`TRASH_PURGE_INTERVAL_SECONDS`, default 86400). Idle
+  production therefore wakes the compute roughly once a day per job instead of
+  every 10 minutes (about 3 CU-hours/day at the 0.25 CU floor).
+- A Redis read failure makes the repair tick fail open to the ungated
+  PostgreSQL sweep. That is correct for delivery, but it means Redis downtime
+  turns the tick back into a 10-minute PostgreSQL keepalive; treat a Redis
+  outage as a cost incident too.
+- Production env files must not carry an old explicit
+  `TRASH_PURGE_INTERVAL_SECONDS=3600` or a short
+  `INGEST_NOTIFICATION_INTERVAL_SECONDS`; an explicit override beats the new
+  default. Check `/etc/notebook-agent/notebook-agent.env` on rollout.
 - Development work that does not exercise ingestion uses the `read` profile.
   Only start `full` / `langbot` for the duration of an ingestion test, then
   stop it.
@@ -168,7 +191,8 @@ TRASH_PURGE_INTERVAL_SECONDS=3600
 | --- | --- |
 | Daily `compute_unit_seconds` is flat at `min_cu x 86400` | Treat as a stuck-awake compute, not as real load; find the poller and stop it. |
 | Ingestion test finished | Stop the `full` / `langbot` runtime; do not leave Beat running. |
-| A new periodic task needs a period shorter than the suspend timeout | It must be justified for production and must not be scheduled by default in development. |
+| A new periodic task needs a period shorter than the suspend timeout | It must be Redis-gated (zero PostgreSQL statements when idle) or justified for production, and must not be scheduled by default in development. |
+| Idle production still shows a 10-minute wake pattern after this change | Look for an explicit old `INGEST_NOTIFICATION_INTERVAL_SECONDS`/`TRASH_PURGE_INTERVAL_SECONDS` override, an unreadable Redis (`repair_gate_unavailable=1`), or a missing baseline that never completes (`truncated=1`). |
 | Endpoint reports `suspend_timeout_seconds: -1` on a development branch | Restore it to `0` and record why it was changed. |
 | Unattended work needs a live database for hours | Use local PostgreSQL, not a Neon branch. |
 
@@ -179,9 +203,10 @@ TRASH_PURGE_INTERVAL_SECONDS=3600
   CU-minutes.
 - Base: an ingestion test runs `--profile full` for 40 minutes and is then
   stopped; that day shows a single bounded block of CU, not a flat line.
-- Bad: `--profile full` is left running over a weekend; Beat's 10-second sweep
-  keeps the compute awake continuously and burns 12 CU-hours per day with no
-  user traffic.
+- Bad: a periodic job queries PostgreSQL on every tick regardless of work
+  (the historical 10-second, then 10-minute, notification sweep keeps the
+  compute awake 100% / ~50% of the day with no user traffic), or Beat is left
+  running on a runtime whose Redis is down so every gated tick fails open.
 
 ### 6. Verification Required
 
@@ -214,7 +239,9 @@ TRASH_PURGE_INTERVAL_SECONDS=3600
 ./scripts/stashseek start --profile full
 ```
 
-Even a 10-minute repair sweep performs recurring database work; use the read
+Idle ticks are database-free only while Redis is readable and the periodic
+jobs keep their daily defaults. A runtime with Redis down, or with an old
+short interval override, performs recurring database work again; use the read
 profile for unattended sessions so Neon can still scale to zero between use.
 
 #### Correct
@@ -226,6 +253,101 @@ profile for unattended sessions so Neon can still scale to zero between use.
 # Ingestion work is bounded and explicitly torn down.
 ./scripts/stashseek start --profile full   # ... run the test ...
 ./scripts/stashseek stop
+```
+
+---
+
+## Scenario: Vector indexes in a multi-tenant table
+
+### 1. Scope / Trigger
+
+Apply this contract whenever adding, keeping, or removing an index on a
+`pgvector` embedding column shared by more than one tenant (`segment`,
+`media_embedding`, or any future embedding table). It governs the choice
+between an approximate ANN index and an exact filter-first scan.
+
+### 2. Signatures
+
+```sql
+-- Rejected on a multi-tenant table: ranks globally, filters after.
+CREATE INDEX ix_x_embedding_hnsw ON x USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 64);
+
+-- Supporting index for the filter-first query: an ordinary btree on the
+-- tenant-scoped foreign key (already present via uq_segment_item_id_seq,
+-- ix_media_embedding_user_space, etc.), never an ANN structure.
+```
+
+```python
+# app/retrieval/search.py
+def filter_first_vector_rank(db, candidates, *, id_column, embedding_column,
+                              query_vector, k) -> list[tuple[int, float]]: ...
+```
+
+### 3. Contracts
+
+- A global HNSW/IVFFlat index on a multi-tenant embedding column is
+  incompatible with an exact per-tenant result count. PostgreSQL's ANN scan
+  gathers an approximate, bounded candidate set (`hnsw.ef_search`, default
+  40; `ivfflat.probes`) from the **whole table** before any `WHERE`
+  tenant-equality filter is applied as a post-filter. A tenant whose rows are
+  not among that bounded candidate set receives fewer than `k` rows, or
+  zero, with no error.
+- The correct structure is filter-first: resolve the tenant's own rows via an
+  existing indexed equality/array predicate, wrap that restricted set in a
+  `MATERIALIZED` CTE, and run an **exact** nearest-neighbor sort over only
+  those rows. Never add an ANN index on a multi-tenant embedding column as a
+  "performance" change without first re-deriving this contract.
+- When per-tenant row counts grow large enough that an exact scan's latency
+  is unacceptable (benchmark, do not guess), the fix is a per-tenant
+  structure: `lakebase_ann` with `SET LOCAL lakebase_ann.prefilter = on`, or
+  physical per-tenant partitioning. A single shared ANN index is never the
+  fix for a slow exact scan on a multi-tenant table.
+- Every new embedding table must document, next to its embedding column,
+  which existing btree/unique index the filter-first query will use to reach
+  only that tenant's rows before ranking.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| A migration or model adds an ANN index on a multi-tenant embedding column | Reject in review; use filter-first exact ranking instead |
+| A tenant's row count approaches the point where an exact scan is too slow | Benchmark `lakebase_ann`/partitioning on a test branch before changing production |
+| `Base.metadata` is inspected for ANN indexes on tenant-shared embedding tables | None found |
+
+### 5. Good / Base / Bad Cases
+
+- Good: `segment.embedding` and `media_embedding.embedding` have no ANN
+  index; both are ranked only after a tenant-scoped ID filter.
+- Base: a tenant's exact scan over its own ~20k rows completes in roughly
+  120 ms, which is acceptable for the current latency target.
+- Bad: adding an HNSW index on `media_embedding.embedding` "to make search
+  fast," which reintroduces the exact truncation defect this contract exists
+  to prevent.
+
+### 6. Tests Required
+
+- Assert `Base.metadata` declares no `postgresql_using="hnsw"` (or
+  `"ivfflat"`) index on any multi-tenant embedding column.
+- Compiled-SQL coverage for the filter-first shape (see
+  `agent-retrieval-convergence.md`'s vector-search scenario).
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+Index("ix_media_embedding_cosine_hnsw", "embedding", postgresql_using="hnsw",
+      postgresql_with={"m": 16, "ef_construction": 64},
+      postgresql_ops={"embedding": "vector_cosine_ops"})
+```
+
+#### Correct
+
+```python
+# No ANN index declared. Ranking always goes through
+# filter_first_vector_rank, restricted by app_user_id plus the
+# embedding-space columns (model/revision/protocol_version/dimensions).
 ```
 
 ---

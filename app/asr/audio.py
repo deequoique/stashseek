@@ -1,8 +1,8 @@
 """Audio-only acquisition of public YouTube/Bilibili videos through yt-dlp.
 
-The child process writes into a caller-owned private directory.  YouTube
-reuses the connector's child-only proxy/CA environment and stable error
-classification; Bilibili never uses a proxy.  No cookies, tokens or accounts
+The child process writes into a caller-owned private directory.  Both
+platforms reuse their connector's child-only ``US_VIDEO_PROXY_URL`` proxy/CA
+environment and stable error classification.  No cookies, tokens or accounts
 are supplied, and raw yt-dlp output never enters an exception or a log.
 """
 
@@ -22,7 +22,20 @@ from app.connectors.base import TransientFetchError
 from app.connectors.bilibili import BilibiliConnector
 from app.connectors.youtube import YouTubeConnector
 
-AUDIO_FORMAT_SELECTOR = "bestaudio[ext=m4a]/bestaudio"
+# ASR models resample to 16 kHz mono, so roughly 40-72 kbps is enough, and the
+# YouTube proxy is billed per GB.  The 40 kbps floor skips YouTube's ~30 kbps
+# "ultralow" formats; the last fallback is today's plain ``bestaudio`` for
+# videos with no stream whose abr is known to fall in range.
+AUDIO_FORMAT_SELECTOR = (
+    "bestaudio[abr>=40][abr<=72][ext=m4a]/bestaudio[abr>=40][abr<=72]"
+    "/worstaudio[abr>=40]/bestaudio"
+)
+# Every media request carries a ``Range`` header.  Bilibili's overseas COS CDN
+# node (``upos-sz-mirrorcosov.bilivideo.com``) answers a GET without ``Range``
+# with the non-standard HTTP 567, while Akamai accepts both; which node a
+# download gets is assigned per playurl call.  Chunked download makes yt-dlp
+# send ``Range`` on all of them and is harmless for YouTube.
+_HTTP_CHUNK_SIZE = "10M"
 _MAX_SOCKET_TIMEOUT_SECONDS = 30.0
 _TOO_LARGE_MARKER = "larger than max-filesize"
 _INCOMPLETE_SUFFIXES = frozenset({"part", "ytdl", "temp"})
@@ -49,6 +62,14 @@ _TRANSIENT_YOUTUBE_CODES = frozenset(
         "youtube_proxy_unavailable",
         "youtube_proxy_timeout",
         "youtube_proxy_authentication_failed",
+    }
+)
+_TRANSIENT_BILIBILI_CODES = frozenset(
+    {
+        "bilibili_rate_limited",
+        "bilibili_proxy_unavailable",
+        "bilibili_proxy_timeout",
+        "bilibili_proxy_authentication_failed",
     }
 )
 
@@ -102,26 +123,32 @@ def download_audio(
     max_bytes = int(settings.asr_max_audio_bytes)
     timeout = float(settings.asr_download_timeout_seconds)
 
-    extra_args: list[str] = []
     proxy_environment: dict[str, str] | None = None
-    proxy_url = getattr(settings, "youtube_proxy_url", None)
-    youtube: YouTubeConnector | None = None
+    proxy_url = getattr(settings, "us_video_proxy_url", None)
+    connector: YouTubeConnector | BilibiliConnector | None = None
     if platform == "youtube":
         # Only the connector's own helpers are used: they build the child-only
         # proxy environment and classify failures without exposing stderr.
         youtube = YouTubeConnector(proxy_url=proxy_url)
+        connector = youtube
         video_id = youtube.match(url)
         if video_id is None:
             raise AsrError("asr_audio_unavailable")
         target = f"https://www.youtube.com/watch?v={video_id}"
-        extra_args = ["--extractor-args", "youtube:player_client=android_vr"]
+        # Unlike the subtitle/metadata connector, which pins ``android_vr``
+        # (see ``youtube-connector.md``), audio download must NOT override
+        # ``player_client``: ``android_vr`` lists audio formats but its media
+        # URLs return HTTP 403 on download.  yt-dlp's default client selection
+        # (yt-dlp >= 2026.8.19) is the only combination verified to work.
         proxy_environment = youtube._child_environment()
     elif platform == "bilibili":
-        bilibili = BilibiliConnector()
+        bilibili = BilibiliConnector(proxy_url=proxy_url)
+        connector = bilibili
         platform_id = bilibili.match(url)
         if platform_id is None:
             raise AsrError("asr_audio_unavailable")
         target = bilibili.canonical_url(platform_id)
+        proxy_environment = bilibili._child_environment()
     else:
         raise AsrError("asr_audio_unavailable")
 
@@ -137,11 +164,12 @@ def download_audio(
         str(min(_MAX_SOCKET_TIMEOUT_SECONDS, timeout)),
         "-f",
         AUDIO_FORMAT_SELECTOR,
+        "--http-chunk-size",
+        _HTTP_CHUNK_SIZE,
         "--max-filesize",
         str(max_bytes),
         "-o",
         str(dest_dir).replace("%", "%%") + "/audio.%(ext)s",
-        *extra_args,
         target,
     ]
     run_kwargs: dict[str, Any] = {
@@ -152,8 +180,8 @@ def download_audio(
         "stdin": subprocess.DEVNULL,
     }
     # The child always gets an explicit environment: the connector's
-    # proxy/CA copy for YouTube, the worker's own for Bilibili, in both cases
-    # without provider keys or other secrets.
+    # proxy/CA copy when a proxy is configured, otherwise the worker's own, in
+    # both cases without provider keys or other secrets.
     run_kwargs["env"] = _child_environment_without_secrets(proxy_environment)
     try:
         result = run(args, **run_kwargs)
@@ -166,12 +194,14 @@ def download_audio(
     if _TOO_LARGE_MARKER in output:
         raise AsrError("asr_audio_too_large")
     if result.returncode:
-        _raise_for_failure(platform, youtube, result.stderr)
+        _raise_for_failure(connector, result.stderr)
     return _collect_audio(dest_dir, max_bytes)
 
 
 def _timeout_code(platform: str, proxy_url: str | None) -> str:
     if platform == "bilibili":
+        if proxy_url is not None:
+            return "bilibili_proxy_timeout"
         return "bilibili_fetch_timeout"
     if proxy_url is not None:
         return "youtube_proxy_timeout"
@@ -179,14 +209,14 @@ def _timeout_code(platform: str, proxy_url: str | None) -> str:
 
 
 def _raise_for_failure(
-    platform: str, youtube: YouTubeConnector | None, stderr: object
+    connector: YouTubeConnector | BilibiliConnector | None, stderr: object
 ) -> None:
-    if platform == "bilibili":
-        code = BilibiliConnector._classify_failure(stderr)
-        if code == "bilibili_rate_limited":
+    if isinstance(connector, BilibiliConnector):
+        code = connector._classify_failure(stderr)
+        if code in _TRANSIENT_BILIBILI_CODES:
             raise TransientFetchError(code)
-    elif youtube is not None:
-        code = youtube._classify_yt_dlp_failure(stderr)
+    elif isinstance(connector, YouTubeConnector):
+        code = connector._classify_yt_dlp_failure(stderr)
         if code in _TRANSIENT_YOUTUBE_CODES:
             raise TransientFetchError(code)
     raise AsrError("asr_audio_unavailable")

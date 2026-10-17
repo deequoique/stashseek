@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Neon test-branch discipline: never use the production DATABASE_URL; host assertion; no DSN output."}
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Production retrieval contract being measured: candidate pools, fusion, diversification, limits, filter-first vector ranking."}
+{"file": ".trellis/spec/backend/ingestion-chunking-embedding.md", "reason": "Production chunking/embedding used when ingesting the 35 test meetings."}
+{"file": ".trellis/tasks/archive/2026-10/10-06-rq1-retrieval-quality/design.md", "reason": "Original RQ1 design: scopes, settings matrix, metrics, statistics; this task generalizes it to the test split."}
+{"file": ".trellis/tasks/09-12-qmsum-explainmeetsum-golden-set/design.md", "reason": "Golden-set artifact, selection hashing and CES eligibility semantics."}

@@ -122,6 +122,7 @@ source .venv/bin/activate
 python -m pip install -e '.[dev]'
 
 # Full runtime: MCP, background ingestion, and the optional channel gateway
+# (full is explicit; an omitted profile safely defaults to read)
 ./scripts/stashseek init --profile full
 ./scripts/stashseek start --profile full
 ```

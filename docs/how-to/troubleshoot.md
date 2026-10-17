@@ -130,9 +130,23 @@ URL 或消息正文：
   | tail -n 5
 ```
 
-`oldest_eligible_backlog_age_seconds=0` 表示 repair sweep 没有可领取事件。长时间没有
-heartbeat 时，先检查唯一 Beat、worker 的 `maintenance` queue 和 PostgreSQL；heartbeat
-不是 MCP readiness，不要通过重启 MCP 处理。
+`oldest_eligible_backlog_age_seconds=0` 表示 repair sweep 没有可领取事件。
+`idle_skipped=1` 表示 Redis repair index 里没有到期事件，这个 tick 没有访问
+PostgreSQL（所以该 heartbeat 不带 backlog age）；这是让 Neon compute 在空闲时归零的
+正常状态。长时间没有 heartbeat 时，先检查唯一 Beat、worker 的 `maintenance` queue
+和 PostgreSQL；heartbeat 不是 MCP readiness，不要通过重启 MCP 处理。
+
+repair index 只是可丢失的加速结构，PostgreSQL 才是事实来源。怀疑通知漏发时，可以删除
+基线键让下一个 tick 立刻执行一次全量 repair 并重建索引（诊断
+`notification_repair_gate` 的 `baseline_missing=1`，随后 `notification_full_repair`）；
+否则每天一次的全量 repair 也会兜底：
+
+```bash
+docker compose exec -T redis redis-cli DEL notebook-agent:ingest-notification-repair:v1:baseline
+```
+
+`repair_gate_unavailable=1` 表示 Redis 读取失败、tick 已退回数据库 sweep，应检查 Redis
+可用性。
 
 当前通知由 PostgreSQL completion event 与 delivery ledger 驱动。使用受保护的 operator
 连接查询计数和时间年龄；不要读取或导出通知正文、目标地址或用户信息。下面的 `300`

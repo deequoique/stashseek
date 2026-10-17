@@ -6,8 +6,6 @@ bounded read recovery. It has no dependency on product orchestration.
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic_ai import RunContext
 
 from app.agent.autonomy import ErrorEnvelope, RecoveryGrant
@@ -72,6 +70,23 @@ class ToolPolicy:
         ):
             return tool_def
         return None
+
+    def prepare_media_inspection(self, ctx: RunContext[AgentDeps], tool_def):
+        """Expose inspection only when the run has candidates and a service."""
+
+        if (
+            not ctx.deps.multimodal_retrieval_enabled
+            or ctx.deps.vision_service is None
+            or ctx.deps.media_manifest is None
+            or ctx.deps.media_evidence_adapter is None
+        ):
+            return None
+        if not ctx.deps.media_manifest.candidates:
+            return None
+        if (ctx.deps.media_manifest.tenant_id != ctx.deps.active_tenant_id
+                or ctx.deps.media_manifest.run_id != ctx.deps.active_retrieval_run_id):
+            return None
+        return tool_def
 
     def prepare_management(self, ctx: RunContext[AgentDeps], tool_def):
         """Hide inventory/item-management tools for explicit URL questions."""
@@ -301,7 +316,12 @@ class ToolPolicy:
         self,
         ctx: RunContext[AgentDeps], name: str, kind: RetrievalKind
     ) -> RetrievalToolPayload | None:
-        """Reserve a retrieval or provide a truthful no-side-effect result."""
+        """Reserve a retrieval or provide a truthful no-side-effect result.
+
+        Every call within the server-owned stage budgets executes; only a
+        call beyond those budgets is skipped, so ``budget_exhausted`` is the
+        only reachable reason.
+        """
 
         reservation = ctx.deps.reserve_retrieval(
             run_step=ctx.run_step,
@@ -312,14 +332,8 @@ class ToolPolicy:
         with ctx.deps._tool_lock:
             ctx.deps.tool_calls += 1
             call_index = ctx.deps.tool_calls
-        reason: Literal["same_model_step", "budget_exhausted"]
-        reason = (
-            "same_model_step"
-            if reservation is ReservationResult.SAME_STEP_SKIPPED
-            else "budget_exhausted"
-        )
         ctx.deps.tool_event(name, "skipped", call_index, 0)
-        return {"status": "skipped", "evidence": [], "reason": reason}
+        return {"status": "skipped", "evidence": [], "reason": "budget_exhausted"}
 
     def run_management_read(
         self,

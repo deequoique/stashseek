@@ -2,7 +2,8 @@
 
 The connector never persists or supplies Bilibili cookies. yt-dlp resolves
 public metadata and any server-visible official subtitle into an in-memory SRT
-payload; login-only subtitles are handed to the browser-companion path.
+payload; login-only subtitles are handed to the browser-companion path.  When a
+loopback egress proxy is configured, only the yt-dlp child is routed through it.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from app.connectors.base import (
     TextResult,
     TransientFetchError,
 )
+from app.connectors.proxy_env import build_proxy_environment, classify_proxy_failure
 from app.ingest.validate import IngestLimitExceeded, guard_transcript
 
 
@@ -124,12 +126,15 @@ class BilibiliConnector:
         runner=subprocess.run,
         max_transcript_bytes: int = DEFAULT_MAX_TRANSCRIPT_BYTES,
         fetch_timeout_seconds: float = DEFAULT_FETCH_TIMEOUT_SECONDS,
+        proxy_url: str | None = None,
     ) -> None:
         if max_transcript_bytes <= 0 or fetch_timeout_seconds <= 0:
             raise ValueError("connector limits must be positive")
         self._runner = runner
         self._max_transcript_bytes = max_transcript_bytes
         self._fetch_timeout_seconds = fetch_timeout_seconds
+        self._proxy_url = proxy_url
+        self._proxy_environment = build_proxy_environment(proxy_url)
         self._meta: dict[str, dict] = {}
         self._login_subtitles: set[str] = set()
 
@@ -170,14 +175,32 @@ class BilibiliConnector:
             raise ValueError("invalid Bilibili platform id")
         return f"https://www.bilibili.com/video/{normalized_id}"
 
-    @staticmethod
-    def _classify_failure(stderr: object) -> str:
+    def _child_environment(self) -> dict[str, str] | None:
+        """A fresh proxy/CA environment copy for one child, or ``None``."""
+
+        if self._proxy_environment is None:
+            return None
+        return self._proxy_environment.copy()
+
+    def _classify_failure(self, stderr: object) -> str:
         message = str(stderr or "").lower()
         if any(
             marker in message
-            for marker in ("429", "too many requests", "-352", "risk control", "风控")
+            for marker in (
+                "429",
+                "too many requests",
+                "http error 412",
+                "precondition failed",
+                "-352",
+                "risk control",
+                "风控",
+            )
         ):
             return "bilibili_rate_limited"
+        if self._proxy_url is not None:
+            proxy_failure = classify_proxy_failure(stderr, prefix="bilibili")
+            if proxy_failure is not None:
+                return proxy_failure
         return "bilibili_fetch_failed"
 
     def _run_metadata(self, platform_id: str) -> subprocess.CompletedProcess[str]:
@@ -194,16 +217,24 @@ class BilibiliConnector:
             "--dump-single-json",
             url,
         ]
+        run_kwargs: dict[str, object] = {
+            "text": True,
+            "capture_output": True,
+            "check": False,
+            "timeout": self._fetch_timeout_seconds,
+        }
+        child_environment = self._child_environment()
+        if child_environment is not None:
+            run_kwargs["env"] = child_environment
         try:
-            result = self._runner(
-                args,
-                text=True,
-                capture_output=True,
-                check=False,
-                timeout=self._fetch_timeout_seconds,
-            )
+            result = self._runner(args, **run_kwargs)
         except subprocess.TimeoutExpired:
-            raise TransientFetchError("bilibili_fetch_timeout") from None
+            classification = (
+                "bilibili_proxy_timeout"
+                if self._proxy_url is not None
+                else "bilibili_fetch_timeout"
+            )
+            raise TransientFetchError(classification) from None
         if result.returncode:
             raise TransientFetchError(self._classify_failure(result.stderr))
         return result

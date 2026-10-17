@@ -9,16 +9,23 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from app.config import Settings
+from app.ingest.notification_repair_index import InMemoryNotificationRepairIndex
 from app.ingest.notifications import (
     DeliveryClaim,
     HANDLER_KEY,
     IngestNotificationPoller,
     LangBotOutboundClient,
+    NotificationSweepResult,
     NotificationTransportError,
     _notification_diagnostic,
+    mark_repair_due_best_effort,
     render_completion_notification,
 )
-from app.ingest.tasks import celery_app, _notification_interval_from_env
+from app.ingest.tasks import (
+    _notification_full_sweep_interval_from_env,
+    _notification_interval_from_env,
+    celery_app,
+)
 
 
 @pytest.mark.parametrize(
@@ -587,3 +594,320 @@ def test_targeted_event_delivery_does_not_run_global_candidate_scan(monkeypatch)
 def test_langbot_non_loopback_http_is_rejected():
     with pytest.raises(ValueError, match="HTTPS"):
         LangBotOutboundClient("http://langbot.internal:5300", "key")
+
+
+# --------------------------------------------------------------------------
+# Redis-gated repair tick (Neon scale-to-zero)
+# --------------------------------------------------------------------------
+
+_ZERO_RESULT = {
+    "claimed": 0,
+    "succeeded": 0,
+    "skipped": 0,
+    "failed": 0,
+    "deferred": 0,
+    "duration_ms": 0,
+}
+
+
+class _NoDatabase:
+    """Session factory that fails the test if PostgreSQL is ever opened."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        raise AssertionError("idle repair tick must not open a PostgreSQL session")
+
+
+def _capture_diagnostics(monkeypatch):
+    diagnostics = []
+    monkeypatch.setattr(
+        "app.ingest.notifications._notification_diagnostic",
+        lambda event, **values: diagnostics.append((event, values)),
+    )
+    return diagnostics
+
+
+def _gated_poller(index, factory=None, **kwargs):
+    return IngestNotificationPoller(
+        factory or _NoDatabase(),
+        _NeverSendClient(),
+        settings=SimpleNamespace(
+            ingest_notification_max_duration_seconds=8.0,
+            ingest_notification_claim_timeout_seconds=300,
+        ),
+        clock=lambda: 0.0,
+        repair_index=index,
+        epoch_clock=lambda: 1_000.0,
+        **kwargs,
+    )
+
+
+def test_notification_repair_schedule_has_a_daily_full_repair_entry():
+    schedule = celery_app.conf.beat_schedule
+    entry = schedule["repair-all-ingest-notifications"]
+    assert entry["task"] == "app.ingest.tasks.repair_all_ingest_notifications_task"
+    assert entry["options"] == {"queue": "maintenance"}
+    assert entry["schedule"] > 0
+    assert celery_app.conf.task_routes[
+        "app.ingest.tasks.repair_all_ingest_notifications_task"
+    ]["queue"] == "maintenance"
+    # The gated tick keeps its historical task name for rollback compatibility.
+    assert schedule["deliver-pending-ingest-notifications"]["task"] == (
+        "app.ingest.tasks.deliver_pending_ingest_notifications_task"
+    )
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "not-an-int"])
+def test_notification_full_sweep_interval_fails_closed(monkeypatch, value):
+    monkeypatch.setenv("INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS", value)
+    with pytest.raises(ValueError, match="positive integer"):
+        _notification_full_sweep_interval_from_env()
+
+
+def test_notification_full_sweep_interval_defaults_to_one_day(monkeypatch):
+    monkeypatch.delenv("INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS", raising=False)
+    assert _notification_full_sweep_interval_from_env() == 86400
+
+
+def test_idle_repair_tick_issues_zero_postgres_statements_and_reports_idle(
+    monkeypatch,
+):
+    diagnostics = _capture_diagnostics(monkeypatch)
+    index = InMemoryNotificationRepairIndex()
+    index.set_baseline()
+    index.mark_due(7, 5_000)  # indexed, but not due until after "now"
+    factory = _NoDatabase()
+    poller = _gated_poller(index, factory)
+
+    result = poller.repair_tick()
+
+    assert factory.calls == 0
+    assert result.as_dict() == _ZERO_RESULT
+    assert diagnostics == [
+        (
+            "notification_poller_heartbeat",
+            {
+                "heartbeat": 1,
+                "claimed": 0,
+                "succeeded": 0,
+                "skipped": 0,
+                "failed": 0,
+                "deferred": 0,
+                "duration_ms": 0,
+                "observability_failed": 0,
+                "idle_skipped": 1,
+            },
+        )
+    ]
+    # No backlog query ran, so the age field must not claim "empty queue".
+    assert "oldest_eligible_backlog_age_seconds" not in diagnostics[0][1]
+
+
+def test_idle_repair_tick_with_an_empty_index_is_also_database_free(monkeypatch):
+    diagnostics = _capture_diagnostics(monkeypatch)
+    index = InMemoryNotificationRepairIndex()
+    index.set_baseline()
+    factory = _NoDatabase()
+
+    _gated_poller(index, factory).repair_tick()
+    _gated_poller(index, factory).repair_tick()
+
+    assert factory.calls == 0
+    assert [entry[1]["idle_skipped"] for entry in diagnostics] == [1, 1]
+
+
+def test_repair_tick_without_an_index_is_the_original_ungated_sweep(monkeypatch):
+    poller = _gated_poller(None)
+    calls = []
+    monkeypatch.setattr(
+        poller,
+        "sweep_once",
+        lambda **kwargs: calls.append(kwargs) or NotificationSweepResult(claimed=3),
+    )
+
+    assert poller.repair_tick().claimed == 3
+    assert calls == [{}]
+
+
+def test_repair_tick_fails_open_when_redis_cannot_be_read(monkeypatch):
+    diagnostics = _capture_diagnostics(monkeypatch)
+    secret = "redis://:private-password@cache.internal:6379/0"
+
+    class _BrokenIndex(InMemoryNotificationRepairIndex):
+        def has_baseline(self):
+            raise ConnectionError(secret)
+
+    poller = _gated_poller(_BrokenIndex())
+    swept = []
+    monkeypatch.setattr(
+        poller,
+        "sweep_once",
+        lambda **kwargs: swept.append(kwargs) or NotificationSweepResult(claimed=2),
+    )
+
+    result = poller.repair_tick()
+
+    assert result.claimed == 2 and swept == [{}]
+    assert diagnostics == [
+        ("notification_repair_gate", {"repair_gate_unavailable": 1})
+    ]
+    assert secret not in repr(diagnostics)
+
+
+def test_repair_tick_without_a_baseline_runs_a_full_repair(monkeypatch):
+    diagnostics = _capture_diagnostics(monkeypatch)
+    index = InMemoryNotificationRepairIndex()  # fresh or lost Redis
+    poller = _gated_poller(index)
+    monkeypatch.setattr(
+        poller, "full_repair", lambda: NotificationSweepResult(claimed=5)
+    )
+    monkeypatch.setattr(
+        poller,
+        "sweep_once",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("gate bypassed")),
+    )
+
+    assert poller.repair_tick().claimed == 5
+    assert diagnostics == [("notification_repair_gate", {"baseline_missing": 1})]
+
+
+def test_repair_tick_with_due_members_sweeps_then_reconciles_due_and_claimed(
+    monkeypatch,
+):
+    index = InMemoryNotificationRepairIndex()
+    index.set_baseline()
+    index.mark_due(1, 900)   # due
+    index.mark_due(2, 5_000)  # not due; claimed by the sweep anyway
+    poller = _gated_poller(index)
+    reconciled = []
+
+    def fake_sweep(*, claimed_event_ids=None):
+        claimed_event_ids.extend([2, 3])
+        return NotificationSweepResult(claimed=2)
+
+    monkeypatch.setattr(poller, "sweep_once", fake_sweep)
+    monkeypatch.setattr(
+        poller,
+        "_reconcile_index",
+        lambda expected, *, settings: reconciled.append(dict(expected)) or True,
+    )
+
+    assert poller.repair_tick().claimed == 2
+    # Observed scores: due member, claimed-but-not-due member, unindexed claim.
+    assert reconciled == [{1: 900, 2: 5_000, 3: None}]
+
+
+def test_repair_index_write_failure_never_raises_and_leaks_nothing(monkeypatch):
+    diagnostics = _capture_diagnostics(monkeypatch)
+    sentinel = "private redis endpoint and password"
+
+    class _BrokenWrites(InMemoryNotificationRepairIndex):
+        def mark_due(self, event_id, at):
+            raise ConnectionError(sentinel)
+
+    assert mark_repair_due_best_effort(_BrokenWrites(), 41, 1_000) is False
+    assert mark_repair_due_best_effort(None, 41, 1_000) is False
+    assert diagnostics == [
+        ("notification_repair_index_write_failed", {"event_id": 41})
+    ]
+    assert sentinel not in repr(diagnostics)
+
+    healthy = InMemoryNotificationRepairIndex()
+    assert mark_repair_due_best_effort(healthy, 41, 1_000) is True
+    assert healthy.score(41) == 1_000
+
+
+def test_deliver_event_reconcile_does_not_overwrite_a_concurrent_mark_due(
+    monkeypatch,
+):
+    """The CAS must lose to a mark_due that lands during delivery."""
+
+    index = InMemoryNotificationRepairIndex()
+    index.set_baseline()
+    index.mark_due(41, 2_000)
+    poller = _gated_poller(index, lambda: _ClaimSession())
+    monkeypatch.setattr(
+        "app.ingest.notifications._repair_due_map",
+        lambda *_args, **_kwargs: {41: None},  # ledger says "terminal"
+    )
+
+    def claim_then_concurrent_redrive(_event_id, **_kwargs):
+        index.mark_due(41, 500)  # operator redrive lands mid-delivery
+        return None
+
+    monkeypatch.setattr(poller, "_claim_event", claim_then_concurrent_redrive)
+
+    poller.deliver_event(41)
+
+    assert index.score(41) == 500
+
+
+def test_reconcile_sql_is_bounded_by_the_callers_remaining_budget(monkeypatch):
+    index = InMemoryNotificationRepairIndex()
+    index.mark_due(41, 2_000)
+    timeouts = []
+    monkeypatch.setattr(
+        "app.ingest.notifications._set_notification_statement_timeout",
+        lambda _db, remaining: timeouts.append(remaining),
+    )
+    monkeypatch.setattr(
+        "app.ingest.notifications._repair_due_map",
+        lambda *_args, **_kwargs: {41: None},
+    )
+    exhausted = _NoDatabase()
+
+    # An exhausted deadline skips the reconcile: no session, member stays due.
+    assert _gated_poller(index, exhausted)._reconcile_index(
+        {41: 2_000}, settings=SimpleNamespace(), budget_seconds=0
+    ) is False
+    assert exhausted.calls == 0 and index.score(41) == 2_000
+
+    poller = _gated_poller(index, lambda: _ClaimSession())
+    settings = SimpleNamespace(ingest_notification_max_duration_seconds=8.0)
+    assert poller._reconcile_index(
+        {41: 2_000}, settings=settings, budget_seconds=1.5
+    ) is True
+    assert timeouts == [1.5] and index.score(41) is None
+
+    # The repair tick has no caller deadline: it uses the full sweep budget.
+    index.mark_due(42, 2_000)
+    assert poller._reconcile_index({42: 2_000}, settings=settings) is True
+    assert timeouts[-1] == 8.0
+
+
+def test_deliver_event_without_an_index_never_touches_the_repair_path(monkeypatch):
+    poller = _gated_poller(None, _NoDatabase())
+    monkeypatch.setattr(poller, "_claim_event", lambda _event_id, **_kwargs: None)
+    assert poller.deliver_event(41).as_dict() == _ZERO_RESULT
+
+
+def test_repair_diagnostics_stay_numeric_and_allow_listed(caplog):
+    sentinel = "private-title-and-target"
+    with caplog.at_level(logging.INFO, logger="notebook_agent.runtime"):
+        _notification_diagnostic(
+            "notification_repair_gate",
+            repair_gate_unavailable=1,
+            baseline_missing=1,
+            idle_skipped=1,
+            event_id=41,
+            rebuilt=3,
+            removed=2,
+            truncated=0,
+            index_failed=True,
+            redis_url=sentinel,
+        )
+
+    assert caplog.records[-1].diagnostic_payload == {
+        "event": "notification_repair_gate",
+        "repair_gate_unavailable": 1,
+        "baseline_missing": 1,
+        "idle_skipped": 1,
+        "event_id": 41,
+        "rebuilt": 3,
+        "removed": 2,
+        "truncated": 0,
+    }
+    assert sentinel not in repr(caplog.records[-1].diagnostic_payload)

@@ -60,6 +60,16 @@ API key、完整 DSN、MCP URL capability、浏览器 Bearer 或 HMAC secret 写
 | `EMBEDDING_ENDPOINT` | `https://open.bigmodel.cn/api/paas/v4/embeddings` | 否 | embedding endpoint |
 | `EMBEDDING_DIMENSIONS` | `1536` | 否 | 必须与 PostgreSQL `vector(1536)` schema 对齐 |
 | `EMBEDDING_BATCH_SIZE` | `64` | 否 | 每次 embedding 请求的输入数上限 |
+| `MULTIMODAL_RETRIEVAL_ENABLED` | `false` | 否 | 多模态检索运行时总开关；默认关闭 |
+| `WEMM_ENABLED` | `false` | 否 | 可选本地 WeMM-Embedding 适配器开关 |
+| `WEMM_MODEL` | `tencent/WeMM-Embedding-2B` | 否 | Hugging Face 模型标识；默认使用上游 2B 模型 |
+| `WEMM_REVISION` | `bbd6cd4bf52cfc6716f752a2df80b2706720bd95` | 两个多模态开关均开启时必需 | 传给 remote code loader 的显式 40 字符 commit SHA；默认是已向官方仓库核对存在的固定 revision，不代表完成安全审计或真实推理验证 |
+| `WEMM_DIMENSIONS` | `1024` | 否 | 新 WeMM 向量空间维度；上游 2B 模型支持 `64`、`128`、`256`、`512`、`1024`、`2048` |
+| `WEMM_DEVICE` | `cpu` | 否 | Sentence Transformers 推理设备，例如 `cpu`、`cuda` 或 `mps` |
+| `WEMM_BATCH_SIZE` | `1` | 否 | 每次本地 `model.encode` 的有界 batch，范围 `1`–`8` |
+| `WEMM_MAX_INPUTS` | `32` | 否 | 单次 provider 调用允许的总输入数 |
+| `WEMM_MAX_TEXT_CHARS` | `8192` | 否 | 单条文本输入字符上限 |
+| `WEMM_MAX_MEDIA_BYTES` | `134217728` | 否 | resolver 提供的单个本地媒体文件大小上限 |
 | `AGENT_MODEL` | `openai:gpt-5-mini` | 否 | PydanticAI model 字符串 |
 | `AGENT_API_KEY` | 未设置 | 是 | provider 需要时使用；也可使用 provider 原生环境变量 |
 | `AGENT_BASE_URL` | 未设置 | 否/视 URL 而定 | OpenAI-compatible endpoint |
@@ -68,6 +78,36 @@ API key、完整 DSN、MCP URL capability、浏览器 Bearer 或 HMAC secret 写
 
 没有 `ZHIPU_API_KEY` 时，确定性的 inventory/identity 操作仍可运行；普通
 知识问答和需要 embedding 的后台导入会失败闭合，而不是悄悄返回无依据答案。
+
+### 可选本地 WeMM 运行时
+
+WeMM 适配器是对上游 WeMM-Embedding **本地** Sentence Transformers 用法的
+薄封装，不是官方 WeMM HTTP API 客户端；当前项目没有配置或声称存在可用的
+托管 WeMM 服务，也不读取 `WEMM_ENDPOINT` 或 `WEMM_API_KEY`。它保留现有
+Zhipu `vector(1536)` 文本空间不变，默认新建 `1024` 维 WeMM 空间，不会自动
+改写旧向量。
+
+启用时，`WEMM_REVISION` 必须是显式配置的 40 字符不可变模型 commit SHA；不能
+使用 branch 或 floating tag。构造
+provider 只保存配置，不导入 `sentence_transformers`、执行模型、下载权重或
+解析媒体；首次 encode 才会惰性加载
+`SentenceTransformer(model, revision=..., trust_remote_code=True, device=...)`。
+运行环境需要由部署者另外提供兼容的 `sentence-transformers`、PyTorch、上游
+remote-code 依赖和已允许的模型缓存/下载条件；本项目依赖清单不隐式安装这些
+重量级依赖。本次没有执行模型下载、付费调用、benchmark 或生产推理。
+
+图片和视频输入只能通过调用方注入的授权 resolver 使用。resolver 必须返回
+一个 context manager，在上下文内提供本地 regular file；provider 在
+`model.encode` 完成后立即退出该上下文。对象 ID、URL 和租户权限不会被 provider
+自行解析，也不会被当作媒体字节传给模型。文本输入不需要 resolver；没有
+resolver 的当前应用 composition root 因而只支持 WeMM 文本调用，媒体摄入、
+对象存储授权、租户/状态检查、视频抽帧/片段化、数据库写入、重试和回填仍是
+未接入的上层职责。
+
+`WEMM_DIMENSIONS` 会在首次加载时与
+`model[0].auto_model.config.matryoshka_dimensions` 对照；不支持的维度和
+非有限/零向量都会以稳定 embedding error 拒绝。输入数量、文本字符数、媒体
+文件大小和 encode batch 都有界，并保持输入顺序。
 
 ## Agent 与上下文预算
 
@@ -79,7 +119,7 @@ API key、完整 DSN、MCP URL capability、浏览器 Bearer 或 HMAC secret 写
 | `AGENT_TOOL_TIMEOUT_SECONDS` | `15` | Agent tool 调用上限 |
 | `AGENT_REQUEST_LIMIT` | `8` | primary Agent 请求上限 |
 | `AGENT_TOOL_CALLS_LIMIT` | `10` | tool call 总上限 |
-| `AGENT_OUTPUT_TOKEN_LIMIT` | `2000` | stage 输出 token 上限 |
+| `AGENT_OUTPUT_TOKEN_LIMIT` | `3000` | stage 输出 token 上限（检索阶段开启思考时峰值约 2000，见 10-07-retrieval-agent-budget） |
 | `AGENT_COMPOSER_MAX_TOKENS` | `1000` | evidence-backed answer Composer 每次尝试的 provider cap |
 | `AGENT_STREAMING_ENABLED` | `true` | Web SSE 是否可用；关闭后使用 JSON 兼容路径 |
 | `CONTEXT_MAX_TURNS` | `8` | 对话上下文 turn 数上限 |
@@ -125,7 +165,8 @@ completion 与 notification delivery/repair 的维护参数也由 worker/Beat �
 
 | 变量 | 默认值 | 作用 |
 | --- | --- | --- |
-| `INGEST_NOTIFICATION_INTERVAL_SECONDS` | `600` | 事件入队失败时的 PostgreSQL completion notification repair 周期；正常投递不等待此 sweep |
+| `INGEST_NOTIFICATION_INTERVAL_SECONDS` | `600` | completion notification repair tick 的周期；每个 tick 先读 Redis repair index，没有到期事件时不访问 PostgreSQL。正常投递不等待此 tick |
+| `INGEST_NOTIFICATION_FULL_SWEEP_INTERVAL_SECONDS` | `86400` | 不经 Redis 门控的全量 repair 周期，同时根据 PostgreSQL 重建 repair index；Redis 丢失后通知最多延迟这么久 |
 | `INGEST_NOTIFICATION_BATCH_SIZE` | `20` | 每次 poller claim 数量 |
 | `INGEST_NOTIFICATION_CLAIM_TIMEOUT_SECONDS` | `300` | poller claim 超时 |
 | `INGEST_NOTIFICATION_MAX_DURATION_SECONDS` | `8` | 一次 repair sweep 总预算，必须小于 interval |
@@ -140,7 +181,19 @@ completion 与 notification delivery/repair 的维护参数也由 worker/Beat �
 `INGEST_COMPLETION_*` 保留用于 rollback/schema compatibility；当前权威的
 notification delivery 由 terminal completion event 通过 Celery 事件入队，使用
 `INGEST_NOTIFICATION_*` 的 delivery ledger。`INGEST_NOTIFICATION_INTERVAL_SECONDS`
-只控制有界 repair sweep，不要重新启用已退役的 `ingest-completion` queue。
+只控制有界 repair tick，不要重新启用已退役的 `ingest-completion` queue。
+
+repair tick 由一个可丢失的 Redis repair index 门控（键
+`notebook-agent:ingest-notification-repair:v1:due` 与 `:baseline`）：终态事件提交后、
+入队失败、可重试失败（到期时间为 `next_attempt_at`）和运维 redrive 都会把事件写入
+索引，事件进入终态后移除。索引里没有到期成员时，tick 不向 PostgreSQL 发出任何语句，
+只写 `notification_poller_heartbeat`（`idle_skipped=1`，没有
+`oldest_eligible_backlog_age_seconds`）。Redis 读取失败时 tick 退回原有的数据库
+sweep（诊断 `notification_repair_gate` 的 `repair_gate_unavailable=1`）；基线键缺失
+（全新或丢失的 Redis）时执行一次全量 repair 并重建索引。Neon 数据库不要把
+`INGEST_NOTIFICATION_INTERVAL_SECONDS` 设为很短的值，也不要在生产 env 里保留旧的
+`TRASH_PURGE_INTERVAL_SECONDS=3600`：任何短于 5 分钟挂起超时的周期性数据库访问
+都会让 compute 无法归零。
 
 worker 必须同时监听 `ingest` 和 `maintenance`。Beat 负责周期性 purge、
 completion notification 和维护任务；不要让新的部署监听已经退役的
@@ -300,16 +353,17 @@ LangBot 4.10.6 部署还需要 patched runtime 的 required plugin readiness；
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `YOUTUBE_FETCH_TIMEOUT_SECONDS` | `30` | yt-dlp metadata/subtitle bounded timeout |
-| `YOUTUBE_PROXY_URL` | 未设置 | 可选；只允许无凭据 loopback HTTP URL 且必须有显式端口，例如 `http://127.0.0.1:18080` |
+| `US_VIDEO_PROXY_URL` | 未设置 | 可选；服务端所有视频抓取（YouTube 与 Bilibili 的 metadata、字幕和 ASR 音频）共用的美国住宅出口。只允许无凭据 loopback HTTP URL 且必须有显式端口，例如 `http://127.0.0.1:18080`。取代旧的 `YOUTUBE_PROXY_URL`：旧变量仍存在（即使为空）时启动直接失败，不做别名或静默回退 |
 | `BILIBILI_FETCH_TIMEOUT_SECONDS` | `30` | Bilibili yt-dlp timeout |
 | `TRASH_RETENTION_DAYS` | `30` | 回收站保留时长 |
-| `TRASH_PURGE_INTERVAL_SECONDS` | `3600` | purge 周期 |
+| `TRASH_PURGE_INTERVAL_SECONDS` | `86400` | purge 周期（每天一次，让空闲的 Neon compute 归零） |
 | `TRASH_PURGE_BATCH_SIZE` | `20` | 一次 purge 数量，最大 100 |
 | `TRASH_PURGE_CLAIM_TIMEOUT_SECONDS` | `1800` | purge claim 超时 |
 | `TRASH_PURGE_MAX_DURATION_SECONDS` | `30` | 一次 purge 总预算 |
 | `TRASH_PURGE_OBJECT_TIMEOUT_SECONDS` | `10` | 单个 object 删除预算 |
 
-YouTube proxy 只注入 yt-dlp 和 bounded subtitle 子进程，并移除 ambient
-`ALL_PROXY`；proxy 失败不会回退到直连。Bilibili 服务端只消费 yt-dlp
+`US_VIDEO_PROXY_URL` 只注入 YouTube 和 Bilibili 的 yt-dlp 子进程、YouTube 的
+bounded subtitle 子进程以及 ASR 音频下载子进程，并移除 ambient `ALL_PROXY`；
+proxy 失败不会回退到直连。Bilibili 服务端只消费 yt-dlp
 投影的 inline SRT；URL-only 或登录字幕进入 `needs_extension`，不会扩大
 服务端 cookie/字幕 URL 获取范围。

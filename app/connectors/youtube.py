@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 import sys
@@ -17,22 +16,13 @@ from app.connectors.bounded_fetch import (
     EXIT_PROXY_UNAVAILABLE,
     EXIT_RATE_LIMITED,
 )
+from app.connectors.proxy_env import build_proxy_environment, classify_proxy_failure
 from app.ingest.validate import IngestLimitExceeded, guard_transcript
 
 
 _ID_RE = re.compile(r"(?:youtu\.be/|youtube\.com/(?:watch\?.*?v=|shorts/|embed/))([\w-]{11})")
 DEFAULT_MAX_TRANSCRIPT_BYTES = 5_000_000
 DEFAULT_FETCH_TIMEOUT_SECONDS = 30.0
-_PROXY_AUTH_MARKERS = ("http error 407", "proxy authentication required")
-_PROXY_TIMEOUT_MARKERS = ("proxy timeout", "proxy timed out")
-_PROXY_UNAVAILABLE_MARKERS = (
-    "connection refused",
-    "failed to connect to proxy",
-    "unable to connect to proxy",
-    "cannot connect to proxy",
-    "proxy connection failed",
-    "proxyerror",
-)
 
 
 def _normalise_language(value: object) -> str:
@@ -91,27 +81,8 @@ class YouTubeConnector:
         self._max_transcript_bytes = max_transcript_bytes
         self._fetch_timeout_seconds = fetch_timeout_seconds
         self._proxy_url = proxy_url
-        self._proxy_environment = self._build_proxy_environment(proxy_url)
+        self._proxy_environment = build_proxy_environment(proxy_url)
         self._meta: dict[str, dict] = {}
-
-    @staticmethod
-    def _build_proxy_environment(proxy_url: str | None) -> dict[str, str] | None:
-        if proxy_url is None:
-            return None
-        environment = os.environ.copy()
-        environment.pop("ALL_PROXY", None)
-        environment.pop("all_proxy", None)
-        environment.update(
-            {
-                "HTTP_PROXY": proxy_url,
-                "HTTPS_PROXY": proxy_url,
-                "http_proxy": proxy_url,
-                "https_proxy": proxy_url,
-                "NO_PROXY": "127.0.0.1,localhost,::1",
-                "no_proxy": "127.0.0.1,localhost,::1",
-            }
-        )
-        return environment
 
     def _child_environment(self) -> dict[str, str] | None:
         if self._proxy_environment is None:
@@ -123,12 +94,9 @@ class YouTubeConnector:
         if "429" in message or "too many requests" in message:
             return "youtube_rate_limited"
         if self._proxy_url is not None:
-            if any(marker in message for marker in _PROXY_AUTH_MARKERS):
-                return "youtube_proxy_authentication_failed"
-            if any(marker in message for marker in _PROXY_TIMEOUT_MARKERS):
-                return "youtube_proxy_timeout"
-            if any(marker in message for marker in _PROXY_UNAVAILABLE_MARKERS):
-                return "youtube_proxy_unavailable"
+            proxy_failure = classify_proxy_failure(stderr, prefix="youtube")
+            if proxy_failure is not None:
+                return proxy_failure
         return "youtube_fetch_failed"
 
     def match(self, url: str) -> str | None:
