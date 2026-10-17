@@ -1105,6 +1105,13 @@ export interface components {
              * Format: date-time
              */
             saved_at: string;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage?: "queued" | "fetching" | "transcribing" | "chunking" | "embedding" | "ready" | "needs_action" | "failed" | "archived";
+            /** Stage Updated At */
+            stage_updated_at?: string | null;
             /** Summary */
             summary?: string | null;
             /** Tags */

@@ -20,7 +20,7 @@ from app.ingest.submission import (
     IngestQuotaExceeded,
     IngestQuotaPolicy,
 )
-from app.models import ContentItem, IngestDispatch
+from app.models import BrowserCapture, ContentItem, IngestDispatch
 from app.limits import normalize_why_saved
 
 
@@ -41,6 +41,23 @@ SAFE_ERROR_CODES = frozenset(
 Lifecycle = Literal[
     "archived", "ready", "needs_action", "failed", "processing", "queued"
 ]
+# Finer, read-only view of the same ingest state, for progress UIs.  It is
+# derived from existing columns only; the public ``Lifecycle`` is unchanged.
+Stage = Literal[
+    "queued",
+    "fetching",
+    "transcribing",
+    "chunking",
+    "embedding",
+    "ready",
+    "needs_action",
+    "failed",
+    "archived",
+]
+# Platforms whose caption-less browser captures are handed to the ASR worker
+# (mirrors ``_ASR_CAPTURE_PLATFORMS`` in ``app.ingest.tasks``; kept local so the
+# web layer does not import the Celery task module).
+_ASR_CAPTURE_PLATFORMS = frozenset({"youtube"})
 
 
 class UserScopeLike(Protocol):
@@ -70,6 +87,12 @@ class LifecycleProjection:
 
 
 @dataclass(frozen=True)
+class StageProjection:
+    stage: Stage
+    updated_at: datetime | None
+
+
+@dataclass(frozen=True)
 class LibraryItemDTO:
     public_id: str
     platform: str
@@ -91,6 +114,8 @@ class LibraryItemDTO:
     error_code: str | None
     available_actions: tuple[str, ...]
     latest_dispatch_public_id: str | None
+    stage: Stage = "queued"
+    stage_updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -156,6 +181,50 @@ def project_lifecycle(item: Any, latest: Any | None) -> LifecycleProjection:
     if getattr(item, "url", None):
         actions.append("open_source")
     return LifecycleProjection(state, error, tuple(actions))
+
+
+def project_stage(
+    item: Any,
+    latest: Any | None,
+    *,
+    asr_capture: bool = False,
+) -> StageProjection:
+    """Project the current processing step of ``item`` for progress display.
+
+    ``stage`` follows ``project_lifecycle`` and only subdivides ``processing``
+    using the internal item state.  ``asr_capture`` is true when a ``fetching``
+    item's latest ready browser capture found no caption track: the pipeline
+    then hands the same dispatch to the ASR worker and the item stays
+    ``fetching`` until it is chunked, so this is the only reliable ASR signal.
+    An ASR run for a URL-submitted item (connector ``NeedsASR``) leaves no
+    durable marker and is reported as ``fetching``.
+
+    ``updated_at`` is the best available time the item entered its stage.
+    There is no per-stage timestamp, so it is the latest dispatch's
+    ``updated_at`` (admission, enqueue, claim, ASR hand-off or completion;
+    for ``chunking``/``embedding`` that is the claim time, an upper bound on
+    the stage's age) or, for archived items, ``archived_at``.
+    """
+
+    lifecycle = project_lifecycle(item, latest).state
+    if lifecycle == "archived":
+        return StageProjection("archived", getattr(item, "archived_at", None))
+    stage: Stage
+    if lifecycle == "processing":
+        if item.state == "chunking":
+            stage = "chunking"
+        elif item.state == "embedding":
+            stage = "embedding"
+        elif asr_capture and item.state == "fetching":
+            stage = "transcribing"
+        else:
+            stage = "fetching"
+    else:
+        # queued, ready, needs_action and failed map one-to-one.
+        stage = lifecycle
+    return StageProjection(
+        stage, getattr(latest, "updated_at", None) if latest is not None else None
+    )
 
 
 class ContentLibraryService:
@@ -261,7 +330,15 @@ class ContentLibraryService:
                 [value.id for value in items],
                 scope.app_user_id,
             )
-            projected = [self._dto(value, latest_by_item.get(value.id)) for value in items]
+            asr_ids = self._asr_capture_item_ids(db, items, scope.app_user_id)
+            projected = [
+                self._dto(
+                    value,
+                    latest_by_item.get(value.id),
+                    asr_capture=value.id in asr_ids,
+                )
+                for value in items
+            ]
             if lifecycle is not None:
                 projected = [value for value in projected if value.lifecycle == lifecycle]
             total = len(projected)
@@ -278,7 +355,8 @@ class ContentLibraryService:
         with self._session_factory() as db:
             item = self._owned_item(db, scope, item_public_id)
             latest = self._latest_dispatch(db, item.id, scope.app_user_id)
-            return self._dto(item, latest)
+            asr_ids = self._asr_capture_item_ids(db, [item], scope.app_user_id)
+            return self._dto(item, latest, asr_capture=item.id in asr_ids)
 
     def update_why_saved(
         self,
@@ -355,6 +433,8 @@ class ContentLibraryService:
                 return self._dto(
                     item,
                     self._latest_dispatch(db, item.id, scope.app_user_id),
+                    asr_capture=item.id
+                    in self._asr_capture_item_ids(db, [item], scope.app_user_id),
                 )
             latest = self._latest_dispatch(db, item.id, scope.app_user_id)
             projection = project_lifecycle(item, latest)
@@ -496,8 +576,55 @@ class ContentLibraryService:
             result.setdefault(dispatch.item_id, dispatch)
         return result
 
-    def _dto(self, item: ContentItem, latest: IngestDispatch | None) -> LibraryItemDTO:
+    @staticmethod
+    def _asr_capture_item_ids(db, items, user_id: int) -> frozenset[int]:
+        """Ids of ``fetching`` items whose latest ready capture has no captions.
+
+        Mirrors the capture lookup of ``process_item`` (tenant-matching, ``ready``,
+        newest first). The query is skipped unless a candidate exists, so only
+        items that are mid-fetch pay for it.
+        """
+
+        candidates = [
+            value.id
+            for value in items
+            if value.state == "fetching"
+            and value.platform in _ASR_CAPTURE_PLATFORMS
+            and value.archived_at is None
+        ]
+        if not candidates:
+            return frozenset()
+        rows = db.execute(
+            select(BrowserCapture.item_id, BrowserCapture.caption_status)
+            .where(
+                BrowserCapture.item_id.in_(candidates),
+                BrowserCapture.app_user_id == user_id,
+                BrowserCapture.state == "ready",
+            )
+            .order_by(
+                BrowserCapture.item_id,
+                BrowserCapture.created_at.desc(),
+                BrowserCapture.id.desc(),
+            )
+        ).all()
+        latest_status: dict[int, str] = {}
+        for item_id, caption_status in rows:
+            latest_status.setdefault(item_id, caption_status)
+        return frozenset(
+            item_id
+            for item_id, caption_status in latest_status.items()
+            if caption_status == "unavailable"
+        )
+
+    def _dto(
+        self,
+        item: ContentItem,
+        latest: IngestDispatch | None,
+        *,
+        asr_capture: bool = False,
+    ) -> LibraryItemDTO:
         projection = project_lifecycle(item, latest)
+        stage = project_stage(item, latest, asr_capture=asr_capture)
         available_actions = (
             tuple(
                 action
@@ -528,6 +655,8 @@ class ContentLibraryService:
             error_code=projection.error_code,
             available_actions=available_actions,
             latest_dispatch_public_id=latest.public_id if latest is not None else None,
+            stage=stage.stage,
+            stage_updated_at=stage.updated_at,
         )
 
     def _set_dispatch(

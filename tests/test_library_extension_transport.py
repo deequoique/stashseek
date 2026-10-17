@@ -52,6 +52,14 @@ class Library:
     def __init__(self):
         self.calls = []
 
+    def get_item(self, scope, public_id):
+        self.calls.append(("get", scope.app_user_id, public_id))
+        entered = datetime(2026, 10, 17, 12, 0, tzinfo=UTC)
+        value = library_item("processing")
+        value.stage = "transcribing"
+        value.stage_updated_at = entered
+        return value
+
     def archive(self, scope, public_id):
         self.calls.append(("archive", scope.app_user_id, public_id))
         return library_item("archived")
@@ -170,6 +178,48 @@ def test_cookie_with_matching_csrf_header_succeeds(method, path, body):
 
     assert response.status_code == 200, response.text
     assert len(library.calls) == 1
+
+
+def test_extension_bearer_reads_an_item_with_its_processing_stage():
+    client, library = _client()
+
+    response = client.get(
+        "/api/v1/library/items/item-public",
+        headers={
+            "Authorization": "Bearer extension-session",
+            "Origin": EXTENSION_ORIGIN,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["lifecycle"] == "processing"
+    assert body["stage"] == "transcribing"
+    assert body["stage_updated_at"].startswith("2026-10-17T12:00:00")
+    assert library.calls == [("get", 7, "item-public")]
+
+
+def test_stage_fields_are_optional_in_the_generated_item_schema():
+    client, _ = _client()
+    schema = client.get("/api/v1/openapi.json").json()["components"]["schemas"][
+        "LibraryItemResponse"
+    ]
+
+    assert "stage" in schema["properties"]
+    assert "stage_updated_at" in schema["properties"]
+    assert "stage" not in schema["required"]
+    assert "stage_updated_at" not in schema["required"]
+    assert set(schema["properties"]["stage"]["enum"]) == {
+        "queued",
+        "fetching",
+        "transcribing",
+        "chunking",
+        "embedding",
+        "ready",
+        "needs_action",
+        "failed",
+        "archived",
+    }
 
 
 def test_csrf_header_is_documented_but_optional_on_every_library_mutation():

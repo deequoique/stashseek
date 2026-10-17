@@ -1714,6 +1714,33 @@
             "title": "Saved At",
             "type": "string"
           },
+          "stage": {
+            "enum": [
+              "queued",
+              "fetching",
+              "transcribing",
+              "chunking",
+              "embedding",
+              "ready",
+              "needs_action",
+              "failed",
+              "archived"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "stage_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage Updated At"
+          },
           "summary": {
             "anyOf": [
               {
