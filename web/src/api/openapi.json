@@ -198,7 +198,8 @@
           "platform": {
             "enum": [
               "youtube",
-              "ntu_kaltura"
+              "ntu_kaltura",
+              "bilibili"
             ],
             "title": "Platform",
             "type": "string"
@@ -381,6 +382,10 @@
             "default": 10,
             "title": "Max Save Batch Size",
             "type": "integer"
+          },
+          "page_qa": {
+            "title": "Page Qa",
+            "type": "boolean"
           },
           "save_enabled": {
             "default": true,
@@ -716,6 +721,42 @@
         "title": "ChallengeCreateResponse",
         "type": "object"
       },
+      "ChallengeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "ChallengeRequest",
+        "type": "object"
+      },
+      "ChallengeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "challenge_id": {
+            "title": "Challenge Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "expires_at"
+        ],
+        "title": "ChallengeResponse",
+        "type": "object"
+      },
       "ChallengeStatusResponse": {
         "additionalProperties": false,
         "properties": {
@@ -884,6 +925,10 @@
           "conversation_id": {
             "title": "Conversation Id",
             "type": "string"
+          },
+          "page_qa": {
+            "title": "Page Qa",
+            "type": "boolean"
           },
           "preview": {
             "title": "Preview",
@@ -1349,6 +1394,10 @@
             "title": "Conversation Id",
             "type": "string"
           },
+          "page_qa": {
+            "title": "Page Qa",
+            "type": "boolean"
+          },
           "thread_id": {
             "title": "Thread Id",
             "type": "string"
@@ -1479,6 +1528,77 @@
           "message"
         ],
         "title": "ErrorResponse",
+        "type": "object"
+      },
+      "ExtensionLoginRequest": {
+        "additionalProperties": false,
+        "description": "Email proof used by the extension when no Web cookie exists.",
+        "properties": {
+          "code": {
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Code",
+            "type": "string"
+          },
+          "email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "code"
+        ],
+        "title": "ExtensionLoginRequest",
+        "type": "object"
+      },
+      "ExtensionSessionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "access_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Token"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "tenant": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Tenant",
+            "type": "object"
+          },
+          "token_type": {
+            "default": "Bearer",
+            "title": "Token Type",
+            "type": "string"
+          },
+          "user": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "User",
+            "type": "object"
+          }
+        },
+        "required": [
+          "expires_at",
+          "user",
+          "tenant"
+        ],
+        "title": "ExtensionSessionResponse",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -1641,6 +1761,33 @@
             "format": "date-time",
             "title": "Saved At",
             "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "queued",
+              "fetching",
+              "transcribing",
+              "chunking",
+              "embedding",
+              "ready",
+              "needs_action",
+              "failed",
+              "archived"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "stage_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage Updated At"
           },
           "summary": {
             "anyOf": [
@@ -1816,6 +1963,99 @@
           "text"
         ],
         "title": "MessageInput",
+        "type": "object"
+      },
+      "PageQaMessageInput": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Message Id",
+            "type": "string"
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageQaPage"
+          },
+          "playback_sec": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playback Sec"
+          },
+          "question": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "question",
+          "page"
+        ],
+        "title": "PageQaMessageInput",
+        "type": "object"
+      },
+      "PageQaPage": {
+        "additionalProperties": false,
+        "description": "The page the user is looking at, exactly as the extension read it.",
+        "properties": {
+          "canonical_url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Canonical Url",
+            "type": "string"
+          },
+          "caption": {
+            "$ref": "#/components/schemas/CaptureCaption"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/CaptureMetadata"
+          },
+          "page_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Url"
+          },
+          "platform": {
+            "enum": [
+              "youtube",
+              "ntu_kaltura",
+              "bilibili"
+            ],
+            "title": "Platform",
+            "type": "string"
+          },
+          "platform_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Platform Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform",
+          "platform_id",
+          "canonical_url",
+          "metadata",
+          "caption"
+        ],
+        "title": "PageQaPage",
         "type": "object"
       },
       "PairingApprovalResponse": {
@@ -2100,6 +2340,29 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VerifyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "challenge_id": {
+            "maxLength": 128,
+            "minLength": 16,
+            "title": "Challenge Id",
+            "type": "string"
+          },
+          "code": {
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "code"
+        ],
+        "title": "VerifyRequest",
+        "type": "object"
+      },
       "WhySavedRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2122,6 +2385,10 @@
     },
     "securitySchemes": {
       "BrowserCompanionBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "HTTPBearer": {
         "scheme": "bearer",
         "type": "http"
       },
@@ -2536,6 +2803,127 @@
         ]
       }
     },
+    "/api/v1/browser-companion/extension/library": {
+      "get": {
+        "operationId": "extension_library_api_v1_browser_companion_extension_library_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BrowserCompanionBearer": []
+          }
+        ],
+        "summary": "Extension Library",
+        "tags": [
+          "browser-companion"
+        ]
+      }
+    },
+    "/api/v1/browser-companion/extension/library/{item_public_id}": {
+      "get": {
+        "operationId": "extension_library_item_api_v1_browser_companion_extension_library__item_public_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_public_id",
+            "required": true,
+            "schema": {
+              "title": "Item Public Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryItemResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "BrowserCompanionBearer": []
+          }
+        ],
+        "summary": "Extension Library Item",
+        "tags": [
+          "browser-companion"
+        ]
+      }
+    },
     "/api/v1/browser-companion/extension/pairings": {
       "post": {
         "operationId": "create_pairing_api_v1_browser_companion_extension_pairings_post",
@@ -2614,6 +3002,59 @@
           }
         },
         "summary": "Pairing Status",
+        "tags": [
+          "browser-companion"
+        ]
+      }
+    },
+    "/api/v1/browser-companion/extension/pairings/{pairing_id}:approve": {
+      "post": {
+        "description": "Approve a pairing directly from the extension's email login flow.",
+        "operationId": "approve_pairing_from_extension_api_v1_browser_companion_extension_pairings__pairing_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pairing_id",
+            "required": true,
+            "schema": {
+              "title": "Pairing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtensionLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingApprovalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Approve Pairing From Extension",
         "tags": [
           "browser-companion"
         ]
@@ -2844,12 +3285,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -2883,6 +3330,16 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {
@@ -2953,12 +3410,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -2998,6 +3461,16 @@
               }
             },
             "description": "Not Acceptable"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {
@@ -3047,12 +3520,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -3076,6 +3555,16 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {
@@ -3136,12 +3625,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -3275,6 +3770,133 @@
         "summary": "Get Conversation Turns",
         "tags": [
           "conversation"
+        ]
+      }
+    },
+    "/api/v1/extension/auth/challenge": {
+      "post": {
+        "operationId": "challenge_api_v1_extension_auth_challenge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChallengeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChallengeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Challenge",
+        "tags": [
+          "extension"
+        ]
+      }
+    },
+    "/api/v1/extension/auth/logout": {
+      "post": {
+        "operationId": "logout_api_v1_extension_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Logout",
+        "tags": [
+          "extension"
+        ]
+      }
+    },
+    "/api/v1/extension/auth/session": {
+      "get": {
+        "operationId": "session_api_v1_extension_auth_session_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtensionSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Session",
+        "tags": [
+          "extension"
+        ]
+      }
+    },
+    "/api/v1/extension/auth/verify": {
+      "post": {
+        "operationId": "verify_api_v1_extension_auth_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtensionSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify",
+        "tags": [
+          "extension"
         ]
       }
     },
@@ -3549,12 +4171,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -3691,12 +4319,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -3748,12 +4382,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -3816,12 +4456,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -3893,12 +4539,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -3959,12 +4611,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -4058,12 +4716,18 @@
           {
             "in": "header",
             "name": "X-CSRF-Token",
-            "required": true,
+            "required": false,
             "schema": {
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "X-Csrf-Token",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
             }
           }
         ],
@@ -4147,6 +4811,118 @@
         "summary": "Consume Token",
         "tags": [
           "conversation"
+        ]
+      }
+    },
+    "/api/v1/page-qa/conversations/{conversation_id}/messages/stream": {
+      "post": {
+        "description": "Answer one question about the page from the supplied transcript.\n\nNothing is ingested: the cues live only in this request and the model\ncontext.  The turn (question, answer, <=180-character cited excerpts)\nis saved to the user's conversation history after a validated answer.",
+        "operationId": "stream_page_question_api_v1_page_qa_conversations__conversation_id__messages_stream_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "pattern": "^page-[0-9a-f]{32}$",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Csrf-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PageQaMessageInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Server-sent public conversation events"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Stream Page Question",
+        "tags": [
+          "page-qa"
         ]
       }
     }

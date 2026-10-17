@@ -115,9 +115,6 @@ def test_mv3_pairing_status_get_allows_missing_origin_but_mutations_do_not():
     status = web.get(
         f"/api/v1/browser-companion/extension/pairings/{pairing_id}"
     )
-    malformed_status = web.get(
-        "/api/v1/browser-companion/extension/pairings/not-a-public-id"
-    )
     create = web.post(
         "/api/v1/browser-companion/extension/pairings",
         json={
@@ -134,12 +131,75 @@ def test_mv3_pairing_status_get_allows_missing_origin_but_mutations_do_not():
     assert status.status_code == 200
     assert status.json() == {"status": "approved"}
     assert "access-control-allow-origin" not in status.headers
-    assert malformed_status.status_code == 403
-    assert malformed_status.json()["code"] == "extension_origin_invalid"
     assert create.status_code == 403
     assert create.json()["code"] == "extension_origin_invalid"
     assert exchange.status_code == 403
     assert exchange.json()["code"] == "extension_origin_invalid"
+
+
+def test_mv3_read_routes_may_omit_origin_but_bearer_auth_still_applies():
+    web, companion, _submission = client()
+
+    library = web.get("/api/v1/browser-companion/extension/library")
+    scoped = web.get(
+        "/api/v1/browser-companion/extension/library",
+        headers={"Authorization": "Bearer capture-token"},
+    )
+
+    # The Origin gate passed; the route's own Bearer/scope rules decide.
+    assert library.status_code == 401
+    assert library.json()["code"] == "extension_scope_invalid"
+    assert scoped.status_code == 401
+    assert scoped.json()["code"] == "extension_scope_invalid"
+    assert "access-control-allow-origin" not in library.headers
+    assert "access-control-allow-origin" not in scoped.headers
+    assert companion.resolved == []
+
+
+def test_extension_read_routes_reject_every_present_but_disallowed_origin():
+    web, _companion, _submission = client()
+    pairing_id = "a" * 32
+
+    for origin in (
+        "https://evil.example",
+        WEB_ORIGIN,
+        "null",
+        "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ):
+        for path in (
+            f"/api/v1/browser-companion/extension/pairings/{pairing_id}",
+            "/api/v1/browser-companion/extension/library",
+        ):
+            response = web.get(path, headers={"Origin": origin})
+            assert response.status_code == 403, (origin, path)
+            assert response.json()["code"] == "extension_origin_invalid"
+            assert "access-control-allow-origin" not in response.headers
+
+    allowed = web.get(
+        f"/api/v1/browser-companion/extension/pairings/{pairing_id}",
+        headers={"Origin": EXTENSION_ORIGIN},
+    )
+    assert allowed.status_code == 200
+    assert allowed.headers["access-control-allow-origin"] == EXTENSION_ORIGIN
+
+
+def test_missing_origin_exception_is_limited_to_get_and_head():
+    web, _companion, _submission = client()
+    path = f"/api/v1/browser-companion/extension/pairings/{'a' * 32}"
+
+    options = web.options(path)
+    delete = web.delete(
+        "/api/v1/browser-companion/extension/grant",
+        headers={"Authorization": "Bearer capture-token"},
+    )
+    head = web.head(path)
+
+    assert options.status_code == 403
+    assert options.json()["code"] == "extension_origin_invalid"
+    assert delete.status_code == 403
+    assert delete.json()["code"] == "extension_origin_invalid"
+    # HEAD passes the Origin gate (the route table decides what it means).
+    assert head.status_code != 403
 
 
 def test_web_cookie_cannot_replace_capture_bearer_and_web_approval_keeps_csrf():
@@ -176,6 +236,18 @@ def test_extension_can_revoke_only_its_own_capture_token():
 
     assert response.status_code == 204
     assert companion.resolved == ["revoked:capture-token"]
+
+
+def test_capture_grant_cannot_read_extension_library():
+    web, companion, _submission = client()
+    response = web.get(
+        "/api/v1/browser-companion/extension/library",
+        headers={"Origin": EXTENSION_ORIGIN, "Authorization": "Bearer capture-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "extension_scope_invalid"
+    assert companion.resolved == []
 
 
 def test_incompatible_capture_protocol_has_an_actionable_safe_error():

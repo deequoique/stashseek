@@ -220,8 +220,8 @@ docker compose exec -T redis redis-cli LLEN ingest-completion
 重新配对前：
 
 1. Web 账号页撤销旧 device；
-2. 扩展弹窗断开连接并重新加载 unpacked extension；
-3. 从扩展发起新 pairing，在同一 Web origin 点击“允许连接”；
+2. 在插件中断开连接并重新加载 unpacked extension；
+3. 从插件重新登录并配对（0.1.x 版本在同一 Web origin 点击“允许连接”）；
 4. 重新打开视频页面后再捕获。
 
 扩展只能上传规范化 caption cue；若日志、请求 body 或 URL 出现 Cookie、SAML、Kaltura

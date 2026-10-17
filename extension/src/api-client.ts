@@ -6,6 +6,34 @@ export const API_ORIGINS = {
 export const API_REQUEST_TIMEOUT_MS = 10_000;
 export const CAPTURE_REQUEST_TIMEOUT_MS = 30_000;
 
+export interface ExtensionSession {
+  access_token: string;
+  expires_at: string;
+  user: Record<string, unknown>;
+  tenant?: Record<string, unknown>;
+}
+
+export function extensionChallenge(apiOrigin: string, email: string): Promise<{ challenge_id: string }> {
+  return requestJson(apiOrigin, "/api/v1/extension/auth/challenge", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }),
+  });
+}
+
+export function extensionVerify(apiOrigin: string, challengeId: string, code: string): Promise<ExtensionSession> {
+  return requestJson(apiOrigin, "/api/v1/extension/auth/verify", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ challenge_id: challengeId, code }),
+  });
+}
+
+export function extensionSession(apiOrigin: string, token: string): Promise<Omit<ExtensionSession, "access_token">> {
+  return requestJson(apiOrigin, "/api/v1/extension/auth/session", { headers: { Authorization: `Bearer ${token}` } });
+}
+
+export function extensionLogout(apiOrigin: string, token: string): Promise<void> {
+  return requestJson(apiOrigin, "/api/v1/extension/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+}
+
 const API_HOST_PERMISSIONS = Object.values(API_ORIGINS).map((origin) => `${origin}/*`);
 
 export function resolveApiOrigin(hostPermissions: readonly string[]): string {
@@ -56,4 +84,26 @@ export async function requestJson<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+export interface ExtensionLibraryItem {
+  public_id: string;
+  title: string | null;
+  author: string | null;
+  lifecycle: string;
+  url: string;
+  saved_at: string;
+}
+
+export interface ExtensionLibraryPage {
+  items: ExtensionLibraryItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export function listExtensionLibrary(apiOrigin: string, token: string): Promise<ExtensionLibraryPage> {
+  return requestJson<ExtensionLibraryPage>(apiOrigin, "/api/v1/browser-companion/extension/library", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }

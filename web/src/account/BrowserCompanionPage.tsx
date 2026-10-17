@@ -70,7 +70,7 @@ export function BrowserCompanionPage() {
         <section className="account-link-card companion-pairing" aria-labelledby="companion-install-title">
           <p className="step-number" aria-hidden="true">01</p>
           <h2 id="companion-install-title">按需安装和使用</h2>
-          <p>下载并在 Chrome 中加载插件，再从插件弹窗发起配对。你也可以随时在浏览器里禁用或卸载插件。</p>
+          <p>下载并在 Chrome 中加载插件，再从插件侧边栏发起配对。你也可以随时在浏览器里禁用或卸载插件。</p>
           <a className="button button--primary button--wide" download href={BROWSER_COMPANION_DOWNLOAD_URL}>下载浏览器伴侣</a>
         </section>
       )}

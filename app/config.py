@@ -693,6 +693,26 @@ class Settings:
             "BROWSER_COMPANION_MAX_REQUEST_BYTES", 5_500_000
         )
     )
+    # --- Instant page Q&A (extension side panel; transcript is never stored) ---
+    page_qa_enabled: bool = field(
+        default_factory=lambda: _env_bool("PAGE_QA_ENABLED", True)
+    )
+    page_qa_max_request_bytes: int = field(
+        default_factory=lambda: _env_int("PAGE_QA_MAX_REQUEST_BYTES", 2_000_000)
+    )
+    # Estimated-token thresholds: at or below the first the whole transcript is
+    # sent; above it the context is a playback window plus BM25 hits capped at
+    # the second.  Conservative defaults because the model window is unverified.
+    page_qa_full_context_tokens: int = field(
+        default_factory=lambda: _env_int("PAGE_QA_FULL_CONTEXT_TOKENS", 24_000)
+    )
+    page_qa_window_context_tokens: int = field(
+        default_factory=lambda: _env_int("PAGE_QA_WINDOW_CONTEXT_TOKENS", 12_000)
+    )
+    # Questions per user per 10 minutes (in-process sliding window per worker).
+    page_qa_rate_limit: int = field(
+        default_factory=lambda: _env_int("PAGE_QA_RATE_LIMIT", 30)
+    )
     web_session_ttl_seconds: int = field(
         default_factory=lambda: _env_int("WEB_SESSION_TTL_SECONDS", 30 * 24 * 60 * 60)
     )
@@ -833,6 +853,25 @@ class Settings:
             raise ValueError(
                 "Web authentication durations and limits must be positive; "
                 "the Session cache TTL may be zero"
+            )
+        if not 0 < self.page_qa_max_request_bytes <= self.browser_companion_max_request_bytes:
+            raise ValueError(
+                "PAGE_QA_MAX_REQUEST_BYTES must be positive and must not exceed "
+                "BROWSER_COMPANION_MAX_REQUEST_BYTES"
+            )
+        if (
+            self.page_qa_full_context_tokens <= 0
+            or self.page_qa_window_context_tokens <= 0
+            or self.page_qa_rate_limit <= 0
+        ):
+            raise ValueError(
+                "PAGE_QA_FULL_CONTEXT_TOKENS, PAGE_QA_WINDOW_CONTEXT_TOKENS and "
+                "PAGE_QA_RATE_LIMIT must be positive"
+            )
+        if self.page_qa_window_context_tokens > self.page_qa_full_context_tokens:
+            raise ValueError(
+                "PAGE_QA_WINDOW_CONTEXT_TOKENS must not exceed "
+                "PAGE_QA_FULL_CONTEXT_TOKENS"
             )
         for extension_origin in self.browser_companion_allowed_origins:
             if extension_origin == "chrome-extension://*":

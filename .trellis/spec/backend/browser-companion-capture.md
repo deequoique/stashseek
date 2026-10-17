@@ -28,9 +28,9 @@ BrowserCompanionPairing -> BrowserCompanionGrant -> BrowserCapture -> IngestDisp
 ## 3. Contracts
 
 - `capture.v1` contains `protocol_version`, bounded `client_version`, `platform`, validated `platform_id`, secret-free canonical/page URLs, bounded public metadata, caption status/source/language/cues, and the server-defined cue hash.
-- Platforms are `youtube` and `ntu_kaltura`. Browser capture never sends a signed caption/playback URL for later server fetch.
+- Platforms are `youtube`, `ntu_kaltura` and `bilibili`. Browser capture never sends a signed caption/playback URL for later server fetch.
 - `caption.status=unavailable` requires null source/language and empty cues. It stores no transcript/media object and the worker produces `needs_asr`.
-- State-changing extension requests require an exact `chrome-extension://<32 a-p characters>` Origin. Chrome MV3 may omit Origin on the read-only pairing-status GET, so only `GET /api/v1/browser-companion/extension/pairings/{32-hex-public-id}` may proceed without Origin. A development-only `chrome-extension://*` configuration is valid only when the Web server is bound to loopback; production continues to require exact IDs. Configuration is `BROWSER_COMPANION_ALLOWED_ORIGINS`, `BROWSER_COMPANION_PAIRING_TTL_SECONDS`, `BROWSER_COMPANION_GRANT_TTL_SECONDS`, and `BROWSER_COMPANION_MAX_REQUEST_BYTES`.
+- State-changing extension requests require an exact `chrome-extension://<32 a-p characters>` Origin. Chrome MV3 extension pages and service workers omit Origin on cross-origin GET requests, so on `/api/v1/browser-companion/extension/*` and `/api/v1/extension/*` a `GET`/`HEAD` with the Origin header entirely absent may proceed (these routes authenticate only with explicit Bearer credentials, never cookies, and no CORS allow-origin header is emitted for a missing Origin). A present-but-disallowed Origin (including `null`), every unsafe method without Origin, and a bare `OPTIONS` still fail with `extension_origin_invalid`. A development-only `chrome-extension://*` configuration is valid only when the Web server is bound to loopback; production continues to require exact IDs. Configuration is `BROWSER_COMPANION_ALLOWED_ORIGINS`, `BROWSER_COMPANION_PAIRING_TTL_SECONDS`, `BROWSER_COMPANION_GRANT_TTL_SECONDS`, and `BROWSER_COMPANION_MAX_REQUEST_BYTES`.
 - Pairing challenges and Bearer tokens are hash-only at rest. A grant has only `capture:write`; it cannot authenticate Web, conversation, management, or MCP routes. Web cookies cannot replace the extension Bearer.
 - Same-origin approval/device mutation stays behind existing Web session, exact-Origin, and CSRF validation. Extension disconnect revokes its own token before local deletion; account-device revoke is tenant-scoped.
 - Canonical transcript object keys are tenant-prefixed. Celery receives only the dispatch ID; no cue text, third-party token, signed URL, or browser credential enters PostgreSQL rows, broker messages, or logs.
@@ -40,14 +40,59 @@ BrowserCompanionPairing -> BrowserCompanionGrant -> BrowserCapture -> IngestDisp
 - Kaltura `caption_captionasset/action/serveWebVTT/.../*.m3u8` resources are VOD WebVTT playlists: the extension may resolve only bounded, trusted relative timed-text segments, apply each segment's timestamp map, and merge normalized cues locally. CSS/JS pseudo-resources, untrusted fragments, partial segment reads, oversized bodies, and stalled requests fail safely without entering `capture.v1`.
 - YouTube caption tracks may expose a signed `/api/timedtext` endpoint whose JSON3 representation is empty or non-JSON even while the player renders captions. After validating the original trusted HTTPS host/path, try JSON3 first, then WebVTT and the unmodified original XML representation. Revalidate every response redirect and never return or log the signed URL/query.
 - If every trusted timed-text representation is empty, the page's official same-origin `youtubei/v1/get_transcript` endpoint may be used as a final fallback. Base64url transcript params must decode to the exact current video ID before the request; accept only an exact same-origin endpoint response and project only finite ordered segment cues. Never return or log the public client key, InnerTube context, opaque params, response body or browser credential.
+- Bilibili (`https://www.bilibili.com/video/<BV…|av…>`, optional `?p=N`) is read entirely inside the page with the viewer's session, so the manifest needs only the exact `https://www.bilibili.com/*` host permission and never `api.bilibili.com` or `*.hdslb.com`:
+  - `platform_id` is the connector's normalized id (`BV` + 10 alphanumerics, or `av` + digits), so capture and URL import reach one `ContentItem`. `canonical_url` is `https://www.bilibili.com/video/<id>` with no query; `page_url` keeps `p` only when it is above 1 (1..9999, single value). Cover URLs must be https, unsigned and on `hdslb.com`/`*.hdslb.com`.
+  - The adapter validates the page state (`window.__INITIAL_STATE__.videoData`) against the URL's id; a state describing another video falls back to the public `x/web-interface/view` response for that id, and anything still mismatched is the retryable `stale_player_response`. The part's `cid` is `pages[p-1].cid`. Subtitles come from `GET api.bilibili.com/x/player/wbi/v2?aid=&cid=` (no WBI signature; the viewer's cookies unlock login-only AI subtitles) and the subtitle JSON on `*.hdslb.com` (`{body:[{from,to,content}]}`).
+  - Prefer human subtitles over AI (`ai-*`, source `auto_caption`), Chinese over other languages; try at most three tracks. The signed subtitle URL (`auth_key`) is fetched without cookies, only from https `*.hdslb.com` (redirects revalidated, bounded body), and is never returned, stored, or logged. Cookies go only to `api.bilibili.com`. Danmaku is never read.
+  - No listed subtitle gives `caption.status="unavailable"` with metadata and `view_points` chapters; a listed but untrusted/unreadable subtitle is a failed read, not an absence. A capture-origin Bilibili item without captions becomes `needs_asr` (no server ASR hand-off, which is YouTube-only).
+  - `timestamp_url("bilibili", …)` keeps `p` above 1 plus `t` and drops every other query parameter. Part 1 links are unchanged. The server URL connector still rejects `p≠1`, so a later part can only be saved through capture.
+  - Player control targets the top frame: the bpx `window.player.getCurrentTime()`/`seek(t)` when present, else the main player's `<video>`/`<bwp-video>` element.
 - Existing `raw_format=json3` objects remain readable. New captured transcripts use `capture_v1` and the same bounded chunk/embed/completion path without a remote platform connector call.
 - A retry of a captured item reuses the latest tenant-matching `ready` `BrowserCapture` for that item even though the capture remains linked to the original dispatch attempt. It must not require that original dispatch to remain `running`, and it must never reuse another tenant's capture.
 - Captured transcripts above 512 cues skip per-cue semantic-boundary embedding and are chunked deterministically on gap/punctuation boundaries within the 80–200-word (130–330 CJK char) window, falling back to hard cuts, before embedding final searchable chunks. This bounds provider work for multi-hour recordings while preserving the 120-second hard segment boundary. See `ingestion-chunking-embedding.md`.
 - A packaged extension selects exactly one StashSeek Chat API origin through its exact manifest host permission. The production artifact allows only `https://notebookai.deequoique.tech/*`; a local qualification artifact allows only loopback `http://127.0.0.1:8000/*`, while the authenticated approval UI remains on `https://localhost:8443`. Never ship both API origins in one manifest, and audit each build target independently. Loopback HTTP avoids relying on browser exceptions for an untrusted local HTTPS issuer without widening access beyond the machine.
-- The renamed extension retains its manifest signing `key`, exact origin binding,
-  and extension ID. Its capture Bearer remains `capture:write` plus self-revoke;
-  product copy must not claim the popup can read the library or initiate chat.
-- Extension API fetches are bounded to 10 seconds and map timeout/network failures to stable safe popup errors. A missing, nearby, or ambiguous API host permission fails closed before pairing or capture; the popup must never remain indefinitely busy on an unreachable deployment.
+- The renamed extension keeps its manifest signing `key`, exact origin binding,
+  and extension ID.
+- Two credentials stay separate:
+  - The capture Bearer remains `capture:write` plus self-revoke.
+  - Library, chat, and page Q&A use the separate extension **session** Bearer
+    (`/api/v1/extension/auth/*`), never the capture Bearer.
+- Since 0.2.0 the toolbar action opens a `chrome.sidePanel`
+  (`side_panel.default_path = "sidepanel.html"`). There is no
+  `action.default_popup`.
+  - The manifest permissions are exactly `activeTab, scripting, storage,
+    sidePanel`, with `minimum_chrome_version: "114"`.
+  - `audit-package.mjs` asserts four things: the permission set, the side panel
+    path and file, the absence of a popup, and no inline or remote script in
+    `sidepanel.html`.
+  - The worker calls `chrome.sidePanel.setPanelBehavior({openPanelOnActionClick: true})`
+    on install and on startup.
+- Worker commands that pages of the extension may send (a closed union;
+  malformed input returns `invalid_command` or `unknown_command`):
+  - `READ_PAGE {tabId}` returns the `PageCapture` without submitting anything.
+  - `PLAYBACK {tabId}` returns `{playback_sec: number|null}`.
+  - `SEEK {tabId, start_sec}` accepts a finite value from 0 to 31,536,000. It
+    returns `{seeked:true}` or `seek_failed`.
+  - `SAVE_CAPTURE {page}` submits an already-read page through the same capture
+    path and pending idempotency-key reuse as `CAPTURE`.
+- Player control is a self-contained MAIN-world `controlPlayer(seekSec, kind)`:
+  - **YouTube:** `#movie_player.seekTo`, then the `<video>` fallback. A playing
+    ad counts as no video.
+  - **Kaltura:** first probes `allFrames`, then seeks only the frame that holds
+    the player.
+  - The side panel seeks only while the active tab still shows the video a
+    citation belongs to. Otherwise it opens the citation URL in a new tab.
+- The YouTube adapter fills `metadata.description` from
+  `videoDetails.shortDescription` (≤50,000 chars).
+  - It fills `metadata.chapters` from player-bar markers only when
+    `ytInitialData.currentVideoEndpoint` names the same video, because SPA
+    navigation leaves `ytInitialData` stale.
+  - Chapters use `{title, start_sec, end_sec|null}`. Ingest's `chunk()` accepts
+    both this shape and yt-dlp `start_time`/`end_time`.
+- Extension API fetches are bounded to 10 seconds and map timeout or network
+  failures to stable, safe panel errors. A missing, nearby, or ambiguous API
+  host permission fails closed before pairing or capture. The panel must never
+  stay busy indefinitely on an unreachable deployment.
 - Persisted extension pairing/grant state is bound to the selected API origin. Switching between production and local artifacts clears cross-target credentials before any request; legacy state without an origin may be adopted only by the original production target.
 
 ## 4. Validation & Error Matrix
@@ -82,7 +127,19 @@ BrowserCompanionPairing -> BrowserCompanionGrant -> BrowserCapture -> IngestDisp
 - API tests: exact extension CORS, the narrow missing-Origin MV3 status exception, missing-Origin rejection on every extension mutation, preflight methods/headers, capture Bearer vs Web cookie, Web CSRF, protocol-version error, public-only responses, and request ceiling.
 - Submission/worker tests: quota/idempotency, object and broker compensation, available-to-ready, unavailable-to-`needs_asr`, no connector call, no duplicate object put, completion event, and deletion race.
 - Migration checks: model/DDL parity, forward-compatible `ntu_kaltura`, `raw_format` default, downgrade retaining the enum value, and exactly one Alembic head.
-- Extension gates: strict TypeScript, lint, fixture adapter tests, production and local builds, per-target exact permission audits, API-origin/timeout tests, no source maps/secrets, unpacked YouTube and NTULearn/Kaltura smoke.
+- Extension gates:
+  - strict TypeScript, lint, and fixture adapter tests;
+  - production and local builds, each with its own exact permission audit
+    (including `sidePanel`, with no popup);
+  - API-origin and timeout tests;
+  - no source maps or secrets;
+  - an unpacked YouTube and NTULearn/Kaltura smoke test.
+- Player-control tests:
+  - `controlPlayer` survives serialization into a fresh JS context;
+  - Kaltura multi-frame probe and seek target only the player frame;
+  - `SAVE_CAPTURE` reuses the pending idempotency key without re-reading.
+- Chapter test: a capture with `start_sec`/`end_sec` chapters, including a
+  null last end, ingests without `KeyError`.
 
 ## 7. Wrong vs Correct
 

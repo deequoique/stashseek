@@ -4,8 +4,10 @@
 
 Apply this contract when changing Bilibili URL admission, yt-dlp metadata or
 subtitle ingestion, SRT storage/reading, Bilibili citations, or public Web
-capabilities. Browser-companion page capture remains a separate follow-up and
-must not be implied by server URL support.
+capabilities. Browser-companion page capture (the `bilibili` platform of
+capture.v1, side-panel Q&A and the login-only subtitles this connector hands to
+the browser) is a separate path described in `browser-companion-capture.md`;
+server URL support alone must not imply it.
 
 ## 2. URL Contract
 

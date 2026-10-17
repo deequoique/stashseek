@@ -1,4 +1,4 @@
-import type { Cue, PageCapture } from "./protocol.js";
+import type { Cue, PageCapture, Platform } from "./protocol.js";
 
 type SafeCaptureError =
   | "unsupported_page"
@@ -6,6 +6,7 @@ type SafeCaptureError =
   | "kaltura_entry_missing"
   | "caption_fetch_failed"
   | "caption_parse_failed"
+  | "caption_player_not_ready"
   | "stale_player_response";
 
 export type CaptureAttempt =
@@ -22,6 +23,7 @@ const SAFE_ERRORS = new Set<SafeCaptureError>([
   "kaltura_entry_missing",
   "caption_fetch_failed",
   "caption_parse_failed",
+  "caption_player_not_ready",
   "stale_player_response",
 ]);
 
@@ -69,6 +71,12 @@ function isPublicCaptureUrl(
       parsed.searchParams.forEach((_value, key) => { if (key !== "v") onlyVideoId = false; });
       return parsed.pathname === "/watch" && parsed.searchParams.get("v") === platformId && onlyVideoId;
     }
+    if (platform === "bilibili") {
+      if (parsed.hostname !== "www.bilibili.com" || parsed.pathname !== `/video/${platformId}`) return false;
+      if (field === "canonical") return !parsed.search;
+      // A page URL keeps only a part index above 1.
+      return !parsed.search || /^\?p=(?:[2-9]|[1-9][0-9]{1,3})$/.test(parsed.search);
+    }
     const canonicalHost = parsed.hostname === "ntulearn.ntu.edu.sg"
       || parsed.hostname === "ntulearnvideo.ntu.edu.sg";
     const pageHost = canonicalHost || parsed.hostname === "ntulearnv1.ntu.edu.sg";
@@ -82,9 +90,10 @@ function isPublicCaptureUrl(
 function isPageCapture(value: unknown): value is PageCapture {
   if (!value || typeof value !== "object") return false;
   const capture = value as Record<string, unknown>;
-  if (capture.platform !== "youtube" && capture.platform !== "ntu_kaltura") return false;
+  if (capture.platform !== "youtube" && capture.platform !== "ntu_kaltura" && capture.platform !== "bilibili") return false;
   if (typeof capture.platform_id !== "string") return false;
   if (capture.platform === "youtube" && !/^[A-Za-z0-9_-]{11}$/.test(capture.platform_id)) return false;
+  if (capture.platform === "bilibili" && !/^(?:BV[0-9A-Za-z]{10}|av[0-9]{1,20})$/.test(capture.platform_id)) return false;
   if (capture.platform === "ntu_kaltura" && !/^[0-9]+_[A-Za-z0-9]+$/.test(capture.platform_id)) return false;
   if (!isPublicCaptureUrl(capture.canonical_url, capture.platform, capture.platform_id, "canonical")
     || !isPublicCaptureUrl(capture.page_url, capture.platform, capture.platform_id, "page")) return false;
@@ -103,7 +112,8 @@ function isPageCapture(value: unknown): value is PageCapture {
   if (metadataRecord.cover_url !== null) {
     try {
       const cover = new URL(metadataRecord.cover_url as string);
-      const expectedHost = capture.platform === "youtube" && cover.hostname === "i.ytimg.com";
+      const expectedHost = (capture.platform === "youtube" && cover.hostname === "i.ytimg.com")
+        || (capture.platform === "bilibili" && (cover.hostname === "hdslb.com" || cover.hostname.endsWith(".hdslb.com")));
       if (!expectedHost || cover.search || cover.hash || cover.username || cover.password) return false;
     } catch {
       return false;
@@ -146,7 +156,8 @@ function isPageCapture(value: unknown): value is PageCapture {
     && captionRecord.cues.length === 0;
 }
 
-function normalizePageCapture(value: unknown): PageCapture | null {
+/** Validates and rebuilds a capture so only the public capture.v1 fields survive. */
+export function normalizePageCapture(value: unknown): PageCapture | null {
   try {
     const cloned = structuredClone(value);
     if (!isPageCapture(cloned)) return null;
@@ -226,7 +237,7 @@ function normalizeAttempt(value: unknown): CaptureAttempt | null {
   }
 }
 
-function aggregateAttempts(platform: "youtube" | "ntu_kaltura", values: unknown[]): PageCapture {
+function aggregateAttempts(platform: Platform, values: unknown[]): PageCapture {
   const attempts = values.map(normalizeAttempt).filter((attempt): attempt is CaptureAttempt => attempt !== null);
   const captures = attempts.flatMap((attempt) => (attempt.status === "captured" || attempt.status === "no_caption") ? [attempt.capture] : []);
   const selected = selectBestCapture(captures);
@@ -243,10 +254,11 @@ function aggregateAttempts(platform: "youtube" | "ntu_kaltura", values: unknown[
   throw new Error(failures[0] ?? "capture_unavailable");
 }
 
-export async function captureActivePage(tabId: number, url: string): Promise<PageCapture> {
+/** Maps a tab URL to the supported media adapter, or null for any other page. */
+export function classifyPageUrl(url: string): Platform | null {
   let parsed: URL;
-  try { parsed = new URL(url); } catch { throw new Error("unsupported_page"); }
-  if (parsed.protocol !== "https:") throw new Error("unsupported_page");
+  try { parsed = new URL(url); } catch { return null; }
+  if (parsed.protocol !== "https:") return null;
 
   const host = parsed.hostname.toLowerCase();
   const youtubeHost = host === "www.youtube.com" || host === "youtube.com" || host === "youtu.be";
@@ -257,10 +269,37 @@ export async function captureActivePage(tabId: number, url: string): Promise<Pag
   const kalturaHost = host === "ntulearn.ntu.edu.sg"
     || host === "ntulearnvideo.ntu.edu.sg"
     || host === "ntulearnv1.ntu.edu.sg";
-  const injection = youtubeHost && youtubeShape ? captureYouTubePage : kalturaHost ? captureKalturaPage : null;
-  if (!injection) throw new Error("unsupported_page");
+  if (youtubeHost && youtubeShape) return "youtube";
+  if (bilibiliVideoRef(url)) return "bilibili";
+  return kalturaHost ? "ntu_kaltura" : null;
+}
 
-  const allFrames = kalturaHost;
+/**
+ * The normalized id (`BV…` or `av…`, as the server connector derives it) and the
+ * 1-based part of a Bilibili video page URL, or null for any other URL. An absent
+ * or malformed `p` means part 1, as on Bilibili itself.
+ */
+export function bilibiliVideoRef(url: string): { id: string; part: number } | null {
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return null; }
+  if (parsed.protocol !== "https:" || parsed.hostname.toLowerCase() !== "www.bilibili.com") return null;
+  const match = /^\/video\/((?:[aA][vV])[0-9]{1,20}|(?:[bB][vV])[0-9A-Za-z]{10})\/?$/.exec(parsed.pathname);
+  if (!match) return null;
+  const raw = match[1]!;
+  const id = (raw.slice(0, 2).toLowerCase() === "bv" ? "BV" : "av") + raw.slice(2);
+  const values = parsed.searchParams.getAll("p");
+  const part = values.length === 1 && /^[1-9][0-9]{0,3}$/.test(values[0]!) ? Number(values[0]) : 1;
+  return { id, part };
+}
+
+export async function captureActivePage(tabId: number, url: string): Promise<PageCapture> {
+  const kind = classifyPageUrl(url);
+  if (!kind) throw new Error("unsupported_page");
+  const injection = kind === "youtube" ? captureYouTubePage
+    : kind === "bilibili" ? captureBilibiliPage
+      : captureKalturaPage;
+
+  const allFrames = kind === "ntu_kaltura";
   let results: unknown[];
   try {
     results = await chrome.scripting.executeScript({
@@ -290,7 +329,7 @@ export async function captureActivePage(tabId: number, url: string): Promise<Pag
       return [];
     }
   });
-  return aggregateAttempts(youtubeHost ? "youtube" : "ntu_kaltura", values);
+  return aggregateAttempts(kind, values);
 }
 
 /** MAIN-world YouTube adapter; keep this function self-contained for MV3. */
@@ -555,12 +594,96 @@ export async function captureYouTubePage(): Promise<CaptureAttempt> {
     const author = typeof details.author === "string" ? clean(details.author).slice(0, 1000) || null : null;
     const durationValue = Number(details.lengthSeconds);
     const duration = Number.isFinite(durationValue) && durationValue >= 0 ? Math.floor(durationValue) : null;
+    // The description keeps its line structure; only control characters are dropped.
+    const description = (() => {
+      if (typeof details.shortDescription !== "string") return null;
+      const text = Array.from(details.shortDescription.replace(/\r\n?/g, "\n"))
+        .filter((character) => {
+          const code = character.codePointAt(0) ?? 0;
+          return code === 9 || code === 10 || (code >= 32 && code !== 127);
+        })
+        .join("")
+        .trim()
+        .slice(0, 50_000)
+        .trim();
+      return text || null;
+    })();
+    // Best-effort chapters from the player-bar markers. YouTube's SPA navigation
+    // does not refresh `ytInitialData`, so it is only trusted while it still
+    // describes this video; any other shape yields no chapters.
+    const chapters = ((): PageCapture["metadata"]["chapters"] => {
+      try {
+        const data = page.ytInitialData;
+        if (!data || typeof data !== "object") return [];
+        const endpoint = (data as Record<string, unknown>).currentVideoEndpoint;
+        const watchEndpoint = endpoint && typeof endpoint === "object"
+          ? (endpoint as Record<string, unknown>).watchEndpoint
+          : null;
+        const dataVideoId = watchEndpoint && typeof watchEndpoint === "object"
+          ? (watchEndpoint as Record<string, unknown>).videoId
+          : null;
+        if (dataVideoId !== id) return [];
+        const markerLists: Array<{ key: string; items: unknown[] }> = [];
+        const queue: unknown[] = [data];
+        const seen = new Set<unknown>();
+        for (let inspected = 0; inspected < queue.length && inspected < 50_000; inspected += 1) {
+          const value = queue[inspected];
+          if (!value || typeof value !== "object" || seen.has(value)) continue;
+          seen.add(value);
+          const record = value as Record<string, unknown>;
+          if (Array.isArray(record.markersMap)) {
+            for (const entry of record.markersMap) {
+              if (!entry || typeof entry !== "object") continue;
+              const marker = entry as Record<string, unknown>;
+              const markerValue = marker.value && typeof marker.value === "object" ? marker.value as Record<string, unknown> : null;
+              if (typeof marker.key === "string" && markerValue && Array.isArray(markerValue.chapters)) {
+                markerLists.push({ key: marker.key, items: markerValue.chapters });
+              }
+            }
+          }
+          if (Array.isArray(value)) queue.push(...value);
+          else queue.push(...Object.values(record));
+        }
+        const preferred = markerLists.find((list) => list.key === "DESCRIPTION_CHAPTERS")
+          ?? markerLists.find((list) => list.key === "AUTO_CHAPTERS")
+          ?? markerLists[0];
+        if (!preferred) return [];
+        const parsed: Array<{ title: string; start_sec: number }> = [];
+        for (const item of preferred.items.slice(0, 2_000)) {
+          const renderer = item && typeof item === "object" ? (item as Record<string, unknown>).chapterRenderer : null;
+          if (!renderer || typeof renderer !== "object") continue;
+          const fields = renderer as Record<string, unknown>;
+          const titleObject = fields.title && typeof fields.title === "object" ? fields.title as Record<string, unknown> : {};
+          const runs = Array.isArray(titleObject.runs) ? titleObject.runs as Array<Record<string, unknown> | null> : [];
+          const rawTitle = typeof titleObject.simpleText === "string"
+            ? titleObject.simpleText
+            : runs.map((run) => typeof run?.text === "string" ? run.text : "").join("");
+          const chapterTitle = clean(rawTitle).slice(0, 500).trim();
+          const rawStart = fields.timeRangeStartMillis;
+          const startMs = typeof rawStart === "number" ? rawStart
+            : typeof rawStart === "string" && /^\d+$/.test(rawStart) ? Number(rawStart) : Number.NaN;
+          if (!chapterTitle || !Number.isFinite(startMs) || startMs < 0) continue;
+          parsed.push({ title: chapterTitle, start_sec: startMs / 1000 });
+        }
+        const ordered = parsed
+          .sort((left, right) => left.start_sec - right.start_sec)
+          .filter((chapter, index, all) => index === 0 || chapter.start_sec > all[index - 1]!.start_sec)
+          .slice(0, 1_000);
+        return ordered.map((chapter, index) => ({
+          title: chapter.title,
+          start_sec: chapter.start_sec,
+          end_sec: ordered[index + 1]?.start_sec ?? (duration !== null && duration >= chapter.start_sec ? duration : null),
+        }));
+      } catch {
+        return [];
+      }
+    })();
     const baseCapture = (caption: PageCapture["caption"]): PageCapture => ({
       platform: "youtube",
       platform_id: id,
       canonical_url: `https://www.youtube.com/watch?v=${id}`,
       page_url: `https://www.youtube.com/watch?v=${id}`,
-      metadata: { title, author, duration_sec: duration, language: caption.status === "available" ? caption.language : null, description: null, cover_url: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, tags: [], chapters: [] },
+      metadata: { title, author, duration_sec: duration, language: caption.status === "available" ? caption.language : null, description, cover_url: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, tags: [], chapters },
       caption,
     });
     if (!tracks.length) return { status: "no_caption", capture: baseCapture({ status: "unavailable", source: null, language: null, cues: [] }) };
@@ -700,6 +823,150 @@ export async function captureYouTubePage(): Promise<CaptureAttempt> {
         capture: baseCapture({ status: "available", source: isAuto(track) ? "auto_caption" : "official_cc", language, cues }),
       };
     };
+    // Caption URLs in the player response carry no proof-of-origin token (`pot`):
+    // /api/timedtext answers them with 200 and an empty body. The player adds
+    // `pot` and client parameters to its own timedtext requests, so lift them
+    // from such a request for this video. The values stay inside this function:
+    // they are applied to caption fetches and never returned, stored or logged.
+    type PotParams = Array<[string, string]>;
+    type CaptionPlayer = {
+      getOption?: (namespace: string, option: string) => unknown;
+      setOption?: (namespace: string, option: string, value?: unknown) => unknown;
+      loadModule?: (name: string) => unknown;
+      unloadModule?: (name: string) => unknown;
+      toggleSubtitles?: () => unknown;
+      toggleSubtitlesOn?: () => unknown;
+    };
+    const POT_CLIENT_KEYS = ["potc", "c", "cver", "cplayer", "cos", "cosver", "cplatform", "cbr", "cbrver", "cbrand", "xorb", "xobt", "xovt"];
+    const MAX_POT_PARAM_CHARS = 2_048;
+    const POT_WAIT_MS = 3_500;
+    const POT_REAPPLY_AFTER_MS = 1_200;
+    const potParamsFromUrl = (value: unknown): PotParams | null => {
+      if (typeof value !== "string" || value.length > 16_384 || !value.includes("/api/timedtext")) return null;
+      try {
+        const url = new URL(value, currentUrl);
+        const host = url.hostname.toLowerCase();
+        if (url.protocol !== "https:" || url.username || url.password
+          || !(host === "youtube.com" || host.endsWith(".youtube.com")) || url.pathname !== "/api/timedtext") return null;
+        if (url.searchParams.get("v") !== id) return null;
+        const pot = url.searchParams.get("pot");
+        if (!pot || pot.length > MAX_POT_PARAM_CHARS) return null;
+        const params: PotParams = [["pot", pot]];
+        for (const key of POT_CLIENT_KEYS) {
+          const found = url.searchParams.get(key);
+          if (found !== null && found.length <= MAX_POT_PARAM_CHARS) params.push([key, found]);
+        }
+        return params;
+      } catch {
+        return null;
+      }
+    };
+    const potFromResources = (): PotParams | null => {
+      try {
+        const timing = page.performance;
+        if (!timing || typeof timing.getEntriesByType !== "function") return null;
+        const entries = timing.getEntriesByType("resource");
+        for (let index = entries.length - 1; index >= 0; index -= 1) {
+          const params = potParamsFromUrl(entries[index]?.name);
+          if (params) return params;
+        }
+      } catch { /* Resource timing is best effort. */ }
+      return null;
+    };
+    const adShowing = (): boolean => {
+      try {
+        const element = typeof document.getElementById === "function" ? document.getElementById("movie_player") : null;
+        return Boolean(element?.classList?.contains("ad-showing"));
+      } catch {
+        return false;
+      }
+    };
+    const captionPlayer = ([playerElement, page.movie_player] as unknown[]).find(
+      (holder): holder is CaptionPlayer => Boolean(holder) && typeof (holder as CaptionPlayer).setOption === "function",
+    ) ?? null;
+    const activeCaptionTrack = (player: CaptionPlayer): Record<string, unknown> | null => {
+      try {
+        const value = player.getOption?.("captions", "track");
+        if (!value || typeof value !== "object") return null;
+        const language = (value as Record<string, unknown>).languageCode;
+        return typeof language === "string" && language.length > 0 ? value as Record<string, unknown> : null;
+      } catch {
+        return null;
+      }
+    };
+    const pause = (milliseconds: number) => new Promise<void>((resolve) => { setTimeout(resolve, milliseconds); });
+    // Briefly turns a caption track on so the player requests it, watches for that
+    // request, then puts the viewer's caption state back (also works while paused).
+    const discoverPotByEnablingCaptions = async (player: CaptionPlayer): Promise<PotParams | null> => {
+      const previous = activeCaptionTrack(player);
+      // With captions already on, ask for a different track so the player has to fetch again.
+      const requested = (previous ? ordered.find((track) => track.languageCode !== previous.languageCode) : undefined)
+        ?? ordered[0] ?? tracks[0]!;
+      const requestedLanguage = typeof requested.languageCode === "string" && requested.languageCode.length > 0
+        ? requested.languageCode
+        : null;
+      const trackOption = requestedLanguage
+        ? { languageCode: requestedLanguage, ...(isAuto(requested) ? { kind: "asr" } : {}) }
+        : null;
+      if (!trackOption && typeof player.toggleSubtitlesOn !== "function") return null;
+      const apply = (): void => {
+        if (trackOption) player.setOption?.("captions", "track", trackOption);
+        else player.toggleSubtitlesOn?.();
+      };
+      const seen: { params: PotParams | null } = { params: null };
+      let observer: PerformanceObserver | null = null;
+      let touched = false;
+      try {
+        const Observer = page.PerformanceObserver;
+        if (typeof Observer === "function") {
+          try {
+            observer = new Observer((list) => {
+              for (const entry of list.getEntries()) seen.params = potParamsFromUrl(entry.name) ?? seen.params;
+            });
+            observer.observe({ type: "resource" });
+          } catch {
+            observer = null;
+          }
+        }
+        touched = true;
+        try { player.loadModule?.("captions"); } catch { /* The module may already be loaded. */ }
+        apply();
+        const startedAt = Date.now();
+        const waitUntil = Math.min(startedAt + POT_WAIT_MS, captureDeadline - 2_500);
+        let reapplied = false;
+        while (!seen.params && Date.now() < waitUntil && isCurrentVideo()) {
+          await pause(100);
+          seen.params = seen.params ?? potFromResources();
+          if (!seen.params && !reapplied && Date.now() - startedAt >= POT_REAPPLY_AFTER_MS) {
+            reapplied = true;
+            try { apply(); } catch { /* Keep waiting for the first request. */ }
+          }
+        }
+      } catch { /* Restore the caption state below whatever happened. */ } finally {
+        try { observer?.disconnect(); } catch { /* Already disconnected. */ }
+        if (touched) {
+          try {
+            if (previous) player.setOption?.("captions", "track", previous);
+            else if (typeof player.unloadModule === "function") player.unloadModule("captions");
+            else player.toggleSubtitles?.();
+          } catch { /* Restoring the viewer's caption state is best effort. */ }
+        }
+      }
+      return seen.params;
+    };
+    let potParams: PotParams | null = potFromResources();
+    if (!potParams) {
+      // Never touch the captions while an ad owns the player; a retry follows the ad.
+      if (adShowing()) return fail("caption_player_not_ready");
+      if (captionPlayer) potParams = await discoverPotByEnablingCaptions(captionPlayer);
+    }
+    if (!isCurrentVideo()) return fail("stale_player_response");
+    const withPot = (url: URL): URL => {
+      const next = new URL(url);
+      for (const [key, value] of potParams ?? []) next.searchParams.set(key, value);
+      return next;
+    };
+
     const errors: SafeCaptureError[] = [];
     for (const track of ordered) {
       const rawUrl = typeof track.baseUrl === "string" ? track.baseUrl : "";
@@ -714,7 +981,7 @@ export async function captureYouTubePage(): Promise<CaptureAttempt> {
         errors.push("caption_fetch_failed");
         continue;
       }
-      const jsonUrl = new URL(baseCaptionUrl);
+      const jsonUrl = withPot(baseCaptionUrl);
       jsonUrl.searchParams.set("fmt", "json3");
       let jsonResponse: Response;
       try {
@@ -733,9 +1000,9 @@ export async function captureYouTubePage(): Promise<CaptureAttempt> {
       } catch { /* Try text formats using fresh requests. */ }
       errors.push("caption_parse_failed");
 
-      const vttUrl = new URL(baseCaptionUrl);
+      const vttUrl = withPot(baseCaptionUrl);
       vttUrl.searchParams.set("fmt", "vtt");
-      const fallbackUrls = Array.from(new Set([vttUrl.toString(), baseCaptionUrl.toString()]));
+      const fallbackUrls = Array.from(new Set([vttUrl.toString(), withPot(baseCaptionUrl).toString()]));
       for (const fallbackUrl of fallbackUrls) {
         let fallbackResponse: Response;
         try {
@@ -982,6 +1249,9 @@ export async function captureYouTubePage(): Promise<CaptureAttempt> {
       }
     }
     if (!isCurrentVideo()) return fail("stale_player_response");
+    // Without a pot the timed-text endpoints return empty bodies, so a failure
+    // here says nothing about the captions: the player just was not ready.
+    if (!potParams && (captionPlayer || playerElement || page.movie_player)) return fail("caption_player_not_ready");
     return fail(errors.includes("caption_fetch_failed") ? "caption_fetch_failed" : "caption_parse_failed");
   } catch {
     return fail("capture_unavailable");
@@ -1278,8 +1548,25 @@ export async function captureKalturaPage(): Promise<CaptureAttempt> {
         if (textRemaining <= 0) return { failure: "fetch" };
         if (timer !== undefined) clearTimeout(timer);
         timer = undefined;
+        const bodyPromise = typeof response.text === "function"
+          ? response.text()
+          : (async () => {
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error("caption_body_missing");
+            const chunks: Uint8Array[] = [];
+            while (true) {
+              const part = await reader.read();
+              if (part.done) break;
+              if (part.value) chunks.push(part.value);
+            }
+            const total = chunks.reduce((n, chunk) => n + chunk.length, 0);
+            const merged = new Uint8Array(total);
+            let offset = 0;
+            for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.length; }
+            return new TextDecoder().decode(merged);
+          })();
         const body = await Promise.race<string>([
-          response.text(),
+          bodyPromise,
           new Promise<string>((_resolve, reject) => {
             timer = setTimeout(() => {
               controller?.abort();
@@ -1507,4 +1794,561 @@ export async function captureKalturaPage(): Promise<CaptureAttempt> {
   } catch {
     return fail("capture_unavailable");
   }
+}
+
+/**
+ * MAIN-world Bilibili adapter; keep this function self-contained for MV3.
+ *
+ * Everything is read inside the page with the viewer's own session: the video's
+ * page state, the player API (which lists subtitles, including the AI subtitles
+ * that need a login) and the subtitle JSON. Signed subtitle URLs and cookies stay
+ * in this function; only cues and public metadata are returned.
+ */
+export async function captureBilibiliPage(): Promise<CaptureAttempt> {
+  type Rec = Record<string, unknown>;
+  type LocalCue = { start_sec: number; end_sec: number; text: string };
+  const MAX_BODY_BYTES = 4_000_000;
+  const MAX_CUES = 50_000;
+  const MAX_TEXT_CHARS = 1_000_000;
+  const MAX_SUBTITLE_TRIES = 3;
+  const REQUEST_MS = 6_000;
+  const deadline = Date.now() + 12_000;
+  const fail = (error: SafeCaptureError): CaptureAttempt => ({ status: "failed", error });
+  const asRecord = (value: unknown): Rec | null => (
+    value && typeof value === "object" && !Array.isArray(value) ? value as Rec : null
+  );
+  const clean = (value: string) => value
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+  const positiveInteger = (value: unknown): number | null => {
+    const number = typeof value === "number" ? value : typeof value === "string" && /^[0-9]{1,18}$/.test(value) ? Number(value) : Number.NaN;
+    return Number.isSafeInteger(number) && number > 0 ? number : null;
+  };
+  const hdslbHost = (host: string) => host === "hdslb.com" || host.endsWith(".hdslb.com");
+
+  try {
+    // Identity comes from the URL, normalized exactly like the server connector's
+    // platform id, so a captured video and a URL import reach one library item.
+    const locate = (): { id: string; part: number } | null => {
+      let url: URL;
+      try { url = new URL(location.href); } catch { return null; }
+      if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "www.bilibili.com") return null;
+      const match = /^\/video\/((?:[aA][vV])[0-9]{1,20}|(?:[bB][vV])[0-9A-Za-z]{10})\/?$/.exec(url.pathname);
+      if (!match) return null;
+      const raw = match[1]!;
+      const values = url.searchParams.getAll("p");
+      return {
+        id: (raw.slice(0, 2).toLowerCase() === "bv" ? "BV" : "av") + raw.slice(2),
+        part: values.length === 1 && /^[1-9][0-9]{0,3}$/.test(values[0]!) ? Number(values[0]) : 1,
+      };
+    };
+    const target = locate();
+    if (!target) return fail("unsupported_page");
+    const { id, part } = target;
+    const isCurrent = (): boolean => {
+      const now = locate();
+      return now !== null && now.id === id && now.part === part;
+    };
+
+    const withTimeout = <T>(work: () => Promise<T>, onTimeout: () => void): Promise<T> => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return Promise.reject(new Error("timeout"));
+      return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          try { onTimeout(); } catch { /* Aborting is best effort. */ }
+          reject(new Error("timeout"));
+        }, Math.min(REQUEST_MS, remaining));
+        Promise.resolve().then(work).then(
+          (value) => { clearTimeout(timer); resolve(value); },
+          (error: unknown) => { clearTimeout(timer); reject(error); },
+        );
+      });
+    };
+    const readBody = async (response: Response): Promise<string> => {
+      const declared = Number(response.headers?.get?.("content-length"));
+      if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) throw new Error("too_large");
+      const stream = response.body;
+      if (!stream || typeof stream.getReader !== "function") {
+        const text = await response.text();
+        if (text.length > MAX_BODY_BYTES) throw new Error("too_large");
+        return text;
+      }
+      const reader = stream.getReader();
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      try {
+        for (;;) {
+          const next = await reader.read();
+          if (next.done) break;
+          const chunk: unknown = next.value;
+          if (!ArrayBuffer.isView(chunk)) throw new Error("body_unavailable");
+          total += chunk.byteLength;
+          if (total > MAX_BODY_BYTES) {
+            try { void reader.cancel().catch(() => undefined); } catch { /* Already closed. */ }
+            throw new Error("too_large");
+          }
+          chunks.push(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+        }
+      } finally {
+        try { reader.releaseLock(); } catch { /* A consumed body is already released. */ }
+      }
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return new TextDecoder().decode(bytes);
+    };
+    // One bounded request. `credentials` is "include" only for api.bilibili.com;
+    // the signed subtitle CDN URL authenticates itself and is fetched without
+    // cookies. Every redirect target is revalidated against the trusted host.
+    const fetchText = async (url: URL, credentials: "include" | "omit", trusted: (host: string) => boolean): Promise<string> => {
+      if (url.protocol !== "https:" || url.username || url.password || !trusted(url.hostname.toLowerCase())) {
+        throw new Error("untrusted");
+      }
+      const controller = typeof AbortController === "function" ? new AbortController() : undefined;
+      return withTimeout(async () => {
+        const response = await fetch(url.toString(), { credentials, ...(controller ? { signal: controller.signal } : {}) });
+        if (!response.ok) throw new Error("http");
+        if (response.url) {
+          const final = new URL(response.url);
+          if (final.protocol !== "https:" || final.username || final.password || !trusted(final.hostname.toLowerCase())) {
+            try { void response.body?.cancel().catch(() => undefined); } catch { /* Nothing to cancel. */ }
+            throw new Error("untrusted");
+          }
+        }
+        return readBody(response);
+      }, () => controller?.abort());
+    };
+    const apiHost = (host: string) => host === "api.bilibili.com";
+    const fetchApi = async (path: string): Promise<Rec | null> => {
+      const text = await fetchText(new URL(`https://api.bilibili.com${path}`), "include", apiHost);
+      return asRecord(JSON.parse(text));
+    };
+
+    // 1. The video's data. The page's own state is only trusted while it still
+    // describes the video in the URL (Bilibili navigates between episodes without
+    // reloading); otherwise the public view API for this very id supplies it.
+    const sameVideo = (data: Rec | null): data is Rec => {
+      if (!data) return false;
+      return id.startsWith("BV") ? data.bvid === id : positiveInteger(data.aid) === Number(id.slice(2));
+    };
+    const readState = (): Rec | null => {
+      try { return asRecord((globalThis as typeof globalThis & { __INITIAL_STATE__?: unknown }).__INITIAL_STATE__); } catch { return null; }
+    };
+    const state = readState();
+    const stateVideo = asRecord(state?.videoData);
+    let video: Rec | null = sameVideo(stateVideo) ? stateVideo : null;
+    const fromState = video !== null;
+    if (!video) {
+      try {
+        const query = id.startsWith("BV") ? `bvid=${id}` : `aid=${id.slice(2)}`;
+        const viewed = await fetchApi(`/x/web-interface/view?${query}`);
+        const data = viewed?.code === 0 ? asRecord(viewed.data) : null;
+        if (sameVideo(data)) video = data;
+      } catch { /* Reported below as a stale or missing page state. */ }
+    }
+    if (!isCurrent()) return fail("stale_player_response");
+    if (!video) {
+      // A state describing another video is stale; a state without video data is
+      // not a page this adapter understands; no state yet means the page is loading.
+      return fail(stateVideo ? "stale_player_response" : state ? "capture_unavailable" : "caption_player_not_ready");
+    }
+
+    const pages = Array.isArray(video.pages) ? video.pages : [];
+    const partEntry = asRecord(pages[part - 1]);
+    if (part > 1 && (!partEntry || (partEntry.page !== undefined && partEntry.page !== part))) {
+      return fail("capture_unavailable");
+    }
+    const cid = positiveInteger(partEntry?.cid) ?? (part === 1 ? positiveInteger(video.cid) : null);
+    if (cid === null) return fail("capture_unavailable");
+    const aid = positiveInteger(video.aid);
+
+    const cleanedTitle = typeof video.title === "string" ? clean(video.title) : "";
+    const partName = typeof partEntry?.part === "string" ? clean(partEntry.part) : "";
+    const title = (pages.length > 1
+      ? `${cleanedTitle} p${String(part).padStart(2, "0")} ${partName}`.trim()
+      : cleanedTitle || (typeof document.title === "string" ? clean(document.title.replace(/[_-]\s*哔哩哔哩.*$/u, "")) : "")
+    ).slice(0, 1_000) || null;
+    const owner = asRecord(video.owner);
+    const uploader = fromState ? asRecord(state?.upData) : null;
+    const authorValue = typeof owner?.name === "string" ? owner.name : typeof uploader?.name === "string" ? uploader.name : "";
+    const author = clean(authorValue).slice(0, 1_000) || null;
+    const durationValue = partEntry?.duration ?? video.duration;
+    const duration = typeof durationValue === "number" && Number.isFinite(durationValue) && durationValue >= 0 && durationValue <= 31_536_000
+      ? Math.floor(durationValue)
+      : null;
+    // Bilibili stores "-" when a video has no description; control characters go.
+    const description = (() => {
+      if (typeof video.desc !== "string") return null;
+      const text = Array.from(video.desc.replace(/\r\n?/g, "\n"))
+        .filter((character) => {
+          const code = character.codePointAt(0) ?? 0;
+          return code === 9 || code === 10 || (code >= 32 && code !== 127);
+        })
+        .join("")
+        .trim()
+        .slice(0, 50_000)
+        .trim();
+      return text && text !== "-" ? text : null;
+    })();
+    const coverUrl = (() => {
+      if (typeof video.pic !== "string") return null;
+      try {
+        const cover = new URL(video.pic.trim().replace(/^http:/i, "https:"), "https://www.bilibili.com/");
+        if (cover.protocol !== "https:" || cover.username || cover.password || !hdslbHost(cover.hostname.toLowerCase())) return null;
+        const stripped = `https://${cover.hostname.toLowerCase()}${cover.pathname}`;
+        return stripped.length <= 2_048 ? stripped : null;
+      } catch {
+        return null;
+      }
+    })();
+    const tags = fromState && Array.isArray(state?.tags)
+      ? (state!.tags as unknown[]).flatMap((entry) => {
+        const name = asRecord(entry)?.tag_name;
+        const tag = typeof name === "string" ? clean(name).slice(0, 200) : "";
+        return tag ? [tag] : [];
+      }).filter((tag, index, all) => all.indexOf(tag) === index).slice(0, 20)
+      : [];
+
+    // 2. The player API lists this part's subtitles and chapters. No request
+    // signature is needed; the viewer's cookies unlock login-only subtitles.
+    let info: Rec | null;
+    try {
+      const query = aid !== null ? `aid=${aid}` : `bvid=${encodeURIComponent(String(video.bvid))}`;
+      info = await fetchApi(`/x/player/wbi/v2?${query}&cid=${cid}`);
+    } catch (error) {
+      return fail(error instanceof SyntaxError ? "caption_parse_failed" : "caption_fetch_failed");
+    }
+    if (!info || info.code !== 0) return fail("caption_fetch_failed");
+    const data = asRecord(info.data);
+    if (!isCurrent()) return fail("stale_player_response");
+
+    const chapters = ((): PageCapture["metadata"]["chapters"] => {
+      const points = Array.isArray(data?.view_points) ? data!.view_points as unknown[] : [];
+      const parsed: Array<{ title: string; start_sec: number }> = [];
+      for (const entry of points.slice(0, 2_000)) {
+        const point = asRecord(entry);
+        const chapterTitle = typeof point?.content === "string" ? clean(point.content).slice(0, 500) : "";
+        const from = point?.from;
+        if (!chapterTitle || typeof from !== "number" || !Number.isFinite(from) || from < 0) continue;
+        parsed.push({ title: chapterTitle, start_sec: from });
+      }
+      const ordered = parsed
+        .sort((left, right) => left.start_sec - right.start_sec)
+        .filter((chapter, index, all) => index === 0 || chapter.start_sec > all[index - 1]!.start_sec)
+        .slice(0, 1_000);
+      return ordered.map((chapter, index) => ({
+        title: chapter.title,
+        start_sec: chapter.start_sec,
+        end_sec: ordered[index + 1]?.start_sec ?? (duration !== null && duration >= chapter.start_sec ? duration : null),
+      }));
+    })();
+    const baseCapture = (caption: PageCapture["caption"]): PageCapture => ({
+      platform: "bilibili",
+      platform_id: id,
+      canonical_url: `https://www.bilibili.com/video/${id}`,
+      page_url: part > 1 ? `https://www.bilibili.com/video/${id}?p=${part}` : `https://www.bilibili.com/video/${id}`,
+      metadata: {
+        title,
+        author,
+        duration_sec: duration,
+        language: caption.status === "available" ? caption.language : null,
+        description,
+        cover_url: coverUrl,
+        tags,
+        chapters,
+      },
+      caption,
+    });
+
+    // 3. Pick subtitles: human before AI, Chinese before other languages.
+    type Track = { url: URL; language: string; auto: boolean; rank: number };
+    const subtitleBlock = asRecord(data?.subtitle);
+    const listed = Array.isArray(subtitleBlock?.subtitles) ? subtitleBlock!.subtitles as unknown[] : [];
+    const tracks: Track[] = [];
+    let refused = 0;
+    for (const entry of listed.slice(0, 50)) {
+      const item = asRecord(entry);
+      const lan = typeof item?.lan === "string" ? item.lan.trim().toLowerCase().replace(/_/g, "-") : "";
+      const rawUrl = typeof item?.subtitle_url === "string" ? item.subtitle_url.trim() : "";
+      if (!lan || !rawUrl || rawUrl.length > 4_096) continue;
+      let url: URL;
+      try {
+        url = new URL(rawUrl.startsWith("//") ? `https:${rawUrl}` : rawUrl.replace(/^http:/i, "https:"));
+      } catch {
+        refused += 1;
+        continue;
+      }
+      if (url.protocol !== "https:" || url.username || url.password || !hdslbHost(url.hostname.toLowerCase())) {
+        refused += 1;
+        continue;
+      }
+      const auto = lan.startsWith("ai-");
+      const base = (auto ? lan.slice(3) : lan).split("-")[0] ?? "";
+      tracks.push({ url, language: base || "und", auto, rank: (auto ? 2 : 0) + (base === "zh" ? 0 : 1) });
+    }
+    if (!tracks.length) {
+      // Subtitles that were listed but not trusted are a failed read, not an absence.
+      return refused > 0
+        ? fail("caption_fetch_failed")
+        : { status: "no_caption", capture: baseCapture({ status: "unavailable", source: null, language: null, cues: [] }) };
+    }
+    tracks.sort((left, right) => left.rank - right.rank);
+
+    const parseSubtitle = (body: unknown): LocalCue[] => {
+      const lines = Array.isArray(asRecord(body)?.body) ? asRecord(body)!.body as unknown[] : [];
+      const cues: LocalCue[] = [];
+      for (const entry of lines) {
+        const line = asRecord(entry);
+        const from = line?.from;
+        const to = line?.to;
+        const text = typeof line?.content === "string" ? clean(line.content) : "";
+        if (typeof from !== "number" || !Number.isFinite(from) || from < 0 || !text || text.length > 10_000) continue;
+        const end = typeof to === "number" && Number.isFinite(to) ? Math.max(to, from) : from;
+        cues.push({ start_sec: from, end_sec: end, text });
+      }
+      return cues.sort((left, right) => left.start_sec - right.start_sec);
+    };
+    const errors: SafeCaptureError[] = [];
+    for (const track of tracks.slice(0, MAX_SUBTITLE_TRIES)) {
+      let text: string;
+      try {
+        text = await fetchText(track.url, "omit", hdslbHost);
+      } catch {
+        errors.push("caption_fetch_failed");
+        continue;
+      }
+      let cues: LocalCue[];
+      try {
+        cues = parseSubtitle(JSON.parse(text));
+      } catch {
+        errors.push("caption_parse_failed");
+        continue;
+      }
+      if (!cues.length) {
+        errors.push("caption_parse_failed");
+        continue;
+      }
+      if (cues.length > MAX_CUES || cues.reduce((total, cue) => total + cue.text.length, 0) > MAX_TEXT_CHARS) {
+        errors.push("caption_parse_failed");
+        continue;
+      }
+      if (!isCurrent()) return fail("stale_player_response");
+      return {
+        status: "captured",
+        capture: baseCapture({ status: "available", source: track.auto ? "auto_caption" : "official_cc", language: track.language, cues }),
+      };
+    }
+    return fail(errors.includes("caption_fetch_failed") ? "caption_fetch_failed" : "caption_parse_failed");
+  } catch {
+    return fail("capture_unavailable");
+  }
+}
+
+const MAX_SEEK_SEC = 31_536_000;
+
+/** True for a playback position the player helpers accept: finite, non-negative, at most one year. */
+export function isSeekSeconds(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_SEEK_SEC;
+}
+
+export type PlayerProbe =
+  | { status: "no_video" }
+  | { status: "video"; current_sec: number; ready: boolean; playing: boolean; seeked: boolean };
+
+type VideoProbe = Extract<PlayerProbe, { status: "video" }>;
+
+/**
+ * MAIN-world player probe and seek; keep this function self-contained for MV3
+ * (Chrome serialises `func`, so it may use only its own arguments and globals).
+ * With `seekSec === null` it only reads the position of this frame's video.
+ */
+export function controlPlayer(seekSec: number | null, kind: Platform): PlayerProbe {
+  type SeekablePlayer = { seekTo?: (seconds: number, allowSeekAhead: boolean) => void };
+  type BilibiliPlayer = { seek?: (seconds: number) => unknown; getCurrentTime?: () => unknown };
+  try {
+    if (typeof document.querySelectorAll !== "function") return { status: "no_video" };
+    const moviePlayer = kind === "youtube" && typeof document.getElementById === "function"
+      ? document.getElementById("movie_player")
+      : null;
+    let candidates: HTMLVideoElement[];
+    if (kind === "youtube") {
+      // While an ad plays, the main video element holds the ad, not the page's video.
+      if (moviePlayer?.classList?.contains("ad-showing")) return { status: "no_video" };
+      // Hover previews elsewhere on the page also use <video>; only the main player counts.
+      const main = Array.from(document.querySelectorAll("video.html5-main-video"));
+      candidates = (main.length ? main : Array.from(document.querySelectorAll("#movie_player video"))) as HTMLVideoElement[];
+    } else if (kind === "bilibili") {
+      // The player renders a <video> or a <bwp-video> element (both expose the media
+      // API). Hover previews on other cards also use <video>, so the main player's
+      // wrapper wins and the whole page is only a fallback.
+      const main = Array.from(document.querySelectorAll(
+        ".bpx-player-video-wrap video, .bpx-player-video-wrap bwp-video, #bilibili-player video, #bilibili-player bwp-video, #bilibiliPlayer video, #bilibiliPlayer bwp-video",
+      ));
+      candidates = (main.length ? main : Array.from(document.querySelectorAll("video, bwp-video"))) as HTMLVideoElement[];
+    } else {
+      candidates = Array.from(document.querySelectorAll("video")) as HTMLVideoElement[];
+    }
+    const entries = candidates.map((video) => {
+      const duration = Number(video.duration);
+      const known = Number.isFinite(duration) && duration > 0;
+      const ready = video.readyState >= 1 && known;
+      return { video, duration: known ? duration : null, ready, playing: ready && !video.paused && !video.ended };
+    });
+    const rank = (entry: (typeof entries)[number]) => (entry.ready ? 2 : 0) + (entry.playing ? 1 : 0);
+    const best = entries.reduce<(typeof entries)[number] | undefined>(
+      (chosen, entry) => (!chosen || rank(entry) > rank(chosen) ? entry : chosen),
+      undefined,
+    );
+    if (!best) return { status: "no_video" };
+
+    let seeked = false;
+    if (seekSec !== null) {
+      const target = best.duration !== null ? Math.min(seekSec, best.duration) : seekSec;
+      if (kind === "youtube") {
+        const global = globalThis as typeof globalThis & { movie_player?: SeekablePlayer };
+        const player = (moviePlayer as unknown as SeekablePlayer | null) ?? global.movie_player;
+        try {
+          if (player && typeof player.seekTo === "function") {
+            player.seekTo(target, true);
+            seeked = true;
+          }
+        } catch { /* Fall back to the media element below. */ }
+      }
+      if (kind === "bilibili") {
+        const player = (globalThis as typeof globalThis & { player?: BilibiliPlayer }).player;
+        try {
+          if (player && typeof player.seek === "function") {
+            player.seek(target);
+            seeked = true;
+          }
+        } catch { /* Fall back to the media element below. */ }
+      }
+      if (!seeked) {
+        try {
+          best.video.currentTime = target;
+          seeked = true;
+        } catch { /* A page-owned element may refuse the assignment. */ }
+      }
+    }
+    let current = Number(best.video.currentTime);
+    if (kind === "bilibili" && seekSec === null) {
+      try {
+        const player = (globalThis as typeof globalThis & { player?: BilibiliPlayer }).player;
+        const reported = typeof player?.getCurrentTime === "function" ? Number(player.getCurrentTime()) : Number.NaN;
+        if (Number.isFinite(reported) && reported >= 0) current = reported;
+      } catch { /* The media element's position stands. */ }
+    }
+    return {
+      status: "video",
+      current_sec: Number.isFinite(current) && current >= 0 ? current : 0,
+      ready: best.ready,
+      playing: best.playing,
+      seeked,
+    };
+  } catch {
+    return { status: "no_video" };
+  }
+}
+
+type FrameProbe = { frameId: number | null; probe: VideoProbe };
+type FrameTarget = { allFrames?: boolean; frameIds?: number[] };
+
+function parseVideoProbe(value: unknown): VideoProbe | null {
+  try {
+    if (!value || typeof value !== "object") return null;
+    const probe = value as Record<string, unknown>;
+    if (probe.status !== "video") return null;
+    if (!isSeekSeconds(probe.current_sec)) return null;
+    if (typeof probe.ready !== "boolean" || typeof probe.playing !== "boolean" || typeof probe.seeked !== "boolean") return null;
+    return { status: "video", current_sec: probe.current_sec, ready: probe.ready, playing: probe.playing, seeked: probe.seeked };
+  } catch {
+    return null;
+  }
+}
+
+async function runPlayerProbe(
+  tabId: number,
+  target: FrameTarget,
+  kind: Platform,
+  seekSec: number | null,
+): Promise<FrameProbe[]> {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId, ...target },
+    world: "MAIN",
+    func: controlPlayer,
+    args: [seekSec, kind],
+  }) as unknown as unknown[];
+  return results.flatMap((entry) => {
+    try {
+      if (!entry || typeof entry !== "object") return [];
+      const frame = entry as { frameId?: unknown; result?: unknown };
+      const probe = parseVideoProbe(frame.result);
+      if (!probe) return [];
+      return [{ frameId: typeof frame.frameId === "number" && Number.isInteger(frame.frameId) && frame.frameId >= 0 ? frame.frameId : null, probe }];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** Reads every frame; a rejected all-frames call (one inaccessible frame) retries the top frame only. */
+async function probeFrames(tabId: number, kind: Platform, seekSec: number | null, targets: FrameTarget[]): Promise<FrameProbe[]> {
+  for (const target of targets) {
+    try {
+      return await runPlayerProbe(tabId, target, kind, seekSec);
+    } catch { /* Try the next, narrower target. */ }
+  }
+  return [];
+}
+
+function playerTargets(kind: Platform): FrameTarget[] {
+  // The Kaltura player lives in a cross-origin frame; YouTube's and Bilibili's are in the top frame.
+  return kind === "ntu_kaltura" ? [{ allFrames: true }, { allFrames: false }] : [{ allFrames: false }];
+}
+
+function bestFrame(frames: FrameProbe[]): FrameProbe | undefined {
+  const rank = (frame: FrameProbe) => (frame.probe.ready ? 2 : 0) + (frame.probe.playing ? 1 : 0);
+  return frames.reduce<FrameProbe | undefined>((best, frame) => {
+    if (!best || rank(frame) > rank(best)) return frame;
+    if (rank(frame) === rank(best) && (frame.frameId ?? Infinity) < (best.frameId ?? Infinity)) return frame;
+    return best;
+  }, undefined);
+}
+
+/** Current playback position in seconds, or null when the page has no ready video. */
+export async function readPlaybackSeconds(tabId: number, url: string): Promise<number | null> {
+  const kind = classifyPageUrl(url);
+  if (!kind) throw new Error("unsupported_page");
+  const best = bestFrame(await probeFrames(tabId, kind, null, playerTargets(kind)));
+  return best?.probe.ready ? Math.round(best.probe.current_sec * 1000) / 1000 : null;
+}
+
+/** Seeks the page's player; rejects with `seek_failed` when no player accepted the position. */
+export async function seekPlayback(tabId: number, url: string, startSec: number): Promise<void> {
+  if (!isSeekSeconds(startSec)) throw new Error("invalid_command");
+  const kind = classifyPageUrl(url);
+  if (!kind) throw new Error("unsupported_page");
+  if (kind !== "ntu_kaltura") {
+    // YouTube's and Bilibili's players live in the top frame.
+    const frames = await probeFrames(tabId, kind, startSec, playerTargets(kind));
+    if (!frames.some((frame) => frame.probe.seeked)) throw new Error("seek_failed");
+    return;
+  }
+  // Locate the frame holding the player first, so a stray video in another
+  // frame is never moved.
+  const best = bestFrame(await probeFrames(tabId, kind, null, playerTargets(kind)));
+  if (!best) throw new Error("seek_failed");
+  const targets: FrameTarget[] = best.frameId !== null ? [{ frameIds: [best.frameId] }] : [{ allFrames: true }];
+  const frames = await probeFrames(tabId, kind, startSec, targets);
+  if (!frames.some((frame) => frame.probe.seeked)) throw new Error("seek_failed");
 }

@@ -33,9 +33,12 @@ IdempotencyKey = Annotated[
     str,
     Header(alias="Idempotency-Key", min_length=1, max_length=200),
 ]
+# Documented but optional at the route signature: CSRF enforcement lives in the
+# app-level boundary (``app.api.app``) for cookie sessions, while an
+# extension-session Bearer (no readable CSRF cookie) is a separate transport.
 CsrfHeader = Annotated[
-    str,
-    Header(alias="X-CSRF-Token", min_length=1, max_length=200),
+    str | None,
+    Header(alias="X-CSRF-Token", max_length=200),
 ]
 PublicId = Annotated[str, Path(min_length=1, max_length=200)]
 _session_cookie_schema = APIKeyCookie(
@@ -214,7 +217,7 @@ def build_library_router(
     def save_batch(
         body: BatchSaveRequest,
         idempotency_key: IdempotencyKey,
-        _csrf_token: CsrfHeader,
+        _csrf_token: CsrfHeader = None,
         scope=Depends(scope_dependency),
     ) -> BatchSaveResponse:
         require_save_enabled()
@@ -242,7 +245,7 @@ def build_library_router(
     def update(
         item_public_id: PublicId,
         body: WhySavedRequest,
-        _csrf_token: CsrfHeader,
+        _csrf_token: CsrfHeader = None,
         scope=Depends(scope_dependency),
     ) -> LibraryItemResponse:
         with _safe_service_errors():
@@ -256,7 +259,7 @@ def build_library_router(
     )
     def archive(
         item_public_id: PublicId,
-        _csrf_token: CsrfHeader,
+        _csrf_token: CsrfHeader = None,
         scope=Depends(scope_dependency),
     ) -> LibraryItemResponse:
         with _safe_service_errors():
@@ -268,7 +271,7 @@ def build_library_router(
     )
     def restore(
         item_public_id: PublicId,
-        _csrf_token: CsrfHeader,
+        _csrf_token: CsrfHeader = None,
         scope=Depends(scope_dependency),
     ) -> LibraryItemResponse:
         with _safe_service_errors():
@@ -285,7 +288,7 @@ def build_library_router(
     def retry(
         item_public_id: PublicId,
         idempotency_key: IdempotencyKey,
-        _csrf_token: CsrfHeader,
+        _csrf_token: CsrfHeader = None,
         scope=Depends(scope_dependency),
     ) -> LibraryItemResponse:
         require_save_enabled()

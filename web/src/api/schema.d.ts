@@ -124,6 +124,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/browser-companion/extension/library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Extension Library */
+        get: operations["extension_library_api_v1_browser_companion_extension_library_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser-companion/extension/library/{item_public_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Extension Library Item */
+        get: operations["extension_library_item_api_v1_browser_companion_extension_library__item_public_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/browser-companion/extension/pairings": {
         parameters: {
             query?: never;
@@ -152,6 +186,26 @@ export interface paths {
         get: operations["pairing_status_api_v1_browser_companion_extension_pairings__pairing_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser-companion/extension/pairings/{pairing_id}:approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Pairing From Extension
+         * @description Approve a pairing directly from the extension's email login flow.
+         */
+        post: operations["approve_pairing_from_extension_api_v1_browser_companion_extension_pairings__pairing_id__approve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -316,6 +370,74 @@ export interface paths {
         get: operations["get_conversation_turns_api_v1_conversations__thread_id__turns_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extension/auth/challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Challenge */
+        post: operations["challenge_api_v1_extension_auth_challenge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extension/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout_api_v1_extension_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extension/auth/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Session */
+        get: operations["session_api_v1_extension_auth_session_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extension/auth/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify */
+        post: operations["verify_api_v1_extension_auth_verify_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -510,6 +632,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/page-qa/conversations/{conversation_id}/messages/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stream Page Question
+         * @description Answer one question about the page from the supplied transcript.
+         *
+         *     Nothing is ingested: the cues live only in this request and the model
+         *     context.  The turn (question, answer, <=180-character cited excerpts)
+         *     is saved to the user's conversation history after a validated answer.
+         */
+        post: operations["stream_page_question_api_v1_page_qa_conversations__conversation_id__messages_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -576,7 +722,7 @@ export interface components {
              * Platform
              * @enum {string}
              */
-            platform: "youtube" | "ntu_kaltura";
+            platform: "youtube" | "ntu_kaltura" | "bilibili";
             /** Platform Id */
             platform_id: string;
             /**
@@ -650,6 +796,8 @@ export interface components {
              * @default 10
              */
             max_save_batch_size: number;
+            /** Page Qa */
+            page_qa?: boolean;
             /**
              * Save Enabled
              * @default true
@@ -763,6 +911,21 @@ export interface components {
              */
             target_channel: "telegram" | "wechat";
         };
+        /** ChallengeRequest */
+        ChallengeRequest: {
+            /** Email */
+            email: string;
+        };
+        /** ChallengeResponse */
+        ChallengeResponse: {
+            /** Challenge Id */
+            challenge_id: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
         /** ChallengeStatusResponse */
         ChallengeStatusResponse: {
             /**
@@ -825,6 +988,8 @@ export interface components {
         ConversationHistoryItemResponse: {
             /** Conversation Id */
             conversation_id: string;
+            /** Page Qa */
+            page_qa?: boolean;
             /** Preview */
             preview: string;
             /** Thread Id */
@@ -970,6 +1135,8 @@ export interface components {
         ConversationTurnsResponse: {
             /** Conversation Id */
             conversation_id: string;
+            /** Page Qa */
+            page_qa?: boolean;
             /** Thread Id */
             thread_id: string;
             /** Turns */
@@ -1023,6 +1190,39 @@ export interface components {
             /** Message */
             message: string;
         };
+        /**
+         * ExtensionLoginRequest
+         * @description Email proof used by the extension when no Web cookie exists.
+         */
+        ExtensionLoginRequest: {
+            /** Code */
+            code: string;
+            /** Email */
+            email: string;
+        };
+        /** ExtensionSessionResponse */
+        ExtensionSessionResponse: {
+            /** Access Token */
+            access_token?: string | null;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Tenant */
+            tenant: {
+                [key: string]: string;
+            };
+            /**
+             * Token Type
+             * @default Bearer
+             */
+            token_type: string;
+            /** User */
+            user: {
+                [key: string]: string;
+            };
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1075,6 +1275,13 @@ export interface components {
              * Format: date-time
              */
             saved_at: string;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage?: "queued" | "fetching" | "transcribing" | "chunking" | "embedding" | "ready" | "needs_action" | "failed" | "archived";
+            /** Stage Updated At */
+            stage_updated_at?: string | null;
             /** Summary */
             summary?: string | null;
             /** Tags */
@@ -1125,6 +1332,35 @@ export interface components {
             message_id: string;
             /** Text */
             text: string;
+        };
+        /** PageQaMessageInput */
+        PageQaMessageInput: {
+            /** Message Id */
+            message_id: string;
+            page: components["schemas"]["PageQaPage"];
+            /** Playback Sec */
+            playback_sec?: number | null;
+            /** Question */
+            question: string;
+        };
+        /**
+         * PageQaPage
+         * @description The page the user is looking at, exactly as the extension read it.
+         */
+        PageQaPage: {
+            /** Canonical Url */
+            canonical_url: string;
+            caption: components["schemas"]["CaptureCaption"];
+            metadata: components["schemas"]["CaptureMetadata"];
+            /** Page Url */
+            page_url?: string | null;
+            /**
+             * Platform
+             * @enum {string}
+             */
+            platform: "youtube" | "ntu_kaltura" | "bilibili";
+            /** Platform Id */
+            platform_id: string;
         };
         /** PairingApprovalResponse */
         PairingApprovalResponse: {
@@ -1245,6 +1481,13 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** VerifyRequest */
+        VerifyRequest: {
+            /** Challenge Id */
+            challenge_id: string;
+            /** Code */
+            code: string;
         };
         /** WhySavedRequest */
         WhySavedRequest: {
@@ -1576,6 +1819,70 @@ export interface operations {
             };
         };
     };
+    extension_library_api_v1_browser_companion_extension_library_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+                search?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryPageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    extension_library_item_api_v1_browser_companion_extension_library__item_public_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_public_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_pairing_api_v1_browser_companion_extension_pairings_post: {
         parameters: {
             query?: never;
@@ -1627,6 +1934,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PairingStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_pairing_from_extension_api_v1_browser_companion_extension_pairings__pairing_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pairing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtensionLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingApprovalResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1788,8 +2130,8 @@ export interface operations {
     send_message_api_v1_conversations__conversation_id__messages_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 conversation_id: string;
@@ -1813,6 +2155,15 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1861,8 +2212,8 @@ export interface operations {
     send_message_stream_api_v1_conversations__conversation_id__messages_stream_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 conversation_id: string;
@@ -1902,6 +2253,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Unprocessable Entity */
             422: {
                 headers: {
@@ -1925,8 +2285,8 @@ export interface operations {
     reset_conversation_api_v1_conversations__conversation_id__reset_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 conversation_id: string;
@@ -1946,6 +2306,15 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1985,8 +2354,8 @@ export interface operations {
     delete_conversation_api_v1_conversations__thread_id__delete: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 thread_id: string;
@@ -2094,6 +2463,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    challenge_api_v1_extension_auth_challenge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChallengeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChallengeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_api_v1_extension_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    session_api_v1_extension_auth_session_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtensionSessionResponse"];
+                };
+            };
+        };
+    };
+    verify_api_v1_extension_auth_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtensionSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2220,8 +2693,8 @@ export interface operations {
     update_api_v1_library_items__item_public_id__patch: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 item_public_id: string;
@@ -2291,8 +2764,8 @@ export interface operations {
     archive_api_v1_library_items__item_public_id__archive_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 item_public_id: string;
@@ -2324,8 +2797,8 @@ export interface operations {
     restore_api_v1_library_items__item_public_id__restore_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 item_public_id: string;
@@ -2359,7 +2832,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 item_public_id: string;
@@ -2411,7 +2884,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                "X-CSRF-Token"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2454,8 +2927,8 @@ export interface operations {
     create_token_api_v1_link_tokens_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2525,8 +2998,8 @@ export interface operations {
     consume_token_api_v1_link_tokens_consume_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2575,6 +3048,79 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    stream_page_question_api_v1_page_qa_conversations__conversation_id__messages_stream_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PageQaMessageInput"];
+            };
+        };
+        responses: {
+            /** @description Server-sent public conversation events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
