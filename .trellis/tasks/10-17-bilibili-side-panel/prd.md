@@ -75,12 +75,24 @@ On `https://www.bilibili.com/video/BV…` (and `av…`) pages, the side panel:
 - [ ] Extension unit tests cover the adapter (subtitle-list shapes, no
       subtitles, stale part) and the audit expectations. Both builds pass.
 
-## Open questions (to resolve in planning)
+## Resolved in planning (2026-10-17)
 
-- Which exact Bilibili hosts the subtitle list and subtitle JSON come from
-  today. This needs a live check in a logged-in page.
-- Whether page Q&A on a Bilibili page without subtitles answers from title and
-  description, the same as YouTube.
+- **Hosts.** Subtitles come from
+  `api.bilibili.com/x/player/wbi/v2?aid=&cid=`, which needs no WBI signature
+  (per yt-dlp), and from subtitle JSON on `*.hdslb.com`.
+  - Both are fetched **inside the page**, so the extension needs only
+    `https://www.bilibili.com/*`.
+  - The exact response shapes still need a live check in a logged-in page.
+- **No-subtitle Q&A.** It answers from title, description and chapters with
+  the no-captions label, the same as YouTube. This is the default and can be
+  changed.
+- **Multi-part videos.**
+  - Q&A works on any part.
+  - 「收藏视频」 works on part 1 through capture or URL import. On part 2 and
+    later it works only through capture, because the server connector rejects
+    `p≠1`.
+- **`platform_id`.** The normalised `BV…` id, identical to the server
+  connector's, so both save paths reach the same library item.
 
 ## Out of scope
 

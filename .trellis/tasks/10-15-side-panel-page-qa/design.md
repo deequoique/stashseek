@@ -266,3 +266,104 @@ task produces the zip.
   - `web-browser-runtime.md`: the page-Q&A route contract, the Bearer/CSRF rule,
     and the `page-` threads.
   - `logging-guidelines.md`: no transcript content.
+
+## 9. 「收藏视频」 and in-thread progress (R8/R9, added 2026-10-17)
+
+### 9.1 Save orchestration (`sidepanel/useCollect.ts`, new)
+
+`collect()` is one click and fully automatic:
+
+1. Make sure the page has been read. If no read has happened yet, run one; if
+   a read is already in flight, await it.
+2. **Capture path.** Taken when all three hold:
+   - captions are available;
+   - the capture device is paired;
+   - the platform is supported by capture.v1.
+
+   It calls `SAVE_CAPTURE(page)`.
+3. **URL import path.** Taken otherwise, meaning a read failure, no captions,
+   no pairing, or a capture rejection that is not quota or conflict.
+   - It calls `submitVideoBatch({urls: [canonical_url]})` with the extension
+     session Bearer (library mutations accept it since 060bce8).
+   - Statuses `already_exists`, `queued`, `unsupported_url`, `quota_exceeded`
+     and `queue_unavailable` map to the action entry outcome.
+4. Both paths yield `item_public_id`. The capture response has it; check the
+   capture result shape, and if it is missing, resolve it with one library
+   lookup by canonical URL.
+
+   If no id can be determined, the entry ends with a link to the workspace
+   library.
+
+### 9.2 Thread model
+
+- The panel thread becomes a list of entries:
+  `{kind: "qa", ...QaTurn} | {kind: "action", action: "collect", ...}`.
+- A collect entry holds:
+  - `path` (capture|url);
+  - `itemPublicId`;
+  - `steps[]`;
+  - `startedAt`;
+  - `stage`, `stageUpdatedAt`;
+  - `durationSec`;
+  - `terminal` (ready|needs_action|failed|already_exists|...).
+- It persists in `chrome.storage.session`, keyed by video key, so reopening
+  the panel on the same video resumes polling an unfinished item. It never
+  stores cues.
+
+### 9.3 Polling
+
+- `getLibraryItem(itemPublicId)` runs every 2.5 s while the entry is
+  non-terminal and the panel is visible (`document.visibilityState`).
+- It stops on ready, needs_action, failed or archived, after 30 min, or on
+  unmount.
+- Network errors back off to 10 s without failing the entry.
+
+### 9.4 Step mapping (`stage` from 07fe844)
+
+| stage | step shown |
+|---|---|
+| (submit) | 已提交 ✓ |
+| capture path | 已读取页面字幕 ✓ (N 段) |
+| queued / fetching (url path) | 获取视频信息与字幕 |
+| transcribing | 语音转写中 |
+| chunking | 切分段落 |
+| embedding | 生成检索向量 |
+| ready | 完成，可以在资料库里搜索和提问 ✓ (+「在工作区查看」) |
+| needs_action | 需要处理：<reason from item error_code/available_actions> |
+| failed | 未能完成：<safe reason> (+ retry hint) |
+
+### 9.5 ETA (`sidepanel/eta.ts`, pure, one constants table)
+
+- Per-stage expected seconds, as a function of duration `d` in minutes:
+
+  | stage | expected seconds |
+  | --- | --- |
+  | queued | 10 |
+  | fetching (url path) | 20 + 2·d |
+  | transcribing | 30 + 15·d |
+  | chunking | 5 + 2·d |
+  | embedding | 5 + 3·d |
+
+  These are conservative placeholders, calibrated later from logs.
+- Remaining = (current stage expected − time in stage, floored at 0) + the sum
+  of the later stages expected on this path. Transcribing counts only when
+  the stage is seen or the path is URL with no captions.
+- Display:
+  - 「预计还需约 N 分钟」, rounded up;
+  - 「不到 1 分钟」;
+  - when `d` is unknown, elapsed time only;
+  - when time in the stage exceeds 1.5 × expected, 「比预计久，仍在处理」.
+
+### 9.6 Components
+
+- Extract the presentational step list from `chat/ExecutionTimeline.tsx` into
+  `chat/StepTimeline.tsx`. It renders running/completed/failed/skipped steps,
+  can collapse, and is shared, so the workspace look is unchanged and the
+  existing ExecutionTimeline tests still pass.
+- `QaThread` renders action entries with `StepTimeline`.
+- Q&A turns show client steps above the answer:
+  - 读取视频字幕 (N 段, language);
+  - 播放位置 mm:ss;
+  - 生成回答 (running until the first delta).
+- 「收藏视频」 is the primary button at the top of the page view. It replaces
+  「保存到资料库」. While an entry is running it is disabled and reads 「收藏中…」.

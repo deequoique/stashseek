@@ -1,1 +1,5 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/browser-companion-capture.md", "reason": "capture.v1 contract, adapter secrecy rules, worker commands, player control"}
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "page-QA route contract"}
+{"file": ".trellis/spec/backend/bilibili-connector.md", "reason": "server Bilibili connector ids and NeedsExtension contract"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "extension gates"}
+{"file": ".trellis/spec/guides/branch-and-delegation-workflow.md", "reason": "dev/Sonnet rules"}
