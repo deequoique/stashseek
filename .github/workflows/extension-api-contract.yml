@@ -1,0 +1,65 @@
+name: Extension and API contract
+
+# Verification only. Production deployment is owned by web-auth-contract.yml, so
+# a push to main requests exactly one Production approval.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-extension-gates:
+    runs-on: ubuntu-latest
+    env:
+      STASHSEEK_LOG_RETRIEVAL_CONTENT: "false"
+      PYTHONUNBUFFERED: "1"
+      DATABASE_URL: "postgresql+psycopg://postgres:test@127.0.0.1:5432/kb"
+      REDIS_URL: "redis://127.0.0.1:6379/0"
+      STASHSEEK_ENV: "development"
+      WEB_AUTH_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e '.[dev]'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.2
+          cache: pnpm
+          cache-dependency-path: extension/pnpm-lock.yaml
+      - name: Install extension dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: extension
+      - name: Backend contract tests
+        run: >-
+          .venv/bin/python -m pytest -q
+          tests/test_extension_auth.py tests/test_extension_session_origin.py
+          tests/test_browser_companion_api.py tests/test_bilibili_capture.py
+          tests/test_conversation_extension_transport.py
+          tests/test_library_extension_transport.py
+          tests/test_conversation_page_thread_read_only.py
+          tests/test_page_qa_api.py tests/test_page_qa_guard.py
+          tests/test_page_qa_service.py tests/test_page_qa_transcript.py
+          tests/test_web_api_runtime.py tests/test_web_api_app.py
+          tests/test_mcp_server.py
+      - name: Alembic graph
+        run: .venv/bin/alembic heads
+      - name: OpenAPI contract
+        run: pnpm check:api
+        working-directory: extension
+      - name: Extension checks
+        run: pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm run audit
+        working-directory: extension

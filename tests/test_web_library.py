@@ -9,6 +9,7 @@ from app.web.library import (
     LibraryConflict,
     LibraryNotFound,
     project_lifecycle,
+    project_stage,
 )
 from app.retrieval.search import bm25_search, vector_search
 
@@ -74,6 +75,172 @@ def test_lifecycle_precedence_and_safe_errors(content, latest, expected_state, e
     assert projected.state == expected_state
     assert projected.error_code == expected_error
     assert "private stack trace" not in repr(projected)
+
+
+STAGE_MOMENT = datetime(2026, 10, 17, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    ("content", "latest", "asr_capture", "expected_stage"),
+    [
+        (item(state="pending"), dispatch(state="pending"), False, "queued"),
+        (item(state="pending"), dispatch(state="enqueued"), False, "queued"),
+        # Claimed by a worker that has not written ``fetching`` yet.
+        (item(state="pending"), dispatch(state="running"), False, "fetching"),
+        (item(state="fetching"), dispatch(state="running"), False, "fetching"),
+        (item(state="fetching"), dispatch(state="running"), True, "transcribing"),
+        # ASR hand-off window: dispatch re-enqueued while the item stays fetching.
+        (item(state="fetching"), dispatch(state="enqueued"), True, "transcribing"),
+        (item(state="chunking"), dispatch(state="running"), False, "chunking"),
+        # The ASR signal never overrides a later pipeline step.
+        (item(state="chunking"), dispatch(state="running"), True, "chunking"),
+        (item(state="embedding"), dispatch(state="running"), False, "embedding"),
+        (item(state="ready"), dispatch(state="completed"), False, "ready"),
+        (item(state="needs_extension"), dispatch(state="completed"), False, "needs_action"),
+        # ASR is not running for needs_asr, even for a caption-less capture.
+        (item(state="needs_asr"), dispatch(state="completed"), True, "needs_action"),
+        (item(state="no_text"), dispatch(state="completed"), False, "needs_action"),
+        (item(state="failed"), dispatch(state="failed"), False, "failed"),
+        (item(state="pending"), None, False, "failed"),
+        (item(state="ready", archived_at=STAGE_MOMENT), dispatch(state="completed"), False, "archived"),
+        (item(state="fetching", archived_at=STAGE_MOMENT), dispatch(state="running"), True, "archived"),
+    ],
+)
+def test_stage_projects_every_ingest_state(content, latest, asr_capture, expected_stage):
+    assert project_stage(content, latest, asr_capture=asr_capture).stage == expected_stage
+
+
+def test_stage_never_changes_the_public_lifecycle():
+    content = item(state="fetching")
+    running = dispatch(state="running")
+
+    assert project_lifecycle(content, running).state == "processing"
+    assert project_stage(content, running, asr_capture=True).stage == "transcribing"
+
+
+def test_stage_updated_at_is_the_latest_dispatch_update_or_the_archive_time():
+    entered = datetime(2026, 10, 17, 11, 59, 30, tzinfo=UTC)
+
+    processing = project_stage(
+        item(state="chunking"), dispatch(state="running", updated_at=entered)
+    )
+    assert (processing.stage, processing.updated_at) == ("chunking", entered)
+
+    archived = project_stage(
+        item(archived_at=STAGE_MOMENT),
+        dispatch(state="completed", updated_at=entered),
+    )
+    assert (archived.stage, archived.updated_at) == ("archived", STAGE_MOMENT)
+
+    # No dispatch (or a legacy row without a timestamp) has no best-effort time.
+    assert project_stage(item(state="failed"), None).updated_at is None
+    assert project_stage(item(state="ready"), dispatch(state="completed")).updated_at is None
+
+
+def test_get_item_exposes_stage_and_stage_updated_at():
+    entered = datetime(2026, 10, 17, 11, 59, 30, tzinfo=UTC)
+    db = ScalarSession(
+        [item(state="embedding"), dispatch(state="running", updated_at=entered)]
+    )
+
+    detail = ContentLibraryService(lambda: db, lambda _value: "task").get_item(
+        SimpleNamespace(app_user_id=7), "item-public"
+    )
+
+    assert detail.lifecycle == "processing"
+    assert detail.stage == "embedding"
+    assert detail.stage_updated_at == entered
+    # An embedding item needs no capture lookup: two statements only.
+    assert len(db.statements) == 2
+
+
+def test_fetching_youtube_item_with_a_caption_less_capture_reports_transcribing():
+    db = QuerySession(
+        scalar_values=[item(state="fetching"), dispatch(state="running")],
+        execute_values=[[(41, "unavailable")]],
+    )
+
+    detail = ContentLibraryService(lambda: db, lambda _value: "task").get_item(
+        SimpleNamespace(app_user_id=7), "item-public"
+    )
+
+    assert detail.lifecycle == "processing"
+    assert detail.stage == "transcribing"
+    capture_sql = str(db.statements[2])
+    assert "browser_capture.app_user_id" in capture_sql
+    assert "browser_capture.state" in capture_sql
+
+
+def test_fetching_item_with_captions_or_no_capture_stays_fetching():
+    for rows in ([(41, "available")], []):
+        db = QuerySession(
+            scalar_values=[item(state="fetching"), dispatch(state="running")],
+            execute_values=[rows],
+        )
+
+        detail = ContentLibraryService(lambda: db, lambda _value: "task").get_item(
+            SimpleNamespace(app_user_id=7), "item-public"
+        )
+
+        assert detail.stage == "fetching"
+
+
+def test_newest_ready_capture_decides_the_asr_signal():
+    # Rows are ordered newest first per item; the first one wins.
+    db = QuerySession(
+        scalar_values=[item(state="fetching"), dispatch(state="running")],
+        execute_values=[[(41, "available"), (41, "unavailable")]],
+    )
+
+    detail = ContentLibraryService(lambda: db, lambda _value: "task").get_item(
+        SimpleNamespace(app_user_id=7), "item-public"
+    )
+
+    assert detail.stage == "fetching"
+
+
+def test_ntu_kaltura_fetching_item_never_reports_transcribing():
+    # Private Kaltura media is never transcribed by the server, so the capture
+    # lookup is skipped entirely (no execute() result is queued).
+    db = ScalarSession(
+        [item(state="fetching", platform="ntu_kaltura"), dispatch(state="running")]
+    )
+
+    detail = ContentLibraryService(lambda: db, lambda _value: "task").get_item(
+        SimpleNamespace(app_user_id=7), "item-public"
+    )
+
+    assert detail.stage == "fetching"
+    assert len(db.statements) == 2
+
+
+def test_list_items_project_stage_per_item_with_one_capture_query():
+    asr_item = item(id=41, public_id="asr", state="fetching")
+    plain_item = item(id=42, public_id="plain", state="fetching")
+    done_item = item(id=43, public_id="done", state="ready")
+    db = QuerySession(
+        scalar_values=[3],
+        scalars_values=[
+            [asr_item, plain_item, done_item],
+            [
+                dispatch(id=71, item_id=41, state="running"),
+                dispatch(id=72, item_id=42, state="running"),
+                dispatch(id=73, item_id=43, state="completed"),
+            ],
+        ],
+        execute_values=[[(41, "unavailable"), (42, "available")]],
+    )
+
+    page = ContentLibraryService(lambda: db, lambda _value: "task").list_items(
+        SimpleNamespace(app_user_id=7)
+    )
+
+    assert [(value.public_id, value.stage) for value in page.items] == [
+        ("asr", "transcribing"),
+        ("plain", "fetching"),
+        ("done", "ready"),
+    ]
+    assert len(db.statements) == 4
 
 
 def test_available_actions_are_server_derived():

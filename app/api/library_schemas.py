@@ -13,6 +13,17 @@ from app.limits import MAX_WHY_SAVED_CHARS
 Lifecycle = Literal[
     "archived", "ready", "needs_action", "failed", "processing", "queued"
 ]
+Stage = Literal[
+    "queued",
+    "fetching",
+    "transcribing",
+    "chunking",
+    "embedding",
+    "ready",
+    "needs_action",
+    "failed",
+    "archived",
+]
 
 
 class BrowserModel(BaseModel):
@@ -60,6 +71,12 @@ class LibraryItemResponse(BrowserModel):
     available_actions: tuple[str, ...]
     latest_dispatch_public_id: str | None
     summary: str | None = None
+    # Read-only processing step derived from the internal ingest state. The
+    # service always supplies both values. ``default_factory`` (unlike a plain
+    # default) keeps ``stage`` out of the schema's ``default`` key, so the
+    # generated TypeScript field stays optional, like ``page_qa``.
+    stage: Stage = Field(default_factory=lambda: "queued")
+    stage_updated_at: datetime | None = None
 
 
 class LibraryPageResponse(BrowserModel):

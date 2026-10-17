@@ -1,6 +1,6 @@
 export type Cue = { start_sec: number; end_sec: number; text: string };
-export type Platform = "youtube" | "ntu_kaltura";
-export const CLIENT_VERSION = "0.1.3";
+export type Platform = "youtube" | "ntu_kaltura" | "bilibili";
+export const CLIENT_VERSION = "0.2.0";
 export type PageCapture = {
   platform: Platform;
   platform_id: string;

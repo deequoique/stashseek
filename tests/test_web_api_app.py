@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from fastapi import HTTPException
 
 from app.api.app import WebApiServices, create_app
 from app.web.auth import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME, ResolvedWebSession
@@ -90,6 +91,11 @@ class UnusedService:
         raise AssertionError(f"unexpected service call: {name}")
 
 
+class InvalidExtensionSession:
+    def resolve(self, _token):
+        raise HTTPException(status_code=401, detail="extension_session_invalid")
+
+
 def make_client(
     *,
     static_dir: Path | None = None,
@@ -141,6 +147,31 @@ def test_unhandled_request_failure_is_contained_without_private_traceback(
     assert "PRIVATE" not in response.text
     assert "PRIVATE" not in caplog.text
     assert "RuntimeError" in caplog.text
+
+
+def test_expired_extension_bearer_is_reported_as_unauthorized():
+    auth = FakeAuth()
+    app = create_app(
+        services=WebApiServices(
+            web_auth=auth,
+            library=FakeLibrary(),
+            submission=UnusedService(),
+            transcript=UnusedService(),
+            extension_sessions=InvalidExtensionSession(),
+        ),
+        expected_origin=ORIGIN,
+        cookie_secure=True,
+        publish_budget_seconds=1.0,
+    )
+    client = TestClient(app, base_url=ORIGIN)
+
+    response = client.get(
+        "/api/v1/library/items",
+        headers={"Authorization": "Bearer expired-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "extension_session_invalid"
 
 
 def test_public_api_rejects_fixed_and_streamed_oversized_bodies_before_parsing():

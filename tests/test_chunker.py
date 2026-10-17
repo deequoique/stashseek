@@ -35,6 +35,28 @@ def test_chapters_are_first_priority():
     assert [part.boundary_kind for part in parts] == ["chapter", "chapter"]
 
 
+def test_browser_capture_chapters_use_start_sec_and_a_null_end_runs_to_the_end():
+    # capture.v1 chapters (start_sec/end_sec) must chunk like yt-dlp chapters
+    # (start_time/end_time); the last chapter's end_sec may be null.
+    cues = _cues(["a", "b", "c", "d"])
+    chapters = [
+        {"title": "One", "start_sec": 0.0, "end_sec": 20.0},
+        {"title": "Two", "start_sec": 20.0, "end_sec": None},
+    ]
+    parts = chunk(cues, lang="en", chapters=chapters)
+    assert [part.boundary_kind for part in parts] == ["chapter", "chapter"]
+    assert [(part.start_sec, part.end_sec) for part in parts] == [(0.0, 20.0), (20.0, 40.0)]
+
+
+def test_chapters_without_a_usable_start_are_skipped_not_fatal():
+    cues = _cues(["a", "b", "c", "d"])
+    chapters = [{"title": "broken"}, {"start_sec": "nan"}, {"start_time": 0, "end_time": 40}]
+    parts = chunk(cues, lang="en", chapters=chapters)
+    assert [part.boundary_kind for part in parts] == ["chapter"]
+    # Only unusable chapters: fall back to the ordinary cue-based chunking.
+    assert chunk(cues, lang="en", chapters=[{"title": "broken"}])
+
+
 def test_semantic_boundary_indices_still_finds_strict_local_minima():
     embeddings = [[1, 0], [0.9, 0.1], [0, 1], [0.1, 0.9], [0, 1]]
     assert semantic_boundary_indices(embeddings) == [2]

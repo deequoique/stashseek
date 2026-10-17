@@ -42,6 +42,7 @@ from app.channels.identity import consume_link_token, create_link_token
 from app.channels.service import _link_failure
 from app.channels.types import ChannelEnvelope, TenantContext
 from app.models import AppUser, ChannelIdentity, ConversationThread, ConversationTurn
+from app.page_qa import is_page_qa_conversation
 from app.web.auth import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
 from app.web_auth import AuthenticatedWebSession
 
@@ -72,10 +73,31 @@ _SESSION_COOKIE_SCHEMA = APIKeyCookie(
     scheme_name="SessionCookie",
     auto_error=False,
 )
+# The header is documented but deliberately optional at the route signature.
+# CSRF enforcement lives in the app-level boundary (``app.api.app``): cookie
+# sessions must present a matching double-submit header there, while an
+# extension-session Bearer is an explicit non-cookie transport that a
+# ``chrome-extension://`` page cannot supply a CSRF cookie for.
 CsrfHeader = Annotated[
-    str,
-    Header(alias="X-CSRF-Token", min_length=1, max_length=200),
+    str | None,
+    Header(alias="X-CSRF-Token", max_length=200),
 ]
+
+
+# Public spelling for sibling routes that document the same cookie scheme.
+SESSION_COOKIE_SCHEMA = _SESSION_COOKIE_SCHEMA
+
+
+def _reject_page_thread(conversation_id: str) -> None:
+    """Page Q&A threads are read-only on the ordinary conversation routes.
+
+    They are grounded on a transcript that is never stored, so the library
+    agent must not continue them; the client resumes them from the video page.
+    ``ChannelEnvelope`` strips the id, so compare the stripped value.
+    """
+
+    if is_page_qa_conversation(conversation_id.strip()):
+        raise HTTPException(status_code=409, detail="page_thread_read_only")
 
 
 def _web_agent_transport_timeout(settings: object) -> float:
@@ -384,6 +406,14 @@ def _encode_stream_event(event: ConversationStreamEvent) -> str:
     )
 
 
+# Public spellings for sibling routes (page Q&A) that emit the same stream
+# contract.  The leading-underscore names stay for the existing internal uses.
+STREAM_MEDIA_TYPE = _STREAM_MEDIA_TYPE
+STREAM_ACTIVITY_LABELS = _STREAM_ACTIVITY_LABELS
+encode_stream_event = _encode_stream_event
+safe_stream_error_code = _safe_stream_error_code
+
+
 class ConversationHistoryItemResponse(BaseModel):
     """A compact browser-safe projection for the conversation sidebar."""
 
@@ -394,6 +424,11 @@ class ConversationHistoryItemResponse(BaseModel):
     title: str
     preview: str
     updated_at: datetime
+    # True for instant page Q&A threads (started from the extension side
+    # panel).  Clients render these read-only: the transcript they were
+    # grounded on is never stored.  A default factory keeps the generated
+    # TypeScript property optional (no OpenAPI ``default`` key).
+    page_qa: bool = Field(default_factory=lambda: False)
 
 
 class ConversationHistoryPageResponse(BaseModel):
@@ -427,6 +462,7 @@ class ConversationTurnsResponse(BaseModel):
     thread_id: str
     conversation_id: str
     turns: list[ConversationTurnResponse] = Field(default_factory=list)
+    page_qa: bool = Field(default_factory=lambda: False)
 
 
 @dataclass(frozen=True)
@@ -513,6 +549,30 @@ def resolve_browser_session_identity(
     )
 
 
+def resolve_session_identity(
+    session: object,
+    *,
+    session_factory,
+    session_identity_resolver: BrowserSessionIdentityResolver | None = None,
+) -> BrowserSessionIdentity:
+    """Resolve one authenticated browser/extension session to a tenant identity."""
+
+    if session_identity_resolver is not None:
+        resolved = session_identity_resolver(session)
+        if isinstance(resolved, BrowserSessionIdentity):
+            return resolved
+        # A resolver supplied by a small embedding may return the
+        # canonical tenant directly; normalize it at this boundary.
+        if isinstance(resolved, TenantContext):
+            return BrowserSessionIdentity(
+                app_user_id=resolved.app_user_id,
+                external_user_id=resolved.external_user_id,
+                tenant=resolved,
+            )
+        raise ValueError("browser session identity resolver returned an invalid value")
+    return resolve_browser_session_identity(session, session_factory)
+
+
 def build_conversation_router(
     *,
     channel_service,
@@ -550,20 +610,11 @@ def build_conversation_router(
         return session_factory
 
     def browser_identity(session: object) -> BrowserSessionIdentity:
-        if session_identity_resolver is not None:
-            resolved = session_identity_resolver(session)
-            if isinstance(resolved, BrowserSessionIdentity):
-                return resolved
-            # A resolver supplied by a small embedding may return the
-            # canonical tenant directly; normalize it at this boundary.
-            if isinstance(resolved, TenantContext):
-                return BrowserSessionIdentity(
-                    app_user_id=resolved.app_user_id,
-                    external_user_id=resolved.external_user_id,
-                    tenant=resolved,
-                )
-            raise ValueError("browser session identity resolver returned an invalid value")
-        return resolve_browser_session_identity(session, session_factory)
+        return resolve_session_identity(
+            session,
+            session_factory=session_factory,
+            session_identity_resolver=session_identity_resolver,
+        )
 
     def project_answer(answer: AgentAnswer) -> ConversationResponse:
         return ConversationResponse(
@@ -637,6 +688,7 @@ def build_conversation_router(
             title=prompt[:80] or "新对话",
             preview=answer[:160],
             updated_at=thread.updated_at,
+            page_qa=is_page_qa_conversation(thread.external_conversation_id),
         )
 
     def _owned_thread(db, identity: BrowserSessionIdentity, thread_id: str) -> ConversationThread | None:
@@ -802,6 +854,7 @@ def build_conversation_router(
             return ConversationTurnsResponse(
                 thread_id=thread.public_id,
                 conversation_id=thread.external_conversation_id,
+                page_qa=is_page_qa_conversation(thread.external_conversation_id),
                 turns=[
                     ConversationTurnResponse(
                         user_text=turn.user_text,
@@ -831,7 +884,7 @@ def build_conversation_router(
     )
     def delete_conversation(
         thread_id: str,
-        _csrf_token: CsrfHeader,
+        _csrf_token: CsrfHeader = None,
         session: object = Depends(authenticated_session),
     ) -> Response:
         """Permanently remove one thread owned by the current web identity."""
@@ -857,6 +910,7 @@ def build_conversation_router(
         response_model=ConversationResponse,
         responses={
             401: {"model": ErrorResponse},
+            409: {"model": ErrorResponse},
             422: {"model": ErrorResponse},
             503: {"model": ErrorResponse},
             504: {"model": ErrorResponse},
@@ -866,12 +920,13 @@ def build_conversation_router(
     async def send_message(
         conversation_id: str,
         payload: MessageInput,
-        _csrf_token: CsrfHeader,
+        _csrf_token: CsrfHeader = None,
         session: object = Depends(authenticated_session),
     ) -> ConversationResponse:
         channel = service_or_unavailable()
         if not 1 <= len(conversation_id.strip()) <= _MAX_CONVERSATION_ID:
             raise HTTPException(status_code=422, detail="validation_error")
+        _reject_page_thread(conversation_id)
         try:
             # The legacy knowledge runtime owns two independently bounded
             # model stages: retrieval followed by answer composition.  Keep
@@ -902,6 +957,7 @@ def build_conversation_router(
             },
             401: {"model": ErrorResponse},
             406: {"model": ErrorResponse},
+            409: {"model": ErrorResponse},
             422: {"model": ErrorResponse},
             503: {"model": ErrorResponse},
         },
@@ -909,7 +965,7 @@ def build_conversation_router(
     async def send_message_stream(
         conversation_id: str,
         payload: MessageInput,
-        _csrf_token: CsrfHeader,
+        _csrf_token: CsrfHeader = None,
         session: object = Depends(authenticated_session),
     ) -> StreamingResponse:
         """Stream a browser-safe lifecycle while retaining JSON compatibility.
@@ -923,6 +979,7 @@ def build_conversation_router(
         channel = service_or_unavailable()
         if not 1 <= len(conversation_id.strip()) <= _MAX_CONVERSATION_ID:
             raise HTTPException(status_code=422, detail="validation_error")
+        _reject_page_thread(conversation_id)
         if not bool(getattr(settings, "agent_streaming_enabled", True)):
             raise HTTPException(
                 status_code=_STREAM_UNAVAILABLE_STATUS,
@@ -1484,6 +1541,7 @@ def build_conversation_router(
         response_model=ConversationResponse,
         responses={
             401: {"model": ErrorResponse},
+            409: {"model": ErrorResponse},
             422: {"model": ErrorResponse},
             503: {"model": ErrorResponse},
             500: {"model": ErrorResponse},
@@ -1491,12 +1549,13 @@ def build_conversation_router(
     )
     async def reset_conversation(
         conversation_id: str,
-        _csrf_token: CsrfHeader,
+        _csrf_token: CsrfHeader = None,
         session: object = Depends(authenticated_session),
     ) -> ConversationResponse:
         channel = service_or_unavailable()
         if not 1 <= len(conversation_id.strip()) <= _MAX_CONVERSATION_ID:
             raise HTTPException(status_code=422, detail="validation_error")
+        _reject_page_thread(conversation_id)
         answer = await channel.handle(
             web_envelope(
                 session,
@@ -1520,7 +1579,7 @@ def build_conversation_router(
     )
     def create_token(
         payload: LinkTokenInput,
-        _csrf_token: CsrfHeader,
+        _csrf_token: CsrfHeader = None,
         session: object = Depends(authenticated_session),
     ) -> LinkTokenResponse:
         service_or_unavailable()
@@ -1559,8 +1618,8 @@ def build_conversation_router(
     )
     def consume_token(
         payload: ConsumeLinkTokenInput,
-        _csrf_token: CsrfHeader,
         response: Response,
+        _csrf_token: CsrfHeader = None,
         session: object = Depends(authenticated_session),
     ) -> LinkedResponse:
         service_or_unavailable()
@@ -1608,6 +1667,12 @@ __all__ = [
     "LinkTokenResponse",
     "LinkedResponse",
     "MessageInput",
+    "SESSION_COOKIE_SCHEMA",
+    "STREAM_ACTIVITY_LABELS",
+    "STREAM_MEDIA_TYPE",
     "build_conversation_router",
+    "encode_stream_event",
     "resolve_browser_session_identity",
+    "resolve_session_identity",
+    "safe_stream_error_code",
 ]

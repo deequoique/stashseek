@@ -7,6 +7,7 @@ from datetime import timedelta
 from app.api.app import WebApiServices, create_app
 from app.api.conversation_routes import resolve_browser_session_identity
 from app.api.email_auth_routes import EmailWebAuthAdapter
+from app.api.extension_routes import ExtensionSessionService
 from app.config import Settings, get_settings
 from app.browser_capture_submission import BrowserCaptureSubmissionService
 from app.browser_companion import BrowserCompanionService
@@ -100,7 +101,10 @@ def build_web_app(
         # production still builds the configured provider-backed service here.
         email_auth = email_auth or build_email_auth_service(settings, factory)
         web_auth = EmailWebAuthAdapter(email_auth)
-        expected_origin = getattr(settings, "web_public_origin", None) or ""
+        expected_origin = getattr(settings, "web_public_origin", None) or (
+            tuple(getattr(settings, "browser_companion_allowed_origins", ())) or
+            ("chrome-extension://omogodipchfidpikpeebgmlplpkjnpfm",)
+        )[0]
         public_login_channels = ("email",)
     else:
         # The old channel-approved service remains injectable for existing
@@ -151,6 +155,9 @@ def build_web_app(
         transcript=TranscriptService(factory, store),
         browser_companion=browser_companion,
         browser_capture_submission=browser_capture_submission,
+        extension_sessions=ExtensionSessionService(email_auth) if email_auth is not None else None,
+        # Settings test doubles without the flag keep the route unmounted.
+        include_page_qa_routes=bool(getattr(settings, "page_qa_enabled", False)),
         asr_audio_store=store,
     )
     serve_static = (

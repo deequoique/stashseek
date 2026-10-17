@@ -257,6 +257,35 @@ def _window_chunks(
     return [_make(cues[s:e], label) for s, e, label in pieces]
 
 
+def _chapter_number(chapter: dict, keys: Sequence[str]) -> float | None:
+    for key in keys:
+        value = chapter.get(key)
+        if value is None or isinstance(value, bool):
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number):
+            return number
+    return None
+
+
+def _chapter_bounds(chapter: dict, default_end: float) -> tuple[float, float] | None:
+    """Return ``(start, end)`` for a chapter, or ``None`` when it has no usable start.
+
+    Accepts both the yt-dlp shape (``start_time``/``end_time``) and the
+    browser-capture shape (``start_sec``/``end_sec``, where ``end_sec`` may be
+    null for the last chapter).  A missing end runs to the end of the track.
+    """
+
+    start = _chapter_number(chapter, ("start_time", "start_sec", "start"))
+    if start is None:
+        return None
+    end = _chapter_number(chapter, ("end_time", "end_sec", "end"))
+    return start, default_end if end is None else end
+
+
 def chunk(
     cues: list[Cue], *, lang: str, chapters: list[dict] | None = None,
     semantic_embedder: Callable[[list[str]], list[list[float]]] | None = None,
@@ -266,7 +295,11 @@ def chunk(
     if chapters:
         result: list[Chunk] = []
         for chapter in chapters:
-            selected = [c for c in cues if c.start >= float(chapter["start_time"]) and c.start < float(chapter.get("end_time", cues[-1].end))]
+            bounds = _chapter_bounds(chapter, cues[-1].end)
+            if bounds is None:
+                continue
+            chapter_start, chapter_end = bounds
+            selected = [c for c in cues if c.start >= chapter_start and c.start < chapter_end]
             if not selected:
                 continue
             if selected[-1].end - selected[0].start <= 180:

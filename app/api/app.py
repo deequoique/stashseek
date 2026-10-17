@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -23,11 +23,14 @@ from app.api.auth_routes import build_auth_router
 from app.api.browser_companion_routes import build_browser_companion_router
 from app.api.conversation_routes import build_conversation_router
 from app.api.email_auth_routes import build_email_auth_router
+from app.api.extension_routes import build_extension_router
 from app.api.library_routes import build_library_router
 from app.api.library_schemas import ErrorResponse
 from app.asr.signing import audio_object_key, verify_audio_signature
 from app.channels.types import UserScope
 from app.ingest.submission import MAX_SAVE_BATCH_SIZE
+from app.page_qa import PAGE_QA_STREAM_PATH_RE
+from app.page_qa.routes import build_page_qa_router
 from app.web.auth import (
     CSRF_COOKIE_NAME,
     SESSION_COOKIE_NAME,
@@ -38,9 +41,6 @@ from app.web_auth import InvalidSession
 
 logger = logging.getLogger(__name__)
 _CHROME_EXTENSION_ORIGIN_RE = re.compile(r"^chrome-extension://[a-p]{32}$")
-_BROWSER_COMPANION_STATUS_PATH_RE = re.compile(
-    r"^/api/v1/browser-companion/extension/pairings/[a-f0-9]{32}$"
-)
 MAX_WEB_REQUEST_BODY_BYTES = 64 * 1024
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _SAFE_HTTP_CODES = frozenset(
@@ -92,6 +92,9 @@ _SAFE_HTTP_CODES = frozenset(
         "capture_upload_failed",
         "queue_unavailable",
         "streaming_disabled",
+        "extension_session_invalid",
+        "rate_limited",
+        "page_thread_read_only",
     }
 )
 
@@ -132,6 +135,9 @@ class CapabilitiesResponse(BaseModel):
     archive: bool = True
     summary_generation: bool = False
     chat: bool = True
+    # Instant side-panel Q&A over a caller-supplied transcript is mounted.
+    # (A default factory keeps the generated TypeScript property optional.)
+    page_qa: bool = Field(default_factory=lambda: False)
 
 
 @dataclass(frozen=True)
@@ -162,6 +168,11 @@ class WebApiServices:
     # signed-download route, which exists solely when ASR is enabled; when
     # omitted the route builds a default store on first use.
     asr_audio_store: Any | None = None
+    extension_sessions: Any | None = None
+    # Instant page Q&A (PAGE_QA_ENABLED).  The default documents the route in
+    # the OpenAPI export; runtime composition passes the configured flag.
+    include_page_qa_routes: bool = True
+    page_qa_service: Any | None = None
 
 
 _SAFE_MESSAGES = {
@@ -213,6 +224,9 @@ _SAFE_MESSAGES = {
     "capture_upload_failed": "字幕上传失败，请稍后重试",
     "queue_unavailable": "保存任务暂时无法排队，请稍后重试",
     "streaming_disabled": "流式回答当前未启用，请使用兼容模式重试",
+    "extension_session_invalid": "扩展登录已失效，请重新登录",
+    "rate_limited": "提问过于频繁，请稍后重试",
+    "page_thread_read_only": "这是视频页问答记录，请回到视频页继续提问。",
 }
 
 
@@ -220,11 +234,17 @@ class RequestBodyLimitMiddleware:
     """Bound both fixed-length and chunked request bodies before parsing."""
 
     def __init__(
-        self, app: ASGIApp, *, max_bytes: int, capture_max_bytes: int
+        self,
+        app: ASGIApp,
+        *,
+        max_bytes: int,
+        capture_max_bytes: int,
+        page_qa_max_bytes: int | None = None,
     ) -> None:
         self.app = app
         self.max_bytes = max_bytes
         self.capture_max_bytes = capture_max_bytes
+        self.page_qa_max_bytes = page_qa_max_bytes
 
     async def __call__(
         self,
@@ -237,11 +257,16 @@ class RequestBodyLimitMiddleware:
             return
         headers = dict(scope.get("headers", ()))
         path = str(scope.get("path", ""))
-        max_bytes = (
-            self.capture_max_bytes
-            if path == "/api/v1/browser-companion/extension/captures"
-            else self.max_bytes
-        )
+        if path == "/api/v1/browser-companion/extension/captures":
+            max_bytes = self.capture_max_bytes
+        elif (
+            self.page_qa_max_bytes is not None
+            and PAGE_QA_STREAM_PATH_RE.fullmatch(path) is not None
+        ):
+            # The page Q&A body carries the cues, bounded like capture.v1.
+            max_bytes = self.page_qa_max_bytes
+        else:
+            max_bytes = self.max_bytes
         raw_length = headers.get(b"content-length", b"")
         try:
             declared_length = int(raw_length) if raw_length else None
@@ -317,6 +342,7 @@ def create_app(
         docs_url="/api/v1/docs",
         redoc_url=None,
     )
+    page_qa_enabled = bool(services is not None and services.include_page_qa_routes)
     app.add_middleware(
         RequestBodyLimitMiddleware,
         max_bytes=MAX_WEB_REQUEST_BODY_BYTES,
@@ -327,6 +353,17 @@ def create_app(
                 5_500_000,
             )
         ),
+        page_qa_max_bytes=(
+            int(
+                getattr(
+                    getattr(services, "settings", None),
+                    "page_qa_max_request_bytes",
+                    2_000_000,
+                )
+            )
+            if page_qa_enabled
+            else None
+        ),
     )
 
     @app.middleware("http")
@@ -334,8 +371,14 @@ def create_app(
         request_id = uuid4().hex
         request.state.request_id = request_id
         extension_prefix = "/api/v1/browser-companion/extension/"
-        extension_request = request.url.path.startswith(extension_prefix)
+        extension_session_prefix = "/api/v1/extension/"
+        extension_request = request.url.path.startswith(extension_prefix) or request.url.path.startswith(extension_session_prefix)
         extension_origin = request.headers.get("origin", "")
+        extension_auth_request = (
+            request.url.path.startswith("/api/v1/auth/")
+            or request.url.path.startswith("/api/v1/extension/")
+            or request.headers.get("authorization", "").lower().startswith("bearer ")
+        ) and extension_origin.startswith("chrome-extension://")
         allowed_extension_origins = tuple(
             getattr(
                 getattr(services, "settings", None),
@@ -343,15 +386,31 @@ def create_app(
                 (),
             )
         )
-        origin_optional_status_read = (
-            request.method == "GET"
-            and not extension_origin
-            and _BROWSER_COMPANION_STATUS_PATH_RE.fullmatch(request.url.path)
-            is not None
+        # Chrome MV3 extension pages and service workers send cross-origin
+        # GET/HEAD requests to a host-permitted API without an Origin header.
+        # These routes authenticate only with explicit Bearer credentials (never
+        # cookies), GET/HEAD are read-only, and no CORS allow-origin header is
+        # emitted for a missing Origin, so a web page cannot read the response.
+        # A present-but-disallowed Origin and every unsafe method stay rejected.
+        origin_optional_read = (
+            request.method in {"GET", "HEAD"} and not extension_origin
         )
         try:
+            # Resolve explicit extension sessions for all API methods so read
+            # routes (library/history) receive the same tenant identity.
+            bearer = request.headers.get("authorization", "")
+            ext_service = getattr(services, "extension_sessions", None)
+            if (
+                ext_service is not None
+                and bearer.lower().startswith("bearer ")
+                and not extension_request
+                and not request.url.path.startswith("/api/v1/extension/auth/")
+            ):
+                current, user_id, _email = ext_service.resolve(bearer[7:].strip())
+                request.state.authenticated_session = current
+                request.state.extension_user_id = user_id
             if extension_request:
-                if not origin_optional_status_read and not _extension_origin_allowed(
+                if not origin_optional_read and not _extension_origin_allowed(
                     extension_origin, allowed_extension_origins
                 ):
                     logger.warning(
@@ -369,24 +428,52 @@ def create_app(
                     response = Response(status_code=204)
                 else:
                     response = await call_next(request)
+            elif extension_auth_request and request.method == "OPTIONS":
+                response = Response(status_code=204) if _extension_origin_allowed(
+                    extension_origin, allowed_extension_origins
+                ) else _error_response("extension_origin_invalid", 403)
+            elif extension_auth_request and not _extension_origin_allowed(
+                extension_origin, allowed_extension_origins
+            ):
+                response = _error_response("extension_origin_invalid", 403)
             elif (
                 services is not None
                 and request.method in _UNSAFE_METHODS
                 and request.url.path.startswith("/api/v1/")
                 and not request.url.path.startswith("/api/v1/auth/")
             ):
-                error = _validate_protected_mutation(
-                    request,
-                    services.web_auth,
-                    expected_origin or "",
-                    session_resolver=services.session_resolver,
-                )
-                if error is not None:
-                    response = error
+                # Extension session Bearer credentials are an explicit API
+                # transport and do not use the browser cookie/CSRF boundary.
+                auth = request.headers.get("authorization", "")
+                ext = getattr(services, "extension_sessions", None)
+                if ext is not None and auth.lower().startswith("bearer "):
+                    try:
+                        current, user_id, _email = ext.resolve(auth[7:].strip())
+                        request.state.authenticated_session = current
+                        request.state.extension_user_id = user_id
+                        response = await call_next(request)
+                    except Exception:
+                        response = _error_response("session_invalid", 401)
                 else:
-                    response = await call_next(request)
+                    error = _validate_protected_mutation(
+                        request,
+                        services.web_auth,
+                        expected_origin or "",
+                        session_resolver=services.session_resolver,
+                    )
+                    if error is not None:
+                        response = error
+                    else:
+                        response = await call_next(request)
             else:
                 response = await call_next(request)
+        except HTTPException as exc:
+            raw_code = exc.detail if isinstance(exc.detail, str) else "request_failed"
+            response = _error_response(
+                raw_code,
+                exc.status_code,
+                headers=exc.headers,
+            )
         except Exception as exc:
             logger.error(
                 "web_api_failed request_id=%s exception_type=%s",
@@ -401,7 +488,7 @@ def create_app(
         response.headers["Permissions-Policy"] = (
             "camera=(), microphone=(), geolocation=(), payment=()"
         )
-        if extension_request and _extension_origin_allowed(
+        if (extension_request or extension_auth_request) and _extension_origin_allowed(
             extension_origin, allowed_extension_origins
         ):
             response.headers["Access-Control-Allow-Origin"] = extension_origin
@@ -464,6 +551,7 @@ def create_app(
         return CapabilitiesResponse(
             web_login_channels=public_login_channels,
             save_enabled=save_enabled,
+            page_qa=page_qa_enabled,
         )
 
     if services is not None:
@@ -487,6 +575,9 @@ def create_app(
                     trusted_proxy_hosts=services.trusted_proxy_hosts,
                 )
             )
+            extension_sessions = getattr(services, "extension_sessions", None)
+            if extension_sessions is not None:
+                app.include_router(build_extension_router(extension_sessions))
 
         def authenticated_session(request: Request):
             cached = getattr(request.state, "authenticated_session", None)
@@ -495,6 +586,13 @@ def create_app(
             resolver = services.session_resolver
             if resolver is None:
                 raise HTTPException(status_code=503, detail="request_failed")
+            auth = request.headers.get("authorization", "")
+            extension_sessions = services.extension_sessions
+            if extension_sessions is not None and auth.lower().startswith("bearer "):
+                current, user_id, _email = extension_sessions.resolve(auth[7:].strip())
+                request.state.authenticated_session = current
+                request.state.extension_user_id = user_id
+                return current
             raw_token = request.cookies.get(SESSION_COOKIE_NAME, "")
             if not raw_token:
                 raise HTTPException(
@@ -518,6 +616,9 @@ def create_app(
                 raise
 
         def authenticated_scope(request: Request) -> UserScope:
+            extension_user_id = getattr(request.state, "extension_user_id", None)
+            if extension_user_id is not None:
+                return UserScope(extension_user_id)
             if services.session_resolver is not None:
                 session = authenticated_session(request)
                 tenant = getattr(session, "tenant", None)
@@ -556,6 +657,8 @@ def create_app(
                     scope_dependency=authenticated_scope,
                     web_origin=expected_origin or "",
                     publish_budget_seconds=publish_budget_seconds,
+                    email_auth=services.email_auth,
+                    library=services.library,
                 )
             )
 
@@ -567,6 +670,17 @@ def create_app(
                     session_factory=services.session_factory,
                     settings=services.settings,
                     session_identity_resolver=services.session_identity_resolver,
+                )
+            )
+
+        if services.include_page_qa_routes:
+            app.include_router(
+                build_page_qa_router(
+                    session_dependency=authenticated_session,
+                    session_factory=services.session_factory,
+                    settings=services.settings,
+                    session_identity_resolver=services.session_identity_resolver,
+                    service=services.page_qa_service,
                 )
             )
 

@@ -16,7 +16,13 @@ from app.api.auth_schemas import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "web" / "src" / "api" / "openapi.json"
+# Both clients ship from the same backend contract: the production web site
+# and the browser extension each keep a checked-in copy that must stay equal to
+# the real route composition.
+OUTPUTS = (
+    ROOT / "web" / "src" / "api" / "openapi.json",
+    ROOT / "extension" / "src" / "api" / "openapi.json",
+)
 
 
 def rendered_schema() -> str:
@@ -33,6 +39,7 @@ def rendered_schema() -> str:
             email_auth=placeholder,
             browser_companion=placeholder,
             browser_capture_submission=placeholder,
+            extension_sessions=placeholder,
         ),
         expected_origin="https://contract.invalid",
         cookie_secure=True,
@@ -70,12 +77,15 @@ def main() -> None:
     args = parser.parse_args()
     expected = rendered_schema()
     if args.check:
-        actual = OUTPUT.read_text(encoding="utf-8") if OUTPUT.exists() else ""
-        if actual != expected:
-            raise SystemExit("web/src/api/openapi.json is stale; regenerate it")
+        for output in OUTPUTS:
+            actual = output.read_text(encoding="utf-8") if output.exists() else ""
+            if actual != expected:
+                relative = output.relative_to(ROOT).as_posix()
+                raise SystemExit(f"{relative} is stale; regenerate it")
         return
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(expected, encoding="utf-8", newline="\n")
+    for output in OUTPUTS:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(expected, encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

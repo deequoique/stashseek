@@ -6,7 +6,14 @@ from sqlalchemy.orm import Session
 
 from app.channels.types import UserScope
 from app.db import get_engine
-from app.models import AppUser, Base, ContentItem, IngestDispatch, Segment
+from app.models import (
+    AppUser,
+    Base,
+    BrowserCapture,
+    ContentItem,
+    IngestDispatch,
+    Segment,
+)
 from app.retrieval.search import bm25_search, vector_search
 from app.web.library import ContentLibraryService, LibraryNotFound
 
@@ -15,7 +22,13 @@ from app.web.library import ContentLibraryService, LibraryNotFound
 def library_factory():
     engine = get_engine()
     schema = f"test_library_{uuid4().hex}"
-    tables = [AppUser.__table__, ContentItem.__table__, IngestDispatch.__table__, Segment.__table__]
+    tables = [
+        AppUser.__table__,
+        ContentItem.__table__,
+        IngestDispatch.__table__,
+        BrowserCapture.__table__,
+        Segment.__table__,
+    ]
     try:
         with engine.begin() as connection:
             connection.execute(text(f'CREATE SCHEMA "{schema}"'))
@@ -112,3 +125,93 @@ def test_latest_dispatch_uses_attempt_then_id_and_pending_failed_projects_failed
 
     assert detail.lifecycle == "failed"
     assert detail.error_code == "queue_unavailable"
+
+
+def _add_old_dispatch(db, item_id):
+    # BrowserCapture.dispatch_id is unique; attempt 0 stays older than the
+    # item's own dispatch, so it never becomes the "latest" one.
+    old = IngestDispatch(
+        public_id=uuid4().hex,
+        item_id=item_id,
+        request_key=uuid4().hex,
+        attempt=0,
+        state="failed",
+        error_code="queue_unavailable",
+    )
+    db.add(old)
+    db.flush()
+    return old.id
+
+
+def _add_capture(db, *, item_id, user_id, dispatch_id, caption_status, state="ready"):
+    available = caption_status == "available"
+    db.add(BrowserCapture(
+        public_id=uuid4().hex,
+        app_user_id=user_id,
+        item_id=item_id,
+        dispatch_id=dispatch_id,
+        request_key=uuid4().hex,
+        body_hash="0" * 64,
+        protocol_version="capture.v1",
+        client_version="0.2.0",
+        caption_status=caption_status,
+        caption_source="official_cc" if available else None,
+        language="en" if available else None,
+        capture_metadata={},
+        state=state,
+    ))
+
+
+def test_stage_reports_transcribing_for_a_caption_less_capture_and_the_dispatch_time(
+    library_factory,
+):
+    scope = add_user(library_factory)
+    public_id = add_item(library_factory, scope, platform_id="dQw4w9WgXcQ", state="fetching")
+    with library_factory() as db:
+        item = db.scalar(select(ContentItem).where(ContentItem.public_id == public_id))
+        dispatch = db.scalar(select(IngestDispatch).where(IngestDispatch.item_id == item.id))
+        dispatch.state = "running"
+        _add_capture(
+            db,
+            item_id=item.id,
+            user_id=scope.app_user_id,
+            dispatch_id=dispatch.id,
+            caption_status="unavailable",
+        )
+        db.commit()
+        dispatch_updated_at = dispatch.updated_at
+    service = ContentLibraryService(library_factory, lambda _dispatch_id: "task")
+
+    detail = service.get_item(scope, public_id)
+    page = service.list_items(scope)
+
+    assert detail.lifecycle == "processing"
+    assert detail.stage == "transcribing"
+    assert detail.stage_updated_at == dispatch_updated_at
+    assert [value.stage for value in page.items] == ["transcribing"]
+
+
+def test_stage_ignores_failed_or_foreign_captures_and_available_captions(library_factory):
+    scope = add_user(library_factory)
+    other = add_user(library_factory)
+    public_id = add_item(library_factory, scope, platform_id="9bZkp7q19f0", state="fetching")
+    with library_factory() as db:
+        item = db.scalar(select(ContentItem).where(ContentItem.public_id == public_id))
+        dispatch = db.scalar(select(IngestDispatch).where(IngestDispatch.item_id == item.id))
+        dispatch.state = "running"
+        # A caption-less capture that is not ready, and one owned by another
+        # tenant, must not mark the item as transcribing ...
+        _add_capture(db, item_id=item.id, user_id=scope.app_user_id,
+                     dispatch_id=dispatch.id, caption_status="unavailable", state="failed")
+        db.commit()
+    service = ContentLibraryService(library_factory, lambda _dispatch_id: "task")
+    assert service.get_item(scope, public_id).stage == "fetching"
+
+    with library_factory() as db:
+        item = db.scalar(select(ContentItem).where(ContentItem.public_id == public_id))
+        dispatch = db.scalar(select(IngestDispatch).where(IngestDispatch.item_id == item.id))
+        _add_capture(db, item_id=item.id, user_id=other.app_user_id,
+                     dispatch_id=_add_old_dispatch(db, item.id),
+                     caption_status="unavailable")
+        db.commit()
+    assert service.get_item(scope, public_id).stage == "fetching"
