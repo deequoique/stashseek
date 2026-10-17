@@ -188,12 +188,13 @@ PageQaService.stream(*, tenant, conversation_id, payload, request_id) -> AsyncIt
 { message_id: 1..128 chars,
   question: non-blank,
   playback_sec: float >= 0 | null,
-  page: { platform: "youtube" | "ntu_kaltura", platform_id, canonical_url, page_url,
+  page: { platform: "youtube" | "ntu_kaltura" | "bilibili", platform_id, canonical_url, page_url,
           metadata: CaptureMetadata, caption: CaptureCaption } }
 ```
 
 - The page uses the same reference validation as capture.v1, with no
-  `content_hash`.
+  `content_hash`. A Bilibili `page_url` may carry `p` above 1; citations for
+  that page open the same part (`?p=N&t=<sec>`).
 
 **Stream**
 
@@ -226,8 +227,8 @@ PageQaService.stream(*, tenant, conversation_id, payload, request_id) -> AsyncIt
 
   all capped at `PAGE_QA_WINDOW_CONTEXT_TOKENS`.
 - A cross-script question gets one keyword-rewrite call first.
-- Caption-less input is allowed only for YouTube with a title, description or
-  chapters. The answer starts with the fixed no-captions label.
+- Caption-less input is allowed only for YouTube and Bilibili with a title,
+  description or chapters. The answer starts with the fixed no-captions label.
 
 **Persistence** (only after a validated answer)
 
@@ -259,7 +260,7 @@ PageQaService.stream(*, tenant, conversation_id, payload, request_id) -> AsyncIt
 | Condition | Behavior |
 | --- | --- |
 | body over `PAGE_QA_MAX_REQUEST_BYTES` | 413 before parsing |
-| unknown field, bad id, bad platform/reference, caption-less Kaltura, caption-less YouTube without metadata | 422 |
+| unknown field, bad id, bad platform/reference, caption-less Kaltura, caption-less YouTube/Bilibili without metadata | 422 |
 | capture Bearer or no session | 401 |
 | `chrome-extension://` Origin not allowed; cookie request with a missing or foreign Origin | 403 |
 | over the rate limit | 429 `rate_limited` with `Retry-After` |

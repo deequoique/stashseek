@@ -198,7 +198,8 @@
           "platform": {
             "enum": [
               "youtube",
-              "ntu_kaltura"
+              "ntu_kaltura",
+              "bilibili"
             ],
             "title": "Platform",
             "type": "string"
@@ -1987,7 +1988,8 @@
           "platform": {
             "enum": [
               "youtube",
-              "ntu_kaltura"
+              "ntu_kaltura",
+              "bilibili"
             ],
             "title": "Platform",
             "type": "string"

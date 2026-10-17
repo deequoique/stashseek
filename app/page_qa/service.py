@@ -59,6 +59,7 @@ from app.browser_capture import (
     CaptureMetadata,
     CaptureModel,
     Platform,
+    canonicalize_page_url,
     canonicalize_reference,
     normalized_cues,
     timestamp_url,
@@ -148,14 +149,14 @@ class PageQaPage(CaptureModel):
             self.metadata.cover_url,
         )
         if self.caption.status == "unavailable":
-            # Only YouTube exposes metadata worth answering from; a Kaltura page
-            # without captions has nothing for the server to work with.
+            # Only YouTube and Bilibili expose metadata worth answering from; a
+            # Kaltura page without captions has nothing for the server to work with.
             usable = bool(
                 self.metadata.title
                 or self.metadata.description
                 or self.metadata.chapters
             )
-            if self.platform != "youtube" or not usable:
+            if self.platform not in {"youtube", "bilibili"} or not usable:
                 raise ValueError("no captions and no usable page metadata")
         return self
 
@@ -460,6 +461,11 @@ class PageQaService:
         canonical_url = canonicalize_reference(
             page.platform, page.platform_id, page.canonical_url
         )
+        if page.platform == "bilibili" and page.page_url:
+            # A part above 1 keeps its ``p`` so a citation opens that part.
+            canonical_url = canonicalize_page_url(
+                page.platform, page.page_url, platform_id=page.platform_id
+            )
         paragraphs_by_index: dict[int, Any] = {}
         selection: ContextSelection | None = None
         prefix = ""

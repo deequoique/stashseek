@@ -3,7 +3,9 @@ import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  bilibiliVideoRef,
   captureActivePage,
+  captureBilibiliPage,
   captureKalturaPage,
   captureYouTubePage,
   classifyPageUrl,
@@ -2287,5 +2289,757 @@ describe("playback coordinator", () => {
       .mockResolvedValueOnce([{ frameId: 6, result: video({ seeked: false }) }]);
     vi.stubGlobal("chrome", { scripting: { executeScript: refused } });
     await expect(seekPlayback(4, kalturaUrl, 30)).rejects.toThrow("seek_failed");
+  });
+});
+
+const BVID = "BV1xx411c7mD";
+const BILIBILI_URL = `https://www.bilibili.com/video/${BVID}`;
+
+describe("Bilibili page classification", () => {
+  it("accepts BV and av video pages on www.bilibili.com, with any part", () => {
+    expect(classifyPageUrl(BILIBILI_URL)).toBe("bilibili");
+    expect(classifyPageUrl(`${BILIBILI_URL}/?p=3&spm_id_from=333.1007`)).toBe("bilibili");
+    expect(classifyPageUrl("https://www.bilibili.com/video/av170001")).toBe("bilibili");
+    expect(classifyPageUrl("https://www.bilibili.com/video/bv1xx411c7mD")).toBe("bilibili");
+  });
+
+  it("rejects other Bilibili pages, near-hosts, plain HTTP and malformed ids", () => {
+    for (const url of [
+      "https://www.bilibili.com/",
+      "https://www.bilibili.com/bangumi/play/ep1",
+      "https://www.bilibili.com/video/BV1xx411c7m",
+      "https://www.bilibili.com/video/BV1xx411c7mDx",
+      "https://www.bilibili.com/video/av",
+      "https://www.bilibili.com/video/BV1xx411c7mD/extra",
+      "https://m.bilibili.com/video/BV1xx411c7mD",
+      "https://bilibili.com/video/BV1xx411c7mD",
+      "https://www.bilibili.com.evil.example/video/BV1xx411c7mD",
+      "https://evilbilibili.com/video/BV1xx411c7mD",
+      "http://www.bilibili.com/video/BV1xx411c7mD",
+    ]) {
+      expect(classifyPageUrl(url), url).toBeNull();
+    }
+  });
+
+  it("derives the connector's normalized id and the part from the URL", () => {
+    expect(bilibiliVideoRef(BILIBILI_URL)).toEqual({ id: BVID, part: 1 });
+    expect(bilibiliVideoRef("https://www.bilibili.com/video/bv1xx411c7mD/?p=2")).toEqual({ id: BVID, part: 2 });
+    expect(bilibiliVideoRef("https://www.bilibili.com/video/AV170001?p=12")).toEqual({ id: "av170001", part: 12 });
+    for (const bad of ["0", "abc", "-1", "10000", "01", ""]) {
+      expect(bilibiliVideoRef(`${BILIBILI_URL}?p=${bad}`)?.part, bad).toBe(1);
+    }
+    expect(bilibiliVideoRef(`${BILIBILI_URL}?p=2&p=3`)?.part).toBe(1);
+    expect(bilibiliVideoRef("https://example.com/video/BV1xx411c7mD")).toBeNull();
+  });
+});
+
+describe("Bilibili capture coordinator", () => {
+  function bilibiliCapture(overrides: Partial<PageCapture> = {}): PageCapture {
+    return {
+      platform: "bilibili",
+      platform_id: BVID,
+      canonical_url: BILIBILI_URL,
+      page_url: BILIBILI_URL,
+      metadata: {
+        title: "梯度下降入门",
+        author: "UP主",
+        duration_sec: 600,
+        language: "zh",
+        description: null,
+        cover_url: "https://i0.hdslb.com/bfs/archive/abc.jpg",
+        tags: [],
+        chapters: [],
+      },
+      caption: { status: "available", source: "auto_caption", language: "zh", cues: [{ start_sec: 1, end_sec: 2, text: "你好" }] },
+      ...overrides,
+    };
+  }
+
+  it("injects the Bilibili adapter into the top frame only", async () => {
+    const executeScript = vi.fn(async () => [{ result: { status: "captured", capture: bilibiliCapture() } }]);
+    vi.stubGlobal("chrome", { scripting: { executeScript } });
+
+    const result = await captureActivePage(7, `${BILIBILI_URL}?p=1&spm_id_from=x`);
+
+    expect(result.platform).toBe("bilibili");
+    expect(executeScript).toHaveBeenCalledOnce();
+    expect(executeScript).toHaveBeenCalledWith({ target: { tabId: 7, allFrames: false }, world: "MAIN", func: captureBilibiliPage });
+  });
+
+  it("keeps a later part in the page URL and rebuilds the capture from an allowlist", async () => {
+    const capture = bilibiliCapture({ page_url: `${BILIBILI_URL}?p=3` }) as PageCapture & Record<string, unknown>;
+    capture.auth_key = "private-signature";
+    vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => [{ result: { status: "captured", capture } }]) } });
+
+    const result = await captureActivePage(7, `${BILIBILI_URL}?p=3`);
+
+    expect(result.page_url).toBe(`${BILIBILI_URL}?p=3`);
+    expect(JSON.stringify(result)).not.toContain("private-signature");
+  });
+
+  it("rejects captures that break the Bilibili runtime contract", async () => {
+    const withMetadata = (change: Partial<PageCapture["metadata"]>) => {
+      const capture = bilibiliCapture();
+      capture.metadata = { ...capture.metadata, ...change };
+      return capture;
+    };
+    const invalid: PageCapture[] = [
+      bilibiliCapture({ platform_id: "dQw4w9WgXcQ" }),
+      bilibiliCapture({ platform_id: "bv1xx411c7mD" }),
+      bilibiliCapture({ canonical_url: `${BILIBILI_URL}?p=2` }),
+      bilibiliCapture({ canonical_url: "https://www.bilibili.com/video/BV1xx411c7mE" }),
+      bilibiliCapture({ canonical_url: "https://m.bilibili.com/video/" + BVID }),
+      bilibiliCapture({ page_url: `${BILIBILI_URL}?p=1` }),
+      bilibiliCapture({ page_url: `${BILIBILI_URL}?p=2&spm=x` }),
+      bilibiliCapture({ page_url: `${BILIBILI_URL}#frag` }),
+      bilibiliCapture({ page_url: "https://www.bilibili.com/video/BV1xx411c7mE" }),
+      withMetadata({ cover_url: "http://i0.hdslb.com/bfs/archive/abc.jpg" }),
+      withMetadata({ cover_url: "https://i0.hdslb.com/bfs/archive/abc.jpg?sign=secret" }),
+      withMetadata({ cover_url: "https://hdslb.com.evil.example/abc.jpg" }),
+      withMetadata({ cover_url: "https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg" }),
+    ];
+    for (const capture of invalid) {
+      expect(normalizePageCapture(capture), JSON.stringify([capture.platform_id, capture.canonical_url, capture.page_url, capture.metadata.cover_url])).toBeNull();
+    }
+    expect(normalizePageCapture(bilibiliCapture({ platform_id: "av170001", canonical_url: "https://www.bilibili.com/video/av170001", page_url: "https://www.bilibili.com/video/av170001?p=12" }))).not.toBeNull();
+  });
+});
+
+describe("Bilibili caption adapter", () => {
+  const AID = 170001;
+  const CID = 1001;
+  const SUBTITLE_PATH = "/bfs/subtitle/zh.json";
+  const AI_SUBTITLE_URL = "//aisubtitle.hdslb.com/bfs/ai_subtitle/prod/secret-path?auth_key=SECRET_AUTH_KEY";
+
+  const videoData = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    bvid: BVID,
+    aid: AID,
+    cid: CID,
+    title: "梯度下降入门",
+    desc: "本期介绍梯度下降",
+    owner: { mid: 9, name: "UP主" },
+    duration: 600,
+    pic: "http://i0.hdslb.com/bfs/archive/abc.jpg@100w.jpg?share_source=copy_web",
+    pages: [{ cid: CID, page: 1, part: "", duration: 600 }],
+    ...overrides,
+  });
+  const initialState = (video: Record<string, unknown> | undefined = videoData(), extra: Record<string, unknown> = {}) => ({
+    bvid: BVID,
+    aid: AID,
+    videoData: video,
+    upData: { name: "UP主" },
+    tags: [{ tag_name: "机器学习" }, { tag_name: "机器学习" }, { tag_name: "<b>教程</b>" }],
+    p: 1,
+    ...extra,
+  });
+  const track = (lan: string, url: string, extra: Record<string, unknown> = {}) => ({
+    id: 1, lan, lan_doc: lan, is_lock: false, subtitle_url: url, type: lan.startsWith("ai-") ? 1 : 0, ...extra,
+  });
+  const playerInfo = (subtitles: unknown[], data: Record<string, unknown> = {}) => ({
+    code: 0,
+    message: "0",
+    data: { aid: AID, cid: CID, need_login_subtitle: false, subtitle: { subtitles }, view_points: [], ...data },
+  });
+  const subtitleJson = (...lines: Array<[number, number, string]>) => ({
+    body: lines.map(([from, to, content]) => ({ from, to, content, location: 2 })),
+  });
+  const json = (body: unknown, init: ResponseInit = {}): Response => new Response(JSON.stringify(body), { status: 200, ...init });
+
+  type Route = (url: URL, init?: RequestInit) => Response | Promise<Response>;
+  type RouteMap = Partial<Record<"view" | "player" | "subtitle", Route>>;
+  function stubBilibili(options: {
+    href?: string;
+    state?: unknown;
+    routes: RouteMap;
+    title?: string;
+  }): { fetchStub: ReturnType<typeof vi.fn>; urls: () => string[] } {
+    const href = options.href ?? BILIBILI_URL;
+    const parsed = new URL(href);
+    vi.stubGlobal("location", { href, hostname: parsed.hostname, pathname: parsed.pathname });
+    vi.stubGlobal("document", { title: options.title ?? "梯度下降入门_哔哩哔哩_bilibili" });
+    vi.stubGlobal("__INITIAL_STATE__", options.state);
+    const fetchStub = vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input);
+      if (url.hostname === "api.bilibili.com" && url.pathname === "/x/web-interface/view") {
+        return options.routes.view ? options.routes.view(url, init) : new Response("{}", { status: 404 });
+      }
+      if (url.hostname === "api.bilibili.com" && url.pathname === "/x/player/wbi/v2") {
+        return options.routes.player ? options.routes.player(url, init) : new Response("{}", { status: 404 });
+      }
+      return options.routes.subtitle ? options.routes.subtitle(url, init) : new Response("{}", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchStub);
+    return { fetchStub, urls: () => fetchStub.mock.calls.map(([input]) => String(input)) };
+  }
+
+  it("reads a human Chinese subtitle with the page's own state and keeps the capture secret-free", async () => {
+    const { fetchStub, urls } = stubBilibili({
+      state: initialState(),
+      routes: {
+        player: () => json(playerInfo([track("zh-CN", `//i0.hdslb.com${SUBTITLE_PATH}?auth_key=SECRET_AUTH_KEY`)])),
+        subtitle: () => json(subtitleJson([0, 1.5, "大家好"], [1.5, 4, "今天讲 <i>梯度</i> 下降 &amp; 学习率"])),
+      },
+    });
+
+    const result = await captureBilibiliPage();
+
+    expect(result).toEqual({
+      status: "captured",
+      capture: {
+        platform: "bilibili",
+        platform_id: BVID,
+        canonical_url: BILIBILI_URL,
+        page_url: BILIBILI_URL,
+        metadata: {
+          title: "梯度下降入门",
+          author: "UP主",
+          duration_sec: 600,
+          language: "zh",
+          description: "本期介绍梯度下降",
+          cover_url: "https://i0.hdslb.com/bfs/archive/abc.jpg@100w.jpg",
+          tags: ["机器学习", "教程"],
+          chapters: [],
+        },
+        caption: {
+          status: "available",
+          source: "official_cc",
+          language: "zh",
+          cues: [
+            { start_sec: 0, end_sec: 1.5, text: "大家好" },
+            { start_sec: 1.5, end_sec: 4, text: "今天讲 梯度 下降 & 学习率" },
+          ],
+        },
+      },
+    });
+    expect(urls()).toEqual([
+      `https://api.bilibili.com/x/player/wbi/v2?aid=${AID}&cid=${CID}`,
+      `https://i0.hdslb.com${SUBTITLE_PATH}?auth_key=SECRET_AUTH_KEY`,
+    ]);
+    // Cookies go to the player API only; the signed CDN URL is fetched without them.
+    expect(fetchStub.mock.calls.map(([, init]) => (init as RequestInit).credentials)).toEqual(["include", "omit"]);
+    expect(JSON.stringify(result)).not.toContain("SECRET_AUTH_KEY");
+    // The result round-trips the extension's own validation.
+    expect(normalizePageCapture((result as Extract<CaptureAttempt, { status: "captured" }>).capture)).not.toBeNull();
+  });
+
+  it("reads an AI subtitle behind the viewer's login and labels it as an automatic caption", async () => {
+    const { urls } = stubBilibili({
+      state: initialState(),
+      routes: {
+        player: () => json(playerInfo([track("ai-zh", AI_SUBTITLE_URL)])),
+        subtitle: () => json(subtitleJson([2, 3, "自动识别的字幕"])),
+      },
+    });
+
+    const result = await captureBilibiliPage();
+
+    expect(result.status).toBe("captured");
+    if (result.status !== "captured") return;
+    expect(result.capture.caption).toMatchObject({ status: "available", source: "auto_caption", language: "zh" });
+    expect(urls()[1]).toBe("https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/secret-path?auth_key=SECRET_AUTH_KEY");
+    expect(JSON.stringify(result)).not.toContain("SECRET_AUTH_KEY");
+  });
+
+  it("prefers human Chinese, then any human, then AI Chinese, then any AI", async () => {
+    const pick = async (lans: string[]): Promise<string> => {
+      vi.unstubAllGlobals();
+      const { urls } = stubBilibili({
+        state: initialState(),
+        routes: {
+          player: () => json(playerInfo(lans.map((lan) => track(lan, `//i0.hdslb.com/bfs/subtitle/${lan}.json`)))),
+          subtitle: () => json(subtitleJson([0, 1, "字幕"])),
+        },
+      });
+      await captureBilibiliPage();
+      return urls()[1]!;
+    };
+
+    expect(await pick(["ai-zh", "en-US", "zh-Hans"])).toContain("/zh-Hans.json");
+    expect(await pick(["ai-zh", "ja", "en-US"])).toContain("/ja.json");
+    expect(await pick(["ai-en", "ai-zh"])).toContain("/ai-zh.json");
+    expect(await pick(["ai-en", "ai-ja"])).toContain("/ai-en.json");
+  });
+
+  it("falls through an unreadable subtitle to the next candidate and gives up after three", async () => {
+    let calls = 0;
+    stubBilibili({
+      state: initialState(),
+      routes: {
+        player: () => json(playerInfo([
+          track("zh-CN", "//i0.hdslb.com/a.json"),
+          track("zh-TW", "//i1.hdslb.com/b.json"),
+          track("ai-zh", "//i2.hdslb.com/c.json"),
+        ])),
+        subtitle: () => {
+          calls += 1;
+          return calls === 1 ? new Response("denied", { status: 403 }) : json(subtitleJson([0, 1, "第二条字幕"]));
+        },
+      },
+    });
+
+    const result = await captureBilibiliPage();
+
+    expect(result.status).toBe("captured");
+    expect(calls).toBe(2);
+
+    vi.unstubAllGlobals();
+    calls = 0;
+    stubBilibili({
+      state: initialState(),
+      routes: {
+        player: () => json(playerInfo(["a", "b", "c", "d"].map((name) => track("zh-CN", `//i0.hdslb.com/${name}.json`)))),
+        subtitle: () => { calls += 1; return new Response("denied", { status: 403 }); },
+      },
+    });
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
+    expect(calls).toBe(3);
+  });
+
+  it("reports unreadable subtitle bodies as parse failures", async () => {
+    stubBilibili({
+      state: initialState(),
+      routes: {
+        player: () => json(playerInfo([track("zh-CN", "//i0.hdslb.com/a.json")])),
+        subtitle: () => new Response("<html>not json</html>", { status: 200 }),
+      },
+    });
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "caption_parse_failed" });
+
+    vi.unstubAllGlobals();
+    stubBilibili({
+      state: initialState(),
+      routes: {
+        player: () => json(playerInfo([track("zh-CN", "//i0.hdslb.com/a.json")])),
+        subtitle: () => json({ body: [{ from: "bad", to: 1, content: "x" }, { from: 2, to: 3, content: "   " }] }),
+      },
+    });
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "caption_parse_failed" });
+  });
+
+  it("returns no captions with metadata and chapters when the video has no subtitles", async () => {
+    const { fetchStub } = stubBilibili({
+      state: initialState(videoData({ desc: "-" })),
+      routes: {
+        player: () => json(playerInfo(
+          [track("ai-zh", "", { is_lock: true })],
+          {
+            need_login_subtitle: true,
+            view_points: [
+              { type: 2, from: 120, to: 300, content: "学习率" },
+              { type: 2, from: 0, to: 120, content: "开场 <b>介绍</b>" },
+              { type: 2, from: 120, to: 200, content: "重复起点" },
+              { type: 2, from: -5, to: 1, content: "负数" },
+              { type: 2, from: 300, to: 600, content: "" },
+            ],
+          },
+        )),
+      },
+    });
+
+    const result = await captureBilibiliPage();
+
+    expect(result.status).toBe("no_caption");
+    if (result.status !== "no_caption") return;
+    expect(result.capture.caption).toEqual({ status: "unavailable", source: null, language: null, cues: [] });
+    expect(result.capture.metadata).toMatchObject({
+      title: "梯度下降入门",
+      author: "UP主",
+      duration_sec: 600,
+      language: null,
+      description: null,
+      chapters: [
+        { title: "开场 介绍", start_sec: 0, end_sec: 120 },
+        { title: "学习率", start_sec: 120, end_sec: 600 },
+      ],
+    });
+    expect(fetchStub).toHaveBeenCalledOnce();
+    expect(normalizePageCapture(result.capture)).not.toBeNull();
+  });
+
+  it("selects the cid of the requested part and names it in the title", async () => {
+    const pages = [
+      { cid: 1001, page: 1, part: "第一讲", duration: 100 },
+      { cid: 2002, page: 2, part: "第二讲 <b>续</b>", duration: 200 },
+    ];
+    const { urls } = stubBilibili({
+      href: `${BILIBILI_URL}?p=2&spm_id_from=333`,
+      state: initialState(videoData({ pages, duration: 300 })),
+      routes: {
+        player: () => json(playerInfo([track("zh-CN", "//i0.hdslb.com/a.json")], { cid: 2002 })),
+        subtitle: () => json(subtitleJson([0, 1, "第二讲的内容"])),
+      },
+    });
+
+    const result = await captureBilibiliPage();
+
+    expect(urls()[0]).toBe(`https://api.bilibili.com/x/player/wbi/v2?aid=${AID}&cid=2002`);
+    expect(result.status).toBe("captured");
+    if (result.status !== "captured") return;
+    expect(result.capture.page_url).toBe(`${BILIBILI_URL}?p=2`);
+    expect(result.capture.canonical_url).toBe(BILIBILI_URL);
+    expect(result.capture.metadata.title).toBe("梯度下降入门 p02 第二讲 续");
+    expect(result.capture.metadata.duration_sec).toBe(200);
+    expect(normalizePageCapture(result.capture)).not.toBeNull();
+  });
+
+  it("falls back to the first part's cid for single-part state and rejects an out-of-range part", async () => {
+    const { urls } = stubBilibili({
+      state: initialState(videoData({ pages: undefined })),
+      routes: {
+        player: () => json(playerInfo([track("zh", "//i0.hdslb.com/a.json")])),
+        subtitle: () => json(subtitleJson([0, 1, "单P"])),
+      },
+    });
+    await expect(captureBilibiliPage()).resolves.toMatchObject({ status: "captured" });
+    expect(urls()[0]).toContain(`cid=${CID}`);
+
+    vi.unstubAllGlobals();
+    stubBilibili({
+      href: `${BILIBILI_URL}?p=9`,
+      state: initialState(),
+      routes: { player: () => json(playerInfo([])) },
+    });
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "capture_unavailable" });
+  });
+
+  it("identifies av pages by aid and keeps the normalized av id", async () => {
+    stubBilibili({
+      href: "https://www.bilibili.com/video/AV170001",
+      state: initialState(),
+      routes: {
+        player: () => json(playerInfo([track("zh", "//i0.hdslb.com/a.json")])),
+        subtitle: () => json(subtitleJson([0, 1, "av 页面"])),
+      },
+    });
+
+    const result = await captureBilibiliPage();
+
+    expect(result.status).toBe("captured");
+    if (result.status !== "captured") return;
+    expect(result.capture.platform_id).toBe("av170001");
+    expect(result.capture.canonical_url).toBe("https://www.bilibili.com/video/av170001");
+  });
+
+  it("never uses a state that describes another video: it asks the view API for this one", async () => {
+    const stale = initialState(videoData({ bvid: "BV1ab411c7mE", aid: 999, title: "上一个视频" }), { upData: { name: "旧UP主" }, tags: [{ tag_name: "旧标签" }] });
+    const { urls } = stubBilibili({
+      state: stale,
+      routes: {
+        view: () => json({ code: 0, data: videoData({ title: "当前视频", owner: { name: "新UP主" } }) }),
+        player: () => json(playerInfo([track("zh", "//i0.hdslb.com/a.json")])),
+        subtitle: () => json(subtitleJson([0, 1, "当前内容"])),
+      },
+    });
+
+    const result = await captureBilibiliPage();
+
+    expect(urls()[0]).toBe(`https://api.bilibili.com/x/web-interface/view?bvid=${BVID}`);
+    expect(result.status).toBe("captured");
+    if (result.status !== "captured") return;
+    expect(result.capture.metadata).toMatchObject({ title: "当前视频", author: "新UP主", tags: [] });
+    expect(JSON.stringify(result)).not.toContain("上一个视频");
+    expect(JSON.stringify(result)).not.toContain("旧");
+  });
+
+  it("reports a stale page when the view API cannot confirm the video, and not-ready before any state exists", async () => {
+    const stale = initialState(videoData({ bvid: "BV1ab411c7mE", aid: 999 }));
+    stubBilibili({ state: stale, routes: { view: () => new Response("{}", { status: 412 }) } });
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "stale_player_response" });
+
+    vi.unstubAllGlobals();
+    stubBilibili({ state: stale, routes: { view: () => json({ code: 0, data: videoData({ bvid: "BV1ab411c7mF", aid: 1000 }) }) } });
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "stale_player_response" });
+
+    vi.unstubAllGlobals();
+    stubBilibili({ state: undefined, routes: { view: () => json({ code: -404 }) } });
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "caption_player_not_ready" });
+
+    vi.unstubAllGlobals();
+    stubBilibili({ state: { error: { trueCode: -404 } }, routes: {} });
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "capture_unavailable" });
+  });
+
+  it("rejects the read when the tab navigates to another video or part mid-read", async () => {
+    stubBilibili({
+      state: initialState(),
+      routes: {
+        player: () => {
+          vi.stubGlobal("location", { href: `${BILIBILI_URL}?p=2`, hostname: "www.bilibili.com", pathname: `/video/${BVID}` });
+          return json(playerInfo([track("zh", "//i0.hdslb.com/a.json")]));
+        },
+        subtitle: () => json(subtitleJson([0, 1, "不应返回"])),
+      },
+    });
+
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "stale_player_response" });
+
+    vi.unstubAllGlobals();
+    stubBilibili({
+      state: initialState(),
+      routes: {
+        player: () => json(playerInfo([track("zh", "//i0.hdslb.com/a.json")])),
+        subtitle: () => {
+          vi.stubGlobal("location", { href: "https://www.bilibili.com/video/BV1ab411c7mE", hostname: "www.bilibili.com", pathname: "/video/BV1ab411c7mE" });
+          return json(subtitleJson([0, 1, "不应返回"]));
+        },
+      },
+    });
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "stale_player_response" });
+  });
+
+  it("refuses to run outside a Bilibili video URL", async () => {
+    stubBilibili({ href: "https://www.bilibili.com/bangumi/play/ep1", state: initialState(), routes: {} });
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "unsupported_page" });
+  });
+
+  it("never fetches a subtitle from an untrusted host and treats refused tracks as a failed read", async () => {
+    for (const url of [
+      "//evil.example/bfs/subtitle/a.json",
+      "https://hdslb.com.evil.example/a.json",
+      "https://user:pw@i0.hdslb.com/a.json",
+      "javascript:alert(1)",
+      "ftp://i0.hdslb.com/a.json",
+    ]) {
+      vi.unstubAllGlobals();
+      const { urls } = stubBilibili({
+        state: initialState(),
+        routes: { player: () => json(playerInfo([track("zh-CN", url)])), subtitle: () => json(subtitleJson([0, 1, "x"])) },
+      });
+      await expect(captureBilibiliPage(), url).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
+      expect(urls().filter((value) => !value.startsWith("https://api.bilibili.com/")), url).toEqual([]);
+    }
+  });
+
+  it("rejects a subtitle response that was redirected outside hdslb.com", async () => {
+    stubBilibili({
+      state: initialState(),
+      routes: {
+        player: () => json(playerInfo([track("zh-CN", "//i0.hdslb.com/a.json")])),
+        subtitle: () => {
+          const response = json(subtitleJson([0, 1, "不应使用"]));
+          Object.defineProperty(response, "url", { value: "https://evil.example/a.json" });
+          return response;
+        },
+      },
+    });
+
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
+  });
+
+  it("maps player API failures to stable errors", async () => {
+    const run = async (player: Route) => {
+      vi.unstubAllGlobals();
+      stubBilibili({ state: initialState(), routes: { player } });
+      return captureBilibiliPage();
+    };
+
+    await expect(run(() => json({ code: -352, message: "risk control" }))).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
+    await expect(run(() => new Response("blocked", { status: 412 }))).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
+    await expect(run(() => { throw new TypeError("Failed to fetch"); })).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
+    await expect(run(() => new Response("<html>", { status: 200 }))).resolves.toEqual({ status: "failed", error: "caption_parse_failed" });
+  });
+
+  it("rejects oversized bodies before parsing them", async () => {
+    const huge = "x".repeat(4_000_001);
+    stubBilibili({
+      state: initialState(),
+      routes: {
+        player: () => json(playerInfo([track("zh-CN", "//i0.hdslb.com/a.json")])),
+        subtitle: () => new Response(huge, { status: 200 }),
+      },
+    });
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
+
+    vi.unstubAllGlobals();
+    stubBilibili({
+      state: initialState(),
+      routes: { player: () => new Response("{}", { status: 200, headers: { "content-length": "9000000" } }) },
+    });
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
+  });
+
+  it("rejects subtitle transcripts beyond the capture limits", async () => {
+    const lines = Array.from({ length: 50_001 }, (_, index): [number, number, string] => [index, index + 1, "字"]);
+    stubBilibili({
+      state: initialState(),
+      routes: {
+        player: () => json(playerInfo([track("zh-CN", "//i0.hdslb.com/a.json")])),
+        subtitle: () => json(subtitleJson(...lines)),
+      },
+    });
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "caption_parse_failed" });
+  });
+
+  it("bounds hanging requests and aborts them", async () => {
+    vi.useFakeTimers();
+    let observedSignal: AbortSignal | null | undefined;
+    stubBilibili({
+      state: initialState(),
+      routes: {
+        player: (_url, init) => {
+          observedSignal = init?.signal;
+          return new Promise<Response>(() => undefined);
+        },
+      },
+    });
+
+    const pending = captureBilibiliPage();
+    await vi.advanceTimersByTimeAsync(12_000);
+
+    await expect(pending).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
+    expect(observedSignal?.aborted).toBe(true);
+  });
+
+  it("cancels an oversized streamed body", async () => {
+    const cancel = vi.fn(async () => undefined);
+    stubBilibili({
+      state: initialState(),
+      routes: {
+        player: () => json(playerInfo([track("zh-CN", "//i0.hdslb.com/a.json")])),
+        subtitle: () => {
+          const response = new Response("", { status: 200 });
+          Object.defineProperty(response, "body", {
+            value: {
+              getReader: () => ({
+                read: async () => ({ done: false, value: new Uint8Array(4_000_001) }),
+                cancel,
+                releaseLock: vi.fn(),
+              }),
+            },
+          });
+          return response;
+        },
+      },
+    });
+
+    await expect(captureBilibiliPage()).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it("survives the MV3 function serialization boundary without module closures", async () => {
+    const state = initialState();
+    const adapter = runInNewContext(`(${captureBilibiliPage.toString()})`, {
+      Date,
+      clearTimeout,
+      setTimeout,
+      URL,
+      AbortController,
+      TextDecoder,
+      Uint8Array,
+      location: { href: BILIBILI_URL, hostname: "www.bilibili.com", pathname: `/video/${BVID}` },
+      document: { title: "serialized" },
+      __INITIAL_STATE__: state,
+      fetch: async (input: string) => {
+        const url = new URL(input);
+        const body = url.hostname === "api.bilibili.com"
+          ? playerInfo([track("zh-CN", "//i0.hdslb.com/a.json")])
+          : subtitleJson([0, 1, "serialized cue"]);
+        return { ok: true, url: input, text: async () => JSON.stringify(body) };
+      },
+    }) as () => Promise<CaptureAttempt>;
+
+    const result = await adapter();
+
+    expect(result.status).toBe("captured");
+    if (result.status === "captured") expect(result.capture.caption.cues[0]?.text).toBe("serialized cue");
+  });
+});
+
+describe("Bilibili player control", () => {
+  function stubBilibiliDocument(options: { main?: FakeVideo[]; all?: FakeVideo[] }): void {
+    vi.stubGlobal("document", {
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("bpx-player-video-wrap")) return options.main ?? [];
+        if (selector === "video, bwp-video") return options.all ?? [];
+        return [];
+      },
+    });
+  }
+
+  it("reads the main player's video and ignores hover-preview videos elsewhere on the page", () => {
+    const main = fakeVideo({ currentTime: 83.5 });
+    const preview = fakeVideo({ currentTime: 3 });
+    stubBilibiliDocument({ main: [main], all: [preview, main] });
+
+    expect(controlPlayer(null, "bilibili")).toEqual({ status: "video", current_sec: 83.5, ready: true, playing: true, seeked: false });
+  });
+
+  it("falls back to any video or bwp-video element and reports a missing one", () => {
+    stubBilibiliDocument({ all: [fakeVideo({ paused: true, currentTime: 7 })] });
+    expect(controlPlayer(null, "bilibili")).toEqual({ status: "video", current_sec: 7, ready: true, playing: false, seeked: false });
+
+    vi.unstubAllGlobals();
+    stubBilibiliDocument({});
+    expect(controlPlayer(null, "bilibili")).toEqual({ status: "no_video" });
+  });
+
+  it("prefers the bpx player API for the position and the seek", () => {
+    const video = fakeVideo({ currentTime: 5 });
+    const player = { getCurrentTime: vi.fn(() => 41.25), seek: vi.fn() };
+    vi.stubGlobal("player", player);
+    stubBilibiliDocument({ main: [video] });
+
+    expect(controlPlayer(null, "bilibili")).toMatchObject({ status: "video", current_sec: 41.25, seeked: false });
+    expect(controlPlayer(125.5, "bilibili")).toMatchObject({ status: "video", seeked: true });
+    expect(player.seek).toHaveBeenCalledWith(125.5);
+    expect(video.currentTime).toBe(5);
+  });
+
+  it("falls back to the media element when the player API is missing, throws or misreports", () => {
+    const withoutApi = fakeVideo();
+    stubBilibiliDocument({ main: [withoutApi] });
+    expect(controlPlayer(90, "bilibili")).toMatchObject({ status: "video", seeked: true, current_sec: 90 });
+    expect(withoutApi.currentTime).toBe(90);
+
+    vi.unstubAllGlobals();
+    const throwing = fakeVideo({ duration: 100, currentTime: 12 });
+    vi.stubGlobal("player", { seek: () => { throw new Error("player replaced"); }, getCurrentTime: () => { throw new Error("gone"); } });
+    stubBilibiliDocument({ main: [throwing] });
+    expect(controlPlayer(500, "bilibili")).toMatchObject({ status: "video", seeked: true, current_sec: 100 });
+    expect(throwing.currentTime).toBe(100);
+    expect(controlPlayer(null, "bilibili")).toMatchObject({ status: "video", current_sec: 100 });
+
+    vi.unstubAllGlobals();
+    const odd = fakeVideo({ currentTime: 33 });
+    vi.stubGlobal("player", { getCurrentTime: () => "soon" });
+    stubBilibiliDocument({ main: [odd] });
+    expect(controlPlayer(null, "bilibili")).toMatchObject({ status: "video", current_sec: 33 });
+  });
+
+  it("reports an unseeked probe when the element refuses the assignment and no player API exists", () => {
+    const refusing = Object.defineProperty(fakeVideo(), "currentTime", { get: () => 9, set: () => { throw new Error("refused"); } });
+    stubBilibiliDocument({ main: [refusing] });
+
+    expect(controlPlayer(30, "bilibili")).toMatchObject({ status: "video", seeked: false, current_sec: 9 });
+  });
+
+  it("reads and seeks Bilibili in the top frame only, passing the platform to the injected function", async () => {
+    const url = `${BILIBILI_URL}?p=2`;
+    const executeScript = vi.fn(async () => [{ frameId: 0, result: { status: "video", current_sec: 61.5, ready: true, playing: true, seeked: true } }]);
+    vi.stubGlobal("chrome", { scripting: { executeScript } });
+
+    await expect(readPlaybackSeconds(5, url)).resolves.toBe(61.5);
+    await expect(seekPlayback(5, url, 300)).resolves.toBeUndefined();
+
+    expect(executeScript).toHaveBeenCalledTimes(2);
+    expect(executeScript).toHaveBeenNthCalledWith(1, { target: { tabId: 5, allFrames: false }, world: "MAIN", func: controlPlayer, args: [null, "bilibili"] });
+    expect(executeScript).toHaveBeenNthCalledWith(2, { target: { tabId: 5, allFrames: false }, world: "MAIN", func: controlPlayer, args: [300, "bilibili"] });
+
+    vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => [{ frameId: 0, result: { status: "no_video" } }]) } });
+    await expect(seekPlayback(5, url, 5)).rejects.toThrow("seek_failed");
+    await expect(readPlaybackSeconds(5, url)).resolves.toBeNull();
+  });
+
+  it("stays self-contained when serialised into another JavaScript context", () => {
+    const video = fakeVideo({ currentTime: 20 });
+    const player = { getCurrentTime: () => 21, seek: vi.fn() };
+    const injected = runInNewContext(`(${controlPlayer.toString()})`, {
+      document: { querySelectorAll: (selector: string) => (selector.includes("bpx-player-video-wrap") ? [video] : []) },
+      player,
+    }) as (seekSec: number | null, kind: string) => PlayerProbe;
+
+    expect(injected(null, "bilibili")).toMatchObject({ status: "video", current_sec: 21 });
+    expect(injected(44, "bilibili")).toMatchObject({ status: "video", seeked: true });
+    expect(player.seek).toHaveBeenCalledWith(44);
   });
 });

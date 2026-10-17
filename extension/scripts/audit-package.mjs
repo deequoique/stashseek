@@ -11,6 +11,7 @@ const expectedPermissions = ["activeTab", "scripting", "storage", "sidePanel"];
 const expectedHosts = [
   "https://www.youtube.com/*",
   "https://youtu.be/*",
+  "https://www.bilibili.com/*",
   "https://ntulearn.ntu.edu.sg/*",
   "https://ntulearnvideo.ntu.edu.sg/*",
   "https://ntulearnv1.ntu.edu.sg/*",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { formatTimestamp, panelAnswerText } from "./copy";
-import { identifyPage, newConversationId } from "./pageIdentity";
+import { captureIdentityKey, identifyPage, newConversationId } from "./pageIdentity";
 import { questionBlock } from "./usePageQa";
 import { noCaptionPage, youtubePage } from "../test/sidepanelEnvironment";
 
@@ -11,6 +11,40 @@ describe("page identity", () => {
     expect(identifyPage("https://www.youtube.com/watch?v=abcdefghijk&list=PL1")?.key).toBe("youtube:abcdefghijk");
     expect(identifyPage("https://www.youtube.com/shorts/abcdefghijk")?.key).toBe("youtube:abcdefghijk");
     expect(identifyPage("https://youtu.be/abcdefghijk")?.key).toBe("youtube:abcdefghijk");
+  });
+
+  it("identifies Bilibili videos by normalized id and part, so every part has its own thread", () => {
+    expect(identifyPage("https://www.bilibili.com/video/BV1xx411c7mD")).toEqual({ platform: "bilibili", key: "bilibili:BV1xx411c7mD:p1" });
+    expect(identifyPage("https://www.bilibili.com/video/BV1xx411c7mD/?p=1&spm_id_from=333.788")?.key).toBe("bilibili:BV1xx411c7mD:p1");
+    expect(identifyPage("https://www.bilibili.com/video/BV1xx411c7mD?p=3#reply")?.key).toBe("bilibili:BV1xx411c7mD:p3");
+    expect(identifyPage("https://www.bilibili.com/video/bv1xx411c7mD")?.key).toBe("bilibili:BV1xx411c7mD:p1");
+    expect(identifyPage("https://www.bilibili.com/video/AV170001?p=2")?.key).toBe("bilibili:av170001:p2");
+    expect(identifyPage("https://www.bilibili.com/video/BV1xx411c7mD?p=0")?.key).toBe("bilibili:BV1xx411c7mD:p1");
+    expect(identifyPage("https://www.bilibili.com/video/BV1xx411c7mE")?.key).not.toBe(identifyPage("https://www.bilibili.com/video/BV1xx411c7mD")?.key);
+  });
+
+  it("rejects Bilibili pages that are not a video", () => {
+    expect(identifyPage("https://www.bilibili.com/")).toBeNull();
+    expect(identifyPage("https://www.bilibili.com/bangumi/play/ep1")).toBeNull();
+    expect(identifyPage("https://space.bilibili.com/1/video")).toBeNull();
+    expect(identifyPage("https://www.bilibili.com/video/BV1xx411c7m")).toBeNull();
+  });
+
+  it("derives the tab key of a read capture so a stale read after navigation can be detected", () => {
+    expect(captureIdentityKey(youtubePage("abcdefghijk"))).toBe("youtube:abcdefghijk");
+    const bilibili = (pageUrl: string) => ({
+      ...youtubePage(),
+      platform: "bilibili" as const,
+      platform_id: "BV1xx411c7mD",
+      canonical_url: "https://www.bilibili.com/video/BV1xx411c7mD",
+      page_url: pageUrl,
+    });
+    expect(captureIdentityKey(bilibili("https://www.bilibili.com/video/BV1xx411c7mD"))).toBe("bilibili:BV1xx411c7mD:p1");
+    expect(captureIdentityKey(bilibili("https://www.bilibili.com/video/BV1xx411c7mD?p=4"))).toBe("bilibili:BV1xx411c7mD:p4");
+    expect(captureIdentityKey(noCaptionPage("ntu_kaltura"))).toBeNull();
+    // The key of a captured part equals the key of the tab that showed it.
+    expect(captureIdentityKey(bilibili("https://www.bilibili.com/video/BV1xx411c7mD?p=4")))
+      .toBe(identifyPage("https://www.bilibili.com/video/BV1xx411c7mD?p=4&spm=x")?.key);
   });
 
   it("keys NTULearn pages by URL without the fragment", () => {

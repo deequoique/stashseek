@@ -20,7 +20,7 @@ CAPTURE_TRANSCRIPT_VERSION = "capture-transcript.v1"
 MAX_CAPTURE_CUES = 50_000
 MAX_CAPTURE_TEXT_CHARS = 1_000_000
 MAX_CAPTURE_METADATA_CHARS = 50_000
-Platform = Literal["youtube", "ntu_kaltura"]
+Platform = Literal["youtube", "ntu_kaltura", "bilibili"]
 CaptionSource = Literal["official_cc", "auto_caption"]
 
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -33,6 +33,14 @@ _KALTURA_REFERENCE_HOSTS = frozenset(
 )
 _KALTURA_PAGE_HOSTS = _KALTURA_REFERENCE_HOSTS | {"ntulearnv1.ntu.edu.sg"}
 _YOUTUBE_COVER_HOSTS = frozenset({"i.ytimg.com", "img.youtube.com"})
+# Same normalized ids as ``BilibiliConnector.match`` so a captured video and a
+# URL import of the same video resolve to one library item.
+_BILIBILI_ID_RE = re.compile(r"^(?:BV[0-9A-Za-z]{10}|av[0-9]{1,20})$")
+_BILIBILI_PATH_RE = re.compile(
+    r"^/video/(?P<id>(?:[aA][vV])[0-9]{1,20}|(?:[bB][vV])[0-9A-Za-z]{10})/?$"
+)
+_BILIBILI_HOSTS = frozenset({"bilibili.com", "www.bilibili.com"})
+_BILIBILI_PART_RE = re.compile(r"^[1-9][0-9]{0,3}$")
 
 
 class CaptureContractError(ValueError):
@@ -154,6 +162,29 @@ class CanonicalTranscript(CaptureModel):
     cues: list[CaptureCue] = Field(max_length=MAX_CAPTURE_CUES)
 
 
+def _bilibili_path_id(path: str) -> str | None:
+    """The normalized ``BV…``/``av…`` id of a ``/video/<id>`` path, if any."""
+
+    match = _BILIBILI_PATH_RE.fullmatch(path)
+    if match is None:
+        return None
+    video_id = match.group("id")
+    return ("BV" if video_id[:2].lower() == "bv" else "av") + video_id[2:]
+
+
+def _bilibili_part(query: str, *, strict: bool) -> int:
+    """The 1-based part index from a query string (``p`` is absent for part 1)."""
+
+    values = [value for key, value in parse_qsl(query, keep_blank_values=True) if key == "p"]
+    if not values:
+        return 1
+    if len(values) == 1 and _BILIBILI_PART_RE.fullmatch(values[0]):
+        return int(values[0])
+    if strict:
+        raise CaptureContractError()
+    return 1
+
+
 def canonicalize_reference(platform: Platform, platform_id: str, url: str) -> str:
     """Return a secret-free canonical URL for one supported media identity."""
 
@@ -170,6 +201,14 @@ def canonicalize_reference(platform: Platform, platform_id: str, url: str) -> st
         if observed_id != platform_id:
             raise CaptureContractError()
         return f"https://www.youtube.com/watch?v={platform_id}"
+    if platform == "bilibili":
+        if (
+            not _BILIBILI_ID_RE.fullmatch(platform_id)
+            or host not in _BILIBILI_HOSTS
+            or _bilibili_path_id(parts.path) != platform_id
+        ):
+            raise CaptureContractError()
+        return f"https://www.bilibili.com/video/{platform_id}"
     if not _KALTURA_ID_RE.fullmatch(platform_id) or host not in _KALTURA_REFERENCE_HOSTS:
         raise CaptureContractError()
     if platform_id not in parts.path and platform_id not in parts.query:
@@ -177,11 +216,29 @@ def canonicalize_reference(platform: Platform, platform_id: str, url: str) -> st
     return urlunsplit(("https", host, parts.path or "/", "", ""))
 
 
-def canonicalize_page_url(platform: Platform, url: str) -> str:
+def canonicalize_page_url(
+    platform: Platform, url: str, *, platform_id: str | None = None
+) -> str:
+    """Return a secret-free page URL; a Bilibili page keeps ``p`` above 1.
+
+    ``platform_id``, when given, must name the video a Bilibili page URL shows.
+    """
+
     parts = urlsplit(str(url).strip())
     if parts.scheme != "https" or parts.username or parts.password:
         raise CaptureContractError()
     host = (parts.hostname or "").lower()
+    if platform == "bilibili":
+        video_id = _bilibili_path_id(parts.path)
+        if (
+            host not in _BILIBILI_HOSTS
+            or video_id is None
+            or (platform_id is not None and video_id != platform_id)
+        ):
+            raise CaptureContractError()
+        part = _bilibili_part(parts.query, strict=True)
+        suffix = f"?p={part}" if part > 1 else ""
+        return f"https://www.bilibili.com/video/{video_id}{suffix}"
     allowed = _YOUTUBE_HOSTS if platform == "youtube" else _KALTURA_PAGE_HOSTS
     if host not in allowed:
         raise CaptureContractError()
@@ -203,17 +260,22 @@ def validate_media_reference(
 
     canonicalize_reference(platform, platform_id, canonical_url)
     if page_url is not None:
-        canonicalize_page_url(platform, page_url)
+        canonicalize_page_url(platform, page_url, platform_id=platform_id)
     if cover_url is not None:
         parts = urlsplit(cover_url)
-        allowed = (
-            _YOUTUBE_COVER_HOSTS
-            if platform == "youtube"
-            else frozenset({"ntulearnvideo.ntu.edu.sg"})
-        )
+        host = (parts.hostname or "").lower()
+        if platform == "bilibili":
+            # Any hdslb.com image host, as the server connector accepts.
+            allowed_host = host.endswith(".hdslb.com") or host == "hdslb.com"
+        else:
+            allowed_host = host in (
+                _YOUTUBE_COVER_HOSTS
+                if platform == "youtube"
+                else frozenset({"ntulearnvideo.ntu.edu.sg"})
+            )
         if (
             parts.scheme != "https"
-            or (parts.hostname or "").lower() not in allowed
+            or not allowed_host
             or parts.username
             or parts.password
             or parts.query
@@ -281,7 +343,11 @@ def timestamp_url(platform: str, url: str, seconds: float) -> str:
     if platform == "youtube":
         query["t"] = str(max(0, int(seconds)))
     elif platform == "bilibili":
-        query = {"t": str(max(0, int(seconds)))}
+        # Only the part index (above 1) and the time survive; tracking and
+        # signed parameters are dropped.
+        part = _bilibili_part(parts.query, strict=False)
+        query = {"p": str(part)} if part > 1 else {}
+        query["t"] = str(max(0, int(seconds)))
     elif platform == "ntu_kaltura":
         # NTULearnVideo's supported deep-link parameter has not been verified.
         # Preserve the safe canonical source instead of inventing one.

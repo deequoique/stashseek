@@ -57,6 +57,8 @@ NTULearn 的视频播放器可能位于 Kaltura 官方跨域 frame 中，因此 
 
 YouTube 字幕优先读取 JSON3；若同一可信签名字幕端点返回空或非 JSON 内容，会依次尝试 WebVTT 和原始 YouTube XML。若三种 timed-text 表示都为空，最后使用当前页面公开的官方 `youtubei/v1/get_transcript` 端点；其不透明参数必须在解码后包含当前视频 ID，避免 SPA 导航后使用旧转录。所有回退仍在当前页面内完成，字幕 URL、转录参数和签名查询不会提交给 StashSeek Chat。
 
+哔哩哔哩（`https://www.bilibili.com/video/BV…` 或 `av…`，含 `?p=N` 分 P）只需要精确的 `https://www.bilibili.com/*` host permission。适配器在页面内用观看者自己的登录态读取：页面状态（`window.__INITIAL_STATE__`，与 URL 中的视频 ID 不符时改用同一 ID 的公开 `x/web-interface/view` 接口，仍不符则返回 `stale_player_response`）、字幕列表接口 `api.bilibili.com/x/player/wbi/v2?aid=&cid=`（无需 WBI 签名，需要登录的 AI 字幕也由此获得），以及 `*.hdslb.com` 上的字幕 JSON。人工字幕优先于 AI 字幕（`ai-*`，标记为 `auto_caption`），中文优先于其他语言。字幕 JSON 的签名 URL（`auth_key`）只在当前页面用无 Cookie 请求获取，不返回、不记录；Cookie 只随 `api.bilibili.com` 的同站请求发送。因为请求都在页面内发出，不需要 `api.bilibili.com` 或 `hdslb.com` 的扩展 host permission；Chrome Web Store 说明：“读取用户正在观看的哔哩哔哩视频的字幕，仅在页面内完成”。`platform_id` 是与服务端连接器一致的规范化 `BV…`/`av…`，因此扩展保存和 URL 导入指向同一个资料库条目；`page_url` 在 P>1 时保留 `p`，引用链接对 P>1 保留 `p` 并加 `t`。弹幕不会被读取。
+
 ## 隐私边界
 
 - 页面中的 Cookie、SAML、Kaltura KS、签名字幕/视频 URL 只在当前页面获取字幕时临时使用，不进入提交数据。

@@ -600,7 +600,7 @@ export interface components {
              * Platform
              * @enum {string}
              */
-            platform: "youtube" | "ntu_kaltura";
+            platform: "youtube" | "ntu_kaltura" | "bilibili";
             /** Platform Id */
             platform_id: string;
             /**
@@ -1188,7 +1188,7 @@ export interface components {
              * Platform
              * @enum {string}
              */
-            platform: "youtube" | "ntu_kaltura";
+            platform: "youtube" | "ntu_kaltura" | "bilibili";
             /** Platform Id */
             platform_id: string;
         };
