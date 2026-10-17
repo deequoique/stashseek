@@ -763,6 +763,11 @@ h2 { line-height: 1.1; }
 .chat-execution-steps li.is-running { color: var(--ink); }
 .chat-execution-steps li.is-failed { color: var(--accent-dark); }
 .chat-execution-steps li p { margin: 0; font-size: 0.75rem; line-height: 1.5; }
+.chat-execution-steps li.has-detail { align-items: start; }
+.chat-execution-steps li.has-detail > span { margin-top: 0.38rem; }
+.chat-execution-steps li > div { min-width: 0; display: grid; gap: 0.1rem; }
+.chat-execution-steps li > div small { color: var(--muted); font-size: 0.68rem; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.chat-execution-steps li.is-skipped > span { border-style: dashed; }
 @keyframes chat-step-pulse { to { opacity: 0.42; } }
 .chat-citation-index { align-self: start; padding-top: 0.1rem; color: var(--green); font-size: 0.68rem; font-weight: 900; letter-spacing: 0.08em; }
 .chat-citation-copy { min-width: 0; display: grid; gap: 0.25rem; }

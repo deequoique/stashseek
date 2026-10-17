@@ -3,7 +3,7 @@ import { assistantTextWithoutSourceList } from "../chat/answerText";
 import { WorkerError } from "./workerApi";
 
 const WORKER_COPY: Record<string, string> = {
-  unsupported_page: "请打开 YouTube 或 NTULearn/Kaltura 视频页面后再试。",
+  unsupported_page: "请打开 YouTube 或哔哩哔哩视频页面后再试。",
   active_tab_missing: "没有找到当前标签页，请切回视频页面后重试。",
   pairing_pending: "插件连接尚未完成，请重新获取验证码。",
   pairing_required: "保存字幕前需要先连接这台设备。",
@@ -43,6 +43,9 @@ export const PAIRING_RESET_CODES: ReadonlySet<string> = new Set([
   "extension_pairing_used",
   "extension_pairing_invalid",
 ]);
+
+/** Shown on a Bilibili page whose read returned no caption track. */
+export const BILIBILI_NO_CAPTIONS_HINT = "没有读取到字幕：登录哔哩哔哩后可能会有 AI 字幕。";
 
 /** The capture device grant itself was rejected, so saving needs a new connection. */
 export function isGrantRejected(code: string): boolean {

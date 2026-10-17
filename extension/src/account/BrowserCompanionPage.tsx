@@ -46,7 +46,7 @@ export function BrowserCompanionPage() {
       <header className="account-link-page__heading">
         <p className="eyebrow">可选获取方式</p>
         <h1 id="companion-title">浏览器伴侣</h1>
-        <p>插件使用你浏览器里已经打开的页面读取字幕，适合 NTULearn，也能在 YouTube 服务器访问受限时使用。原有的 YouTube 保存方式不会被替换。</p>
+        <p>插件使用你浏览器里已经打开的页面读取字幕，也能在服务器访问受限时使用。</p>
       </header>
 
       {pairingId ? (
@@ -100,7 +100,7 @@ export function BrowserCompanionPage() {
         {revoke.isError ? <p className="inline-error" role="alert">{companionError(revoke.error)}</p> : null}
       </section>
 
-      <p className="account-link-warning" role="note">插件不会上传 NTU/YouTube 登录 Cookie、SAML、Kaltura 会话密钥、签名视频地址或音视频文件；没有字幕的视频会标记为“需要语音转写”。</p>
+      <p className="account-link-warning" role="note">插件不会上传登录 Cookie、会话密钥、签名视频地址或音视频文件。</p>
     </section>
   );
 }

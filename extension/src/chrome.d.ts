@@ -8,7 +8,10 @@ declare namespace chrome {
     const onStartup: { addListener(callback: () => void): void };
     const onMessage: { addListener(callback: (message: unknown, sender: unknown, respond: (response: unknown) => void) => boolean | void): void };
   }
-  namespace storage { namespace local { function get(keys: string[]): Promise<Record<string, unknown>>; function set(values: Record<string, unknown>): Promise<void>; function remove(keys: string[]): Promise<void>; } }
+  namespace storage {
+    namespace local { function get(keys: string[]): Promise<Record<string, unknown>>; function set(values: Record<string, unknown>): Promise<void>; function remove(keys: string[]): Promise<void>; }
+    namespace session { function get(keys: string[]): Promise<Record<string, unknown>>; function set(values: Record<string, unknown>): Promise<void>; }
+  }
   namespace sidePanel {
     function setPanelBehavior(behavior: { openPanelOnActionClick: boolean }): Promise<void>;
   }

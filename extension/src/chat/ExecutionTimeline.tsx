@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-
 import type { ConversationStreamEvent } from "../api/contracts";
+import { StepTimeline, useAutoCollapse } from "./StepTimeline";
 
 export type ExecutionStepCode = NonNullable<ConversationStreamEvent["step_code"]>;
 export type ExecutionStepOutcome = "running" | NonNullable<ConversationStreamEvent["step_outcome"]>;
@@ -59,20 +58,7 @@ export function executionStepCopy(step: ExecutionStep): string {
 }
 
 export function ExecutionTimeline({ steps, plan, answerStarted }: ExecutionTimelineProps) {
-  const [expanded, setExpanded] = useState(true);
-  const collapsedForAnswer = useRef(false);
-
-  useEffect(() => {
-    if (!answerStarted) {
-      collapsedForAnswer.current = false;
-      setExpanded(true);
-      return;
-    }
-    if (answerStarted && !collapsedForAnswer.current) {
-      collapsedForAnswer.current = true;
-      setExpanded(false);
-    }
-  }, [answerStarted]);
+  const [expanded, setExpanded] = useAutoCollapse(answerStarted);
 
   if (!steps.length && !plan.length) return null;
   const completedSteps = steps.filter((step) => step.outcome !== "running").length;
@@ -82,41 +68,26 @@ export function ExecutionTimeline({ steps, plan, answerStarted }: ExecutionTimel
     : `执行过程 · ${completedSteps} 个步骤`;
 
   return (
-    <details
-      className="chat-execution"
-      open={expanded}
-      onToggle={(event) => setExpanded(event.currentTarget.open)}
+    <StepTimeline
+      summary={summary}
+      steps={steps.map((step) => ({ id: step.stepId, text: executionStepCopy(step), outcome: step.outcome }))}
+      expanded={expanded}
+      onToggle={setExpanded}
     >
-      <summary>
-        <span>{summary}</span>
-        <small>{expanded ? "收起" : "展开"}</small>
-      </summary>
-      <div className="chat-execution__body">
-        {plan.length ? (
-          <section className="chat-execution-plan" aria-label="本轮计划">
-            <p>本轮计划</p>
-            <ol>
-              {plan.map((item) => (
-                <li className={`is-${item.status}`} key={item.id}>
-                  <span aria-hidden="true" />
-                  <strong>{item.title}</strong>
-                  <small>{PLAN_STATUS_COPY[item.status]}</small>
-                </li>
-              ))}
-            </ol>
-          </section>
-        ) : null}
-        {steps.length ? (
-          <ol className="chat-execution-steps" aria-label="Agent 执行步骤">
-            {steps.map((step) => (
-              <li className={`is-${step.outcome}`} key={step.stepId}>
+      {plan.length ? (
+        <section className="chat-execution-plan" aria-label="本轮计划">
+          <p>本轮计划</p>
+          <ol>
+            {plan.map((item) => (
+              <li className={`is-${item.status}`} key={item.id}>
                 <span aria-hidden="true" />
-                <p>{executionStepCopy(step)}</p>
+                <strong>{item.title}</strong>
+                <small>{PLAN_STATUS_COPY[item.status]}</small>
               </li>
             ))}
           </ol>
-        ) : null}
-      </div>
-    </details>
+        </section>
+      ) : null}
+    </StepTimeline>
   );
 }

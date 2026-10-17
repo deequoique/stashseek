@@ -1,15 +1,16 @@
 import { type FormEvent, useState } from "react";
 
-import { isGrantRejected, workerErrorCopy } from "./copy";
+import { BILIBILI_NO_CAPTIONS_HINT, workerErrorCopy } from "./copy";
 import type { PanelDeps } from "./deps";
 import { PanelLogin } from "./PanelLogin";
 import { QaThread } from "./QaThread";
+import { isActiveCollect } from "./useCollect";
 import { questionBlock, usePageQa, type VideoSession } from "./usePageQa";
 
 const MAX_QUESTION_CHARS = 4000;
 const SUGGESTIONS = ["这个视频讲了什么？", "刚才说的是什么意思？"];
 
-const PLATFORM_LABEL = { youtube: "YouTube", ntu_kaltura: "NTULearn" } as const;
+const PLATFORM_LABEL = { youtube: "YouTube", ntu_kaltura: "NTULearn", bilibili: "哔哩哔哩" } as const;
 
 interface PageWorkspaceProps {
   deps: PanelDeps;
@@ -36,33 +37,14 @@ function captionLine(session: VideoSession): { tone: "loading" | "ready" | "acti
     : { tone: "action", text: "该视频没有字幕，提问将仅基于标题和简介回答" };
 }
 
-function saveLine(session: VideoSession): { tone: "success" | "action" | "error"; text: string } | null {
-  const { save } = session;
-  if (save.status === "saved") {
-    return save.lifecycle === "needs_asr"
-      ? { tone: "action", text: "视频没有可用字幕，已标记为需要语音转写。" }
-      : { tone: "success", text: "已提交到收藏内容，搜藏助手正在准备对话。" };
-  }
-  return save.status === "error" ? { tone: "error", text: workerErrorCopy(save.code) } : null;
-}
-
 export function PageWorkspace({ deps, paired, pageQa, onPairedChange, onSessionInvalid, onLogout }: PageWorkspaceProps) {
-  const controller = usePageQa(deps, onSessionInvalid);
+  const controller = usePageQa(deps, onSessionInvalid, { paired, onGrantRejected: () => onPairedChange(false) });
   const { tab, session } = controller;
   const [draft, setDraft] = useState("");
   const [connecting, setConnecting] = useState(false);
 
-  async function saveNow() {
-    const outcome = await controller.save();
-    if (!outcome.ok && isGrantRejected(outcome.code)) {
-      onPairedChange(false);
-      setConnecting(true);
-    }
-  }
-
-  function requestSave() {
-    if (paired) void saveNow();
-    else setConnecting(true);
+  function openWorkspaceRoute(route: string) {
+    void deps.tabs.openUrl(deps.workspaceUrl(route));
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -76,8 +58,7 @@ export function PageWorkspace({ deps, paired, pageQa, onPairedChange, onSessionI
   const block = session?.page ? questionBlock(session.page) : null;
   const asking = session?.asking === true;
   const caption = session ? captionLine(session) : null;
-  const saved = session ? saveLine(session) : null;
-  const saving = session?.save.status === "saving";
+  const collecting = session?.thread.some(isActiveCollect) === true;
 
   return (
     <div className="sp-shell">
@@ -93,7 +74,7 @@ export function PageWorkspace({ deps, paired, pageQa, onPairedChange, onSessionI
       {tab === undefined ? <p className="sp-hint" role="status">正在读取当前页面…</p> : null}
       {tab !== undefined && !session ? (
         <section className="sp-hint sp-empty" aria-labelledby="sp-empty-title">
-          <h1 id="sp-empty-title">打开 YouTube 或 NTULearn 视频后提问</h1>
+          <h1 id="sp-empty-title">打开 YouTube 或哔哩哔哩视频后提问</h1>
           <p>切到一个视频页，就可以直接问它讲了什么，并跳到对应的时间点。</p>
         </section>
       ) : null}
@@ -109,48 +90,57 @@ export function PageWorkspace({ deps, paired, pageQa, onPairedChange, onSessionI
                 <p role="status">{caption.text}</p>
               </div>
             ) : null}
+            {session.page?.platform === "bilibili" && session.page.caption.status === "unavailable" ? (
+              <p className="sp-hint">{BILIBILI_NO_CAPTIONS_HINT}</p>
+            ) : null}
             {session.readStatus === "error" ? (
               <button className="text-button" type="button" onClick={controller.reread}>重新读取</button>
             ) : null}
 
+            <button
+              className="button button--primary button--wide sp-collect-button"
+              type="button"
+              disabled={collecting}
+              onClick={controller.collect}
+            >
+              {collecting ? "收藏中…" : "收藏视频"}
+            </button>
             {connecting ? (
               <div className="sp-connect">
-                <p>保存字幕需要先连接这台设备，请用邮箱验证码确认。</p>
+                <p>连接这台设备后，收藏时可以直接读取浏览器里的字幕（包括需要登录才能看的字幕），请用邮箱验证码确认。</p>
                 <PanelLogin
                   worker={deps.worker}
                   onCancel={() => setConnecting(false)}
-                  onDone={() => { onPairedChange(true); setConnecting(false); void saveNow(); }}
+                  onDone={() => { onPairedChange(true); setConnecting(false); }}
                 />
               </div>
-            ) : (
-              <button
-                className="button button--quiet button--wide sp-save"
-                type="button"
-                disabled={!ready || saving}
-                onClick={requestSave}
-              >
-                {saving ? "正在保存…" : session.save.status === "saved" ? "再次保存" : "保存到资料库"}
+            ) : paired ? null : (
+              <button className="text-button sp-connect-toggle" type="button" onClick={() => setConnecting(true)}>
+                连接这台设备，直接读取浏览器里的字幕
               </button>
             )}
-            {saved ? <p className="sp-save__result" data-tone={saved.tone} role="status">{saved.text}</p> : null}
-            <p className="sp-privacy">提问时字幕只用于生成回答，历史记录只保留引用的短句；点“保存到资料库”才会提交完整字幕。</p>
+            <p className="sp-privacy">提问时字幕只用于生成回答，历史记录只保留引用的短句；点「收藏视频」才会把视频保存到资料库。</p>
           </section>
 
-          {pageQa ? (
-            <section className="sp-qa" aria-label="就当前视频提问">
-              {session.turns.length === 0 && !block ? (
-                <div className="sp-suggestions" aria-label="示例问题">
-                  {SUGGESTIONS.map((suggestion) => (
-                    <button key={suggestion} type="button" onClick={() => setDraft(suggestion)}>{suggestion}</button>
-                  ))}
-                </div>
-              ) : null}
-              <QaThread turns={session.turns} onOpenCitation={(citation) => { void controller.openCitation(citation); }} onRetry={controller.retry} />
-              {controller.notice ? <p className="sp-hint" role="status">{controller.notice}</p> : null}
-            </section>
-          ) : (
-            <p className="sp-hint">当前服务未开放视频问答，你仍然可以保存字幕。</p>
-          )}
+          <section className="sp-qa" aria-label="就当前视频提问">
+            {pageQa && session.thread.length === 0 && !block ? (
+              <div className="sp-suggestions" aria-label="示例问题">
+                {SUGGESTIONS.map((suggestion) => (
+                  <button key={suggestion} type="button" onClick={() => setDraft(suggestion)}>{suggestion}</button>
+                ))}
+              </div>
+            ) : null}
+            <QaThread
+              thread={session.thread}
+              now={deps.now}
+              clockTickMs={deps.clockTickMs}
+              onOpenCitation={(citation) => { void controller.openCitation(citation); }}
+              onRetry={controller.retry}
+              onOpenWorkspace={openWorkspaceRoute}
+            />
+            {controller.notice ? <p className="sp-hint" role="status">{controller.notice}</p> : null}
+            {pageQa ? null : <p className="sp-hint">当前服务未开放视频问答，你仍然可以收藏视频。</p>}
+          </section>
 
           {pageQa && !block ? (
             <form className="sp-compose" onSubmit={submit}>

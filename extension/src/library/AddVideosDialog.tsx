@@ -188,7 +188,7 @@ export function AddVideosDialog({
             <small className="url-count" data-over-limit={urls.length > 10}>{urls.length} / 10</small>
           </span>
           <p className="field-help" id="url-draft-help">粘贴链接后按 Enter；也可以一次粘贴多行。</p>
-          <p className="field-help">支持 YouTube 与 Bilibili 普通视频链接。NTULearn 或服务器暂时无法读取的 YouTube 视频，可通过 <a href="/account/browser-companion">浏览器伴侣</a>保存。</p>
+          <p className="field-help">支持 YouTube 与 Bilibili 普通视频链接。服务器暂时无法读取的视频，可以在视频页面打开搜藏助手侧边栏收藏，详见<a href="/account/browser-companion">浏览器伴侣</a>。</p>
           <div className="url-token-input">
             {urls.length > 0 ? (
               <ol className="url-tag-list" aria-label="已添加的视频链接">

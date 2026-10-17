@@ -5,8 +5,12 @@ import { describe, expect, it } from "vitest";
 import { ApiError, ConversationStreamError } from "../api/client";
 import {
   ANSWER,
+  BILI_P2_URL,
+  BILI_URL,
+  bilibiliPage,
   KALTURA_URL,
   makeEnvironment,
+  noCaptionBilibiliPage,
   noCaptionPage,
   YT_A,
   YT_B,
@@ -106,7 +110,7 @@ describe("side panel page states", () => {
     const env = makeEnvironment({ tab: { id: 3, url: "https://example.com/" } });
     await renderReady(env);
 
-    expect(screen.getByRole("heading", { name: "打开 YouTube 或 NTULearn 视频后提问" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "打开 YouTube 或哔哩哔哩视频后提问" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "就当前视频提问" })).not.toBeInTheDocument();
     expect(env.worker.readPage).not.toHaveBeenCalled();
   });
@@ -115,7 +119,7 @@ describe("side panel page states", () => {
     const env = makeEnvironment({ tab: { id: 3, url: null } });
     await renderReady(env);
 
-    expect(screen.getByRole("heading", { name: "打开 YouTube 或 NTULearn 视频后提问" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "打开 YouTube 或哔哩哔哩视频后提问" })).toBeInTheDocument();
   });
 
   it("shows the title and caption status before any question, reading without submitting", async () => {
@@ -136,7 +140,7 @@ describe("side panel page states", () => {
     expect(await screen.findByText("该视频没有可用字幕，暂时无法提问")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "就当前视频提问" })).not.toBeInTheDocument();
     expect(env.streamQuestion).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "保存到资料库" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "收藏视频" })).toBeEnabled();
   });
 
   it("allows a metadata-only question on a caption-less YouTube video", async () => {
@@ -154,7 +158,8 @@ describe("side panel page states", () => {
     const user = await renderReady(env);
 
     expect(await screen.findByText("页面字幕暂时读取失败，请刷新视频页面后重试。")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存到资料库" })).toBeDisabled();
+    // A failed read does not block collecting: the video is then imported by its URL.
+    expect(screen.getByRole("button", { name: "收藏视频" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "重新读取" }));
 
     expect(await screen.findByText("字幕可用 · 官方字幕 · 2 条")).toBeInTheDocument();
@@ -168,6 +173,27 @@ describe("side panel page states", () => {
 
     expect(await screen.findByRole("heading", { name: "Video aaaaaaaaaaa" })).toBeInTheDocument();
     expect(env.worker.readPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-reads a Bilibili page that still describes the previous video or another part", async () => {
+    const env = makeEnvironment({ tab: { id: 7, url: BILI_P2_URL }, pages: { [BILI_P2_URL]: bilibiliPage(2) } });
+    env.worker.readPage
+      .mockResolvedValueOnce(bilibiliPage(1, { platform_id: "BV1yy411c7mE" }))
+      .mockResolvedValueOnce(bilibiliPage(1));
+    await renderReady(env);
+
+    expect(await screen.findByRole("heading", { name: "Bilibili BV1xx411c7mD" })).toBeInTheDocument();
+    expect(env.worker.readPage).toHaveBeenCalledTimes(3);
+  });
+
+  it("allows a metadata-only question on a caption-less Bilibili video, and hints at AI captions", async () => {
+    const env = makeEnvironment({ tab: { id: 7, url: BILI_URL }, pages: { [BILI_URL]: noCaptionBilibiliPage() } });
+    const user = await renderReady(env);
+
+    expect(await screen.findByText("没有读取到字幕：登录哔哩哔哩后可能会有 AI 字幕。")).toBeInTheDocument();
+    await ask(user, "它讲什么？");
+    expect(env.streamQuestion).toHaveBeenCalledOnce();
+    expect(env.streamQuestion.mock.calls[0]?.[1].page.platform).toBe("bilibili");
   });
 
   it("retries a read while the YouTube player is not ready, then accepts the page", async () => {
@@ -194,13 +220,13 @@ describe("side panel page states", () => {
     expect(env.worker.readPage).toHaveBeenCalledTimes(5);
   });
 
-  it("hides the Q&A but keeps saving when the server does not offer page Q&A", async () => {
+  it("hides the Q&A but keeps collecting when the server does not offer page Q&A", async () => {
     const env = makeEnvironment({ pageQa: false });
     await renderReady(env);
 
-    expect(await screen.findByText("当前服务未开放视频问答，你仍然可以保存字幕。")).toBeInTheDocument();
+    expect(await screen.findByText("当前服务未开放视频问答，你仍然可以收藏视频。")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "就当前视频提问" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存到资料库" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "收藏视频" })).toBeInTheDocument();
   });
 
   it("opens the workspace from the panel", async () => {
@@ -258,6 +284,66 @@ describe("side panel Q&A", () => {
 
     await waitFor(() => expect(env.streamQuestion).toHaveBeenCalledOnce());
     expect(env.streamQuestion.mock.calls[0]?.[1].playback_sec).toBeNull();
+    expect(await screen.findByText("没有读到播放位置")).toBeInTheDocument();
+  });
+
+  it("shows the client-side steps above the answer and folds them away once the answer is done", async () => {
+    const env = makeEnvironment();
+    const user = await renderReady(env);
+
+    await ask(user, "这个视频讲了什么？");
+    await screen.findByRole("button", { name: /5:30/ });
+
+    const language = new Intl.DisplayNames(["zh-CN"], { type: "language" }).of("en") as string;
+    const steps = screen.getByRole("list", { name: "回答步骤" });
+    expect(steps).toHaveTextContent(`读取视频字幕（2 段 · ${language}）`);
+    expect(steps).toHaveTextContent("播放位置 0:42");
+    expect(steps).toHaveTextContent("生成回答");
+    expect(steps.querySelectorAll("li.is-completed")).toHaveLength(3);
+    expect(steps.closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("回答过程 · 3 个步骤")).toBeInTheDocument();
+  });
+
+  it("keeps 生成回答 running until the first text arrives, then marks it done while the answer streams", async () => {
+    const env = makeEnvironment();
+    let finish: (value: typeof ANSWER) => void = () => undefined;
+    let deltas: ((text: string) => void) | undefined;
+    env.streamQuestion.mockImplementationOnce((_id, _body, handlers) => new Promise((resolve) => {
+      deltas = handlers?.onTextDelta;
+      finish = resolve;
+    }));
+    const user = await renderReady(env);
+
+    await ask(user, "慢一点");
+    await screen.findByText("播放位置 0:42");
+    const generating = () => within(screen.getByRole("list", { name: "回答步骤" })).getByText("生成回答").closest("li") as HTMLElement;
+    expect(generating()).toHaveClass("is-running");
+
+    act(() => deltas?.("开始回答"));
+    await waitFor(() => expect(generating()).toHaveClass("is-completed"));
+    expect(screen.getByRole("button", { name: "停止" })).toBeInTheDocument();
+
+    await act(async () => { finish(ANSWER); });
+    await screen.findByRole("button", { name: /5:30/ });
+  });
+
+  it("marks 生成回答 failed when the stream fails", async () => {
+    const env = makeEnvironment();
+    env.streamQuestion.mockRejectedValueOnce(new ConversationStreamError("timeout", "超时"));
+    const user = await renderReady(env);
+
+    await ask(user, "会失败的问题");
+    await screen.findByText("回答超时，请稍后重试。");
+    expect(within(screen.getByRole("list", { name: "回答步骤" })).getByText("生成回答").closest("li")).toHaveClass("is-failed");
+  });
+
+  it("says so in the first step when a YouTube video has no captions", async () => {
+    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") } });
+    const user = await renderReady(env);
+
+    await ask(user, "它讲什么？");
+
+    expect(await screen.findByText("该视频没有字幕，使用标题和简介")).toBeInTheDocument();
   });
 
   it("reuses the captions and the thread for follow-up questions", async () => {
@@ -303,7 +389,7 @@ describe("side panel Q&A", () => {
     await screen.findByRole("button", { name: /5:30/ });
 
     act(() => env.navigate({ id: 9, url: "https://example.com/" }));
-    expect(await screen.findByRole("heading", { name: "打开 YouTube 或 NTULearn 视频后提问" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "打开 YouTube 或哔哩哔哩视频后提问" })).toBeInTheDocument();
     act(() => env.navigate({ id: 7, url: YT_A }));
 
     expect(await screen.findByText("留下来的问题")).toBeInTheDocument();
@@ -361,6 +447,7 @@ describe("side panel Q&A", () => {
 
     expect(await screen.findByText("已停止。")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "发送" })).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "回答步骤" })).getByText("生成回答").closest("li")).toHaveClass("is-skipped");
   });
 });
 
@@ -414,89 +501,5 @@ describe("side panel citations", () => {
 
     expect(env.tabs.openUrl).not.toHaveBeenCalled();
     expect(env.worker.seek).not.toHaveBeenCalled();
-  });
-});
-
-describe("side panel save", () => {
-  it("submits the page that was already read, without reading again", async () => {
-    const env = makeEnvironment();
-    const user = await renderReady(env);
-    await screen.findByText("字幕可用 · 官方字幕 · 2 条");
-
-    await user.click(screen.getByRole("button", { name: "保存到资料库" }));
-
-    expect(await screen.findByText("已提交到收藏内容，搜藏助手正在准备对话。")).toBeInTheDocument();
-    expect(env.worker.saveCapture).toHaveBeenCalledOnce();
-    expect(env.worker.saveCapture.mock.calls[0]?.[0]).toBe(await env.worker.readPage.mock.results[0]?.value);
-    expect(env.worker.readPage).toHaveBeenCalledOnce();
-    expect(screen.getByRole("button", { name: "再次保存" })).toBeEnabled();
-  });
-
-  it("uses the same copy as before for a video that needs speech transcription", async () => {
-    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") } });
-    env.worker.saveCapture.mockResolvedValueOnce({ lifecycle: "needs_asr", status: "accepted", item_public_id: "item-2" });
-    const user = await renderReady(env);
-    await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答");
-
-    await user.click(screen.getByRole("button", { name: "保存到资料库" }));
-
-    expect(await screen.findByText("视频没有可用字幕，已标记为需要语音转写。")).toBeInTheDocument();
-  });
-
-  it("connects this device first when it is not paired, then saves", async () => {
-    const env = makeEnvironment({ paired: false });
-    const user = await renderReady(env);
-    await screen.findByText("字幕可用 · 官方字幕 · 2 条");
-
-    await user.click(screen.getByRole("button", { name: "保存到资料库" }));
-    expect(env.worker.saveCapture).not.toHaveBeenCalled();
-    expect(screen.getByText("保存字幕需要先连接这台设备，请用邮箱验证码确认。")).toBeInTheDocument();
-
-    await user.type(screen.getByLabelText("邮箱地址"), "me@example.com");
-    await user.click(screen.getByRole("button", { name: "获取验证码" }));
-    await user.type(await screen.findByLabelText("6 位验证码"), "123456");
-    await user.click(screen.getByRole("button", { name: "确认登录" }));
-
-    expect(await screen.findByText("已提交到收藏内容，搜藏助手正在准备对话。")).toBeInTheDocument();
-    expect(env.worker.saveCapture).toHaveBeenCalledOnce();
-    expect(env.worker.readPage).toHaveBeenCalledOnce();
-  });
-
-  it("asks to connect again when the capture grant was revoked", async () => {
-    const env = makeEnvironment();
-    env.worker.saveCapture.mockRejectedValueOnce(new WorkerError("extension_grant_revoked"));
-    const user = await renderReady(env);
-    await screen.findByText("字幕可用 · 官方字幕 · 2 条");
-
-    await user.click(screen.getByRole("button", { name: "保存到资料库" }));
-
-    expect(await screen.findByText("保存字幕需要先连接这台设备，请用邮箱验证码确认。")).toBeInTheDocument();
-    const connect = screen.getByText("保存字幕需要先连接这台设备，请用邮箱验证码确认。").closest(".sp-connect") as HTMLElement;
-    await userEvent.click(within(connect).getByRole("button", { name: "取消" }));
-    expect(screen.getByRole("button", { name: "保存到资料库" })).toBeInTheDocument();
-  });
-
-  it("shows a save failure in short copy and allows trying again", async () => {
-    const env = makeEnvironment();
-    env.worker.saveCapture.mockRejectedValueOnce(new WorkerError("network_unavailable"));
-    const user = await renderReady(env);
-    await screen.findByText("字幕可用 · 官方字幕 · 2 条");
-
-    await user.click(screen.getByRole("button", { name: "保存到资料库" }));
-
-    expect(await screen.findByText("无法连接搜藏助手，请确认服务正在运行。")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存到资料库" })).toBeEnabled();
-  });
-
-  it("explains a save that collides with an ingest still running instead of showing the raw code", async () => {
-    const env = makeEnvironment();
-    env.worker.saveCapture.mockRejectedValueOnce(new WorkerError("capture_conflict"));
-    const user = await renderReady(env);
-    await screen.findByText("字幕可用 · 官方字幕 · 2 条");
-
-    await user.click(screen.getByRole("button", { name: "保存到资料库" }));
-
-    expect(await screen.findByText("这个视频正在保存或处理中，请稍后再试。")).toBeInTheDocument();
-    expect(screen.queryByText(/capture_conflict/)).not.toBeInTheDocument();
   });
 });
