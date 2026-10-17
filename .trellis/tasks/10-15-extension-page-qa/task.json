@@ -20,7 +20,8 @@
   "subtasks": [],
   "children": [
     "10-15-side-panel-page-qa",
-    "10-15-web-companion-build"
+    "10-15-web-companion-build",
+    "10-17-bilibili-side-panel"
   ],
   "parent": null,
   "relatedFiles": [],
