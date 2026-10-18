@@ -3,7 +3,7 @@ name = "stashseek"
 version = "0.1.0"
 description = "StashSeek Chat：在你收藏过的内容中直接对话并找回来源视频"
 requires-python = ">=3.11"
-license = { text = "Proprietary" }
+license = { text = "AGPL-3.0-only" }
 
 dependencies = [
     "sqlalchemy==2.0.51",

@@ -2,6 +2,7 @@
   "name": "stashseek-chat-browser-companion",
   "version": "0.2.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "packageManager": "pnpm@11.16.0",
   "scripts": {
