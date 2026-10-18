@@ -38,14 +38,7 @@ Run the tests:
 
 Tests that need PostgreSQL read the database settings from your environment or `.env`, create their own temporary databases, and skip when no database is reachable. **Only point them at a local, disposable database**, never at a shared or production one.
 
-CI runs this backend subset on every pull request:
-
-```bash
-.venv/bin/python -m pytest -q tests/test_extension_auth.py tests/test_browser_companion_api.py tests/test_web_api_runtime.py tests/test_web_api_app.py tests/test_mcp_server.py
-.venv/bin/alembic heads
-```
-
-`alembic heads` must print exactly one head. If you add a migration, base it on the current head.
+CI runs the workflows in [`.github/workflows/`](.github/workflows/) on every pull request. Each one lists the exact pytest files it runs, so you can run the same set locally. CI also runs `.venv/bin/alembic heads`, which must print exactly one head; if you add a migration, base it on the current head.
 
 ### Browser extension
 
