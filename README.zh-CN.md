@@ -142,4 +142,4 @@ python -m pip install -e '.[dev]'
 
 StashSeek Chat（搜藏助手）是为 **EAZO Global Hackathon** 构建的项目。核心 Web 体验、证据优先问答、MCP、YouTube/Bilibili 服务器 connector，以及可选的浏览器插件和 LangBot 入口都已在当前仓库实现；不同部署 profile 的依赖和平台可达性仍需按文档验证。
 
-当前项目元数据声明的许可证为 **Proprietary（专有许可）**，仓库未以通用开源许可证发布。
+StashSeek Chat 以 [GNU Affero General Public License v3.0](LICENSE) 开源。欢迎参与贡献，请先阅读[贡献指南](CONTRIBUTING.zh-CN.md)。
