@@ -38,14 +38,7 @@ docker compose up -d postgres redis
 
 需要 PostgreSQL 的测试会从环境变量或 `.env` 读取数据库配置，自己创建临时数据库；连不上数据库时会自动跳过。**只把它们指向本地、可随时丢弃的数据库**，不要指向共享或生产数据库。
 
-每个 pull request 上，CI 会跑这部分后端检查：
-
-```bash
-.venv/bin/python -m pytest -q tests/test_extension_auth.py tests/test_browser_companion_api.py tests/test_web_api_runtime.py tests/test_web_api_app.py tests/test_mcp_server.py
-.venv/bin/alembic heads
-```
-
-`alembic heads` 必须只输出一个 head。新增 migration 时，请基于当前 head。
+每个 pull request 上，CI 会运行 [`.github/workflows/`](.github/workflows/) 里的 workflow。每个 workflow 都列出了它跑的 pytest 文件，你可以在本地跑同样的一组。CI 还会运行 `.venv/bin/alembic heads`，它必须只输出一个 head；新增 migration 时，请基于当前 head。
 
 ### 浏览器插件
 
