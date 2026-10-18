@@ -143,4 +143,4 @@ Continue by goal:
 
 StashSeek Chat was built for the **EAZO Global Hackathon**. The current repository implements the core extension experience, evidence-first answers, MCP, server-side YouTube/Bilibili connectors, and optional browser-companion and LangBot entry points; each deployment profile still has provider and platform reachability requirements documented in the runbooks.
 
-The project metadata declares **Proprietary** licensing. This repository is not currently released under a standard open-source license.
+StashSeek Chat is open source under the [GNU Affero General Public License v3.0](LICENSE). Contributions are welcome; start with [CONTRIBUTING.md](CONTRIBUTING.md).
