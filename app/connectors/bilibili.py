@@ -353,12 +353,18 @@ class BilibiliConnector:
         selected = self._select_track(data)
         if selected is None:
             if platform_id in self._login_subtitles:
-                return NeedsExtension("Bilibili subtitles require browser login")
+                return NeedsExtension(
+                    "Bilibili subtitles require browser login",
+                    code="bilibili_login_required",
+                )
             return NeedsASR()
         source, language, subtitle_format = selected
         subtitle_data = subtitle_format.get("data")
         if not isinstance(subtitle_data, str):
-            return NeedsExtension("Bilibili subtitle data requires browser capture")
+            return NeedsExtension(
+                "Bilibili subtitle data requires browser capture",
+                code="bilibili_capture_required",
+            )
         body = subtitle_data.encode("utf-8")
         if len(body) > self._max_transcript_bytes:
             raise IngestLimitExceeded()

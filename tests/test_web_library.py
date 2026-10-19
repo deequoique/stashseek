@@ -379,7 +379,8 @@ def test_list_count_items_and_latest_dispatches_share_deleted_and_tenant_fences(
 
 
 def test_archived_filter_remains_independent_from_deleted_visibility():
-    db = QuerySession(scalar_values=[0], scalars_values=[[]])
+    # The second scalars() is the non-archived availability-count pass.
+    db = QuerySession(scalar_values=[0], scalars_values=[[], []])
 
     ContentLibraryService(lambda: db, lambda _value: "task").list_items(
         SimpleNamespace(app_user_id=7), lifecycle="archived"
@@ -391,7 +392,8 @@ def test_archived_filter_remains_independent_from_deleted_visibility():
 
 
 def test_collection_filter_uses_an_exact_hashtag_token_not_a_like_wildcard():
-    db = QuerySession(scalar_values=[0], scalars_values=[[]])
+    # The second scalars() is the unfiltered availability-count pass.
+    db = QuerySession(scalar_values=[0], scalars_values=[[], []])
 
     ContentLibraryService(lambda: db, lambda _value: "task").list_items(
         SimpleNamespace(app_user_id=7), collection="AI_入门"
@@ -703,3 +705,576 @@ def test_every_search_statement_excludes_archived_items():
 
     assert len(db.statements) == 2
     assert all("content_item.archived_at IS NULL" in str(value) for value in db.statements)
+    # Enrichment stages never gate retrieval: only ``content_item.state`` does.
+    assert all("content_item_stage" not in str(value) for value in db.statements)
+    assert all("content_item.state" in str(value) for value in db.statements)
+
+
+# ---------------------------------------------------------------------------
+# Ingest status model: reason, body stage, enrichment stages, counts
+# ---------------------------------------------------------------------------
+
+from app.web.library import (  # noqa: E402
+    project_body_stage,
+    project_reason,
+    project_stages,
+)
+
+
+def _reason_tuple(value):
+    return None if value is None else (value.code, value.category, value.retry_useful)
+
+
+@pytest.mark.parametrize(
+    ("content", "latest", "expected"),
+    [
+        (item(state="ready"), dispatch(state="completed"), None),
+        (item(state="pending"), dispatch(state="enqueued"), None),
+        (item(state="fetching"), dispatch(state="running"), None),
+        # failed: the dispatch code wins, then the item reason, then a fallback
+        (item(state="failed"), dispatch(state="failed", error_code="asr_no_speech"),
+         ("asr_no_speech", "no_speech", False)),
+        (item(state="failed", fail_reason="asr_provider_failed"), None,
+         ("asr_provider_failed", "asr_failed", True)),
+        (item(state="failed"), dispatch(state="failed", error_code="transient_fetch_failed"),
+         ("transient_fetch_failed", "fetch_failed", True)),
+        (item(state="failed"), dispatch(state="failed", error_code="ingest_too_large"),
+         ("ingest_too_large", "too_large", False)),
+        (item(state="failed", fail_reason="Traceback secret"), None,
+         ("ingestion_failed", "error", True)),
+        (item(state="pending"), None, ("missing_dispatch", "error", True)),
+        # needs_*: the stored reason code
+        (item(state="needs_asr", fail_reason="asr_disabled"), dispatch(state="completed"),
+         ("asr_disabled", "no_transcription", True)),
+        (item(state="needs_asr", fail_reason="asr_unsupported_platform"), None,
+         ("asr_unsupported_platform", "no_transcription", False)),
+        (item(state="needs_asr", fail_reason="asr_handoff_failed"), None,
+         ("asr_handoff_failed", "asr_failed", True)),
+        (item(state="needs_extension", fail_reason="bilibili_capture_required"), None,
+         ("bilibili_capture_required", "login_required", False)),
+        # needs_*: defaults for rows that predate reasons
+        (item(state="needs_asr"), None, ("asr_unavailable", "no_transcription", True)),
+        (item(state="no_text"), None, ("asr_unavailable", "no_transcription", True)),
+        (item(state="needs_extension"), None,
+         ("bilibili_login_required", "login_required", False)),
+        # a stored code outside the table never leaks
+        (item(state="needs_asr", fail_reason="youtube_rate_limited"), None,
+         ("ingestion_failed", "error", True)),
+        # archival is ignored: the item keeps the reason it had
+        (item(state="failed", archived_at=datetime.now(UTC)),
+         dispatch(state="failed", error_code="asr_no_speech"),
+         ("asr_no_speech", "no_speech", False)),
+    ],
+)
+def test_project_reason_comes_from_the_fixed_table(content, latest, expected):
+    assert _reason_tuple(project_reason(content, latest)) == expected
+
+
+def test_failed_reason_matches_the_unchanged_public_error_code():
+    # ``error_code`` keeps its whitelist behaviour; ``reason`` adds the category.
+    content = item(state="failed")
+    latest = dispatch(state="failed", error_code="capture_upload_failed")
+
+    assert project_lifecycle(content, latest).error_code == "ingestion_failed"
+    assert _reason_tuple(project_reason(content, latest)) == (
+        "ingestion_failed",
+        "error",
+        True,
+    )
+
+
+BODY_CASES = [
+    # (content, latest, asr_capture, (status, detail))
+    (item(state="pending"), dispatch(state="pending"), False, ("pending", "queued")),
+    (item(state="pending"), dispatch(state="enqueued"), False, ("pending", "queued")),
+    (item(state="pending"), dispatch(state="running"), False, ("running", "fetching")),
+    (item(state="fetching"), dispatch(state="running"), False, ("running", "fetching")),
+    (item(state="chunking"), dispatch(state="running"), False, ("running", "indexing")),
+    (item(state="embedding"), dispatch(state="running"), False, ("running", "indexing")),
+    (item(state="ready"), dispatch(state="completed"), False, ("done", None)),
+    (item(state="needs_asr"), dispatch(state="completed"), False, ("failed", None)),
+    (item(state="needs_extension"), dispatch(state="completed"), False, ("failed", None)),
+    (item(state="failed"), dispatch(state="failed"), False, ("failed", None)),
+    (item(state="pending"), None, False, ("failed", None)),
+    # transcribing: a browser capture without captions, or the durable marker
+    (item(state="fetching"), dispatch(state="running"), True, ("running", "transcribing")),
+    (item(state="fetching"), dispatch(state="enqueued"), True, ("running", "transcribing")),
+    (item(state="fetching"), dispatch(state="enqueued", asr_handoff_at=STAGE_MOMENT),
+     False, ("running", "transcribing")),
+    (item(state="fetching"), dispatch(state="running", asr_handoff_at=STAGE_MOMENT),
+     False, ("running", "transcribing")),
+    # ...which never overrides a later pipeline step
+    (item(state="chunking"), dispatch(state="running", asr_handoff_at=STAGE_MOMENT),
+     True, ("running", "indexing")),
+    (item(state="ready"), dispatch(state="completed", asr_handoff_at=STAGE_MOMENT),
+     True, ("done", None)),
+    # archival is ignored for the body stage
+    (item(state="ready", archived_at=STAGE_MOMENT), dispatch(state="completed"),
+     False, ("done", None)),
+    (item(state="fetching", archived_at=STAGE_MOMENT),
+     dispatch(state="running", asr_handoff_at=STAGE_MOMENT), False,
+     ("running", "transcribing")),
+]
+
+
+@pytest.mark.parametrize(("content", "latest", "asr_capture", "expected"), BODY_CASES)
+def test_body_stage_is_projected_from_state_and_dispatch(
+    content, latest, asr_capture, expected
+):
+    body = project_body_stage(content, latest, asr_capture=asr_capture)
+
+    assert body.key == "body"
+    assert (body.status, body.detail) == expected
+    # Only a failed body carries a reason.
+    assert (body.reason is not None) == (body.status == "failed")
+
+
+def test_a_failed_body_stage_carries_the_reason():
+    body = project_body_stage(
+        item(state="needs_asr", fail_reason="asr_disabled"), dispatch(state="completed")
+    )
+
+    assert (body.status, _reason_tuple(body.reason)) == (
+        "failed",
+        ("asr_disabled", "no_transcription", True),
+    )
+
+
+def _row(stage, status, error_code=None):
+    return SimpleNamespace(stage=stage, status=status, error_code=error_code)
+
+
+ENRICHED = ("classify", "summary")
+
+
+def test_without_enabled_enrichment_stages_only_the_body_is_listed():
+    stages = project_stages(
+        item(state="ready"), dispatch(state="completed"), [_row("classify", "done")],
+        enabled=(),
+    )
+
+    assert [(v.key, v.status) for v in stages] == [("body", "done")]
+
+
+def test_existing_ready_items_read_not_started_for_enrichment():
+    stages = project_stages(
+        item(state="ready"), dispatch(state="completed"), [], enabled=ENRICHED
+    )
+
+    assert [(v.key, v.status, v.detail, v.reason) for v in stages] == [
+        ("body", "done", None, None),
+        ("classify", "pending", None, None),
+        ("summary", "pending", None, None),
+    ]
+
+
+def test_stored_rows_decide_enrichment_status_and_failures_use_the_table():
+    stages = project_stages(
+        item(state="ready"),
+        dispatch(state="completed"),
+        [_row("summary", "failed", "asr_provider_failed"), _row("classify", "running")],
+        enabled=ENRICHED,
+    )
+
+    assert [(v.key, v.status) for v in stages] == [
+        ("body", "done"),
+        ("classify", "running"),
+        ("summary", "failed"),
+    ]
+    assert _reason_tuple(stages[2].reason) == ("asr_provider_failed", "asr_failed", True)
+    assert stages[1].reason is None
+
+
+def test_an_enrichment_failure_code_outside_the_table_is_a_generic_error():
+    stages = project_stages(
+        item(state="ready"),
+        dispatch(state="completed"),
+        [_row("classify", "failed", "provider said: secret")],
+        enabled=ENRICHED,
+    )
+
+    assert _reason_tuple(stages[1].reason) == ("ingestion_failed", "error", True)
+
+
+def test_enrichment_is_skipped_when_the_body_failed_unless_a_row_says_otherwise():
+    stages = project_stages(
+        item(state="needs_asr"),
+        dispatch(state="completed"),
+        [_row("summary", "done")],
+        enabled=ENRICHED,
+    )
+
+    assert [(v.key, v.status) for v in stages] == [
+        ("body", "failed"),
+        ("classify", "skipped"),
+        ("summary", "done"),
+    ]
+
+
+def test_enabling_another_stage_leaves_the_existing_stages_unchanged():
+    rows = [_row("classify", "done"), _row("movie", "running")]
+    base = project_stages(
+        item(state="ready"), dispatch(state="completed"), rows, enabled=ENRICHED
+    )
+    wider = project_stages(
+        item(state="ready"),
+        dispatch(state="completed"),
+        rows,
+        enabled=("movie", "summary", "classify", "future_stage", "body", "summary"),
+    )
+
+    # Registry order, unknown keys last, ``body`` never duplicated or reordered.
+    assert [v.key for v in wider] == ["body", "classify", "summary", "movie", "future_stage"]
+    assert [v for v in wider if v.key in {"body", "classify", "summary"}] == list(base)
+    assert [(v.key, v.status) for v in wider[3:]] == [
+        ("movie", "running"),
+        ("future_stage", "pending"),
+    ]
+
+
+def test_enrichment_state_never_changes_lifecycle_or_searchability():
+    service = ContentLibraryService(
+        lambda: ScalarSession([]), lambda _v: "task", enrichment_stages=ENRICHED
+    )
+
+    detail = service._dto(
+        item(state="ready"),
+        dispatch(state="completed"),
+        stage_rows=[
+            _row("classify", "failed", "ingestion_failed"),
+            _row("summary", "failed", "ingestion_failed"),
+        ],
+    )
+
+    assert detail.lifecycle == "ready"
+    assert detail.body_searchable is True
+    assert detail.reason is None
+    assert detail.error_code is None
+    assert [v.status for v in detail.stages] == ["done", "failed", "failed"]
+    assert "retry" not in detail.available_actions
+
+
+def test_dto_exposes_stages_reason_and_searchability():
+    service = ContentLibraryService(lambda: ScalarSession([]), lambda _v: "task")
+
+    cases = [
+        (item(state="ready"), dispatch(state="completed"), True, "done", None),
+        (item(state="needs_asr", fail_reason="asr_disabled"), dispatch(state="completed"),
+         False, "failed", "asr_disabled"),
+        (item(state="fetching"), dispatch(state="running"), False, "running", None),
+        # searchability ignores archival; the reason survives it too
+        (item(state="ready", archived_at=STAGE_MOMENT), dispatch(state="completed"),
+         True, "done", None),
+        (item(state="failed", archived_at=STAGE_MOMENT),
+         dispatch(state="failed", error_code="asr_no_speech"), False, "failed",
+         "asr_no_speech"),
+    ]
+    for content, latest, searchable, body_status, reason_code in cases:
+        detail = service._dto(content, latest)
+
+        assert detail.body_searchable is searchable
+        assert detail.stages[0].key == "body"
+        assert detail.stages[0].status == body_status
+        assert (detail.reason.code if detail.reason else None) == reason_code
+        assert detail.reason == detail.stages[0].reason
+        assert len(detail.stages) == 1  # no enrichment stage is enabled
+
+
+def test_default_enrichment_stage_registry_reads_no_rows():
+    # Production default: nothing enabled, so no extra statement is issued.
+    db = ScalarSession([item(state="ready"), dispatch(state="completed")])
+
+    detail = ContentLibraryService(lambda: db, lambda _v: "task").get_item(
+        SimpleNamespace(app_user_id=7), "item-public"
+    )
+
+    assert len(db.statements) == 2
+    assert [v.key for v in detail.stages] == ["body"]
+
+
+def test_enabled_enrichment_stages_are_read_with_one_tenant_fenced_query():
+    row = _row("classify", "done")
+    row.item_id = 41
+    db = QuerySession(
+        scalar_values=[item(state="ready"), dispatch(state="completed")],
+        scalars_values=[[row]],
+    )
+
+    detail = ContentLibraryService(
+        lambda: db, lambda _v: "task", enrichment_stages=ENRICHED
+    ).get_item(SimpleNamespace(app_user_id=7), "item-public")
+
+    assert [(v.key, v.status) for v in detail.stages] == [
+        ("body", "done"),
+        ("classify", "done"),
+        ("summary", "pending"),
+    ]
+    assert len(db.statements) == 3
+    stage_sql = str(db.statements[2])
+    assert "content_item_stage.item_id IN" in stage_sql
+    assert "content_item.user_id" in stage_sql
+    assert "content_item.deleted_at IS NULL" in stage_sql
+
+
+def test_available_actions_offer_retry_for_unfinished_items():
+    done = dispatch(state="completed")
+
+    for state, reason in [
+        ("needs_asr", None),
+        ("needs_asr", "asr_disabled"),
+        ("needs_asr", "asr_unsupported_platform"),
+        ("no_text", None),
+    ]:
+        actions = project_lifecycle(
+            item(state=state, fail_reason=reason), done
+        ).available_actions
+        assert actions == ("edit_why_saved", "archive", "retry", "open_source"), (
+            state,
+            reason,
+        )
+
+    for state, reason in [
+        ("needs_extension", None),
+        ("needs_extension", "bilibili_login_required"),
+        ("needs_extension", "bilibili_capture_required"),
+        ("needs_extension", "browser_capture_required"),
+    ]:
+        # Server-side re-runs cannot read login-only subtitles.
+        actions = project_lifecycle(
+            item(state=state, fail_reason=reason), done
+        ).available_actions
+        assert "retry" not in actions, (state, reason)
+
+    # Nothing in flight, ready (even partially), or archived: no retry either.
+    for state in ("pending", "enqueued", "running"):
+        assert "retry" not in project_lifecycle(
+            item(state="needs_asr"), dispatch(state=state)
+        ).available_actions
+    assert "retry" not in project_lifecycle(item(state="ready"), done).available_actions
+    assert project_lifecycle(
+        item(state="needs_asr", archived_at=STAGE_MOMENT), done
+    ).available_actions == ("restore",)
+
+
+def test_public_lifecycle_values_are_unchanged_for_needs_action_items():
+    projected = project_lifecycle(
+        item(state="needs_asr", fail_reason="asr_disabled"), dispatch(state="completed")
+    )
+
+    assert (projected.state, projected.error_code) == ("needs_action", None)
+
+
+# --- retry gate -----------------------------------------------------------
+
+
+class _RetrySession(ScalarSession):
+    def add(self, value):
+        self.added = value
+        value.id = 72
+
+    def flush(self):
+        return None
+
+    def commit(self):
+        return None
+
+
+def _retry_service(db, monkeypatch, published):
+    service = ContentLibraryService(
+        lambda: db, lambda value: published.append(value) or "task"
+    )
+    monkeypatch.setattr(service, "_set_dispatch", lambda *_a, **_k: None)
+    monkeypatch.setattr(service, "get_item", lambda *_a, **_k: "updated")
+    return service
+
+
+@pytest.mark.parametrize(
+    ("state", "reason"),
+    [
+        ("needs_asr", "asr_disabled"),
+        ("needs_asr", "asr_unsupported_platform"),
+        ("needs_asr", "asr_handoff_failed"),
+        ("needs_asr", None),
+        ("no_text", None),
+    ],
+)
+def test_retry_accepts_an_unfinished_item_and_restarts_it(monkeypatch, state, reason):
+    content = item(state=state, fail_reason=reason)
+    db = _RetrySession([content, None, dispatch(state="completed")])
+    published = []
+    service = _retry_service(db, monkeypatch, published)
+
+    result = service.retry(
+        SimpleNamespace(app_user_id=7), "item-public", request_key="user:retry:unfinished"
+    )
+
+    assert result == "updated"
+    assert (content.state, content.fail_reason) == ("pending", None)
+    assert (db.added.attempt, db.added.state) == (2, "pending")
+    assert published == [72]
+
+
+@pytest.mark.parametrize(
+    ("content", "latest"),
+    [
+        (item(state="needs_extension"), dispatch(state="completed")),
+        (item(state="needs_extension", fail_reason="bilibili_login_required"),
+         dispatch(state="completed")),
+        (item(state="needs_extension", fail_reason="bilibili_capture_required"),
+         dispatch(state="completed")),
+        # ready is never retried, whatever its enrichment stages look like
+        (item(state="ready"), dispatch(state="completed")),
+        (item(state="needs_asr", fail_reason="asr_disabled"), dispatch(state="running")),
+        (item(state="needs_asr", fail_reason="asr_disabled"), dispatch(state="enqueued")),
+        (item(state="fetching"), dispatch(state="running")),
+        (item(state="pending"), dispatch(state="pending")),
+        (item(state="needs_asr", archived_at=datetime.now(UTC)), dispatch(state="completed")),
+    ],
+)
+def test_retry_rejects_login_required_ready_in_flight_and_archived_items(
+    monkeypatch, content, latest
+):
+    db = _RetrySession([content, None, latest])
+    published = []
+    service = _retry_service(db, monkeypatch, published)
+    before = (content.state, content.fail_reason)
+
+    with pytest.raises(LibraryConflict) as caught:
+        service.retry(
+            SimpleNamespace(app_user_id=7), "item-public", request_key="user:retry:no"
+        )
+
+    assert caught.value.error_code == "retry_unavailable"
+    assert (content.state, content.fail_reason) == before
+    assert published == []
+    assert not hasattr(db, "added")
+
+
+def test_retry_quota_rejection_leaves_the_unfinished_item_untouched():
+    class RejectingQuota:
+        def acquire_locks(self, _db, _app_user_id):
+            return True
+
+        def enforce(self, *_args, **_kwargs):
+            raise IngestQuotaExceeded
+
+    content = item(state="needs_asr", fail_reason="asr_disabled")
+    db = ScalarSession([content, None, dispatch(state="completed")])
+    published = []
+    service = ContentLibraryService(
+        lambda: db, lambda v: published.append(v) or "task", quota_policy=RejectingQuota()
+    )
+
+    with pytest.raises(LibraryConflict) as caught:
+        service.retry(
+            SimpleNamespace(app_user_id=7), "item-public", request_key="user:retry:quota"
+        )
+
+    assert caught.value.error_code == "quota_exceeded"
+    assert (content.state, content.fail_reason) == ("needs_asr", "asr_disabled")
+    assert published == []
+
+
+# --- availability counts --------------------------------------------------
+
+
+def test_list_counts_cover_every_non_archived_item_not_just_the_page():
+    items = [
+        item(id=1, public_id="a", state="ready"),
+        item(id=2, public_id="b", state="needs_asr", fail_reason="asr_disabled"),
+        item(id=3, public_id="c", state="failed"),
+        item(id=4, public_id="d", state="pending"),
+        item(id=5, public_id="e", state="fetching"),
+        item(id=6, public_id="f", state="ready", archived_at=STAGE_MOMENT),
+        item(id=7, public_id="g", state="needs_extension"),
+    ]
+    latest = [
+        dispatch(id=11, item_id=1, state="completed"),
+        dispatch(id=12, item_id=2, state="completed"),
+        dispatch(id=13, item_id=3, state="failed"),
+        dispatch(id=14, item_id=4, state="enqueued"),
+        dispatch(id=15, item_id=5, state="running"),
+        dispatch(id=16, item_id=6, state="completed"),
+        dispatch(id=17, item_id=7, state="completed"),
+    ]
+    db = QuerySession(
+        scalar_values=[7],
+        scalars_values=[items, latest],
+        execute_values=[[]],  # capture lookup for the fetching youtube item
+    )
+
+    page = ContentLibraryService(lambda: db, lambda _v: "task").list_items(
+        SimpleNamespace(app_user_id=7),
+        include_archived=True,
+        lifecycle="failed",
+        page_size=1,
+    )
+
+    # One failed item on the page, but the counts span the whole library:
+    # needs_asr, failed, needs_extension are unsearchable; pending and fetching
+    # are on their way; the archived item counts nowhere.  No second pass.
+    assert (page.total, len(page.items)) == (1, 1)
+    assert (page.unsearchable_total, page.processing_total) == (3, 2)
+    assert len(db.statements) == 4
+
+
+def test_filtered_list_still_reports_whole_library_counts():
+    # A search narrows the page, so the counts come from a second pass.
+    db = QuerySession(
+        scalar_values=[2],
+        scalars_values=[
+            [item(id=1, public_id="a", state="ready")],
+            [dispatch(id=11, item_id=1, state="completed")],
+            [
+                item(id=1, public_id="a", state="ready"),
+                item(id=2, public_id="b", state="failed"),
+                item(id=3, public_id="c", state="pending"),
+            ],
+            [
+                dispatch(id=11, item_id=1, state="completed"),
+                dispatch(id=12, item_id=2, state="failed"),
+                dispatch(id=13, item_id=3, state="pending"),
+            ],
+        ],
+    )
+
+    page = ContentLibraryService(lambda: db, lambda _v: "task").list_items(
+        SimpleNamespace(app_user_id=7), search="example"
+    )
+
+    assert page.total == 1
+    assert (page.unsearchable_total, page.processing_total) == (1, 1)
+    count_sql = str(db.statements[3])
+    assert "content_item.user_id" in count_sql
+    assert "content_item.deleted_at IS NULL" in count_sql
+    assert "content_item.archived_at IS NULL" in count_sql
+
+
+def test_availability_counts_load_only_non_archived_non_deleted_items():
+    db = QuerySession(
+        scalars_values=[
+            [
+                item(id=1, state="needs_asr"),
+                item(id=2, state="failed"),
+                item(id=3, state="pending"),  # no dispatch: failed/missing_dispatch
+                item(id=4, state="ready"),
+                item(id=5, state="fetching"),
+            ],
+            [
+                dispatch(id=11, item_id=1, state="completed"),
+                dispatch(id=12, item_id=2, state="failed"),
+                dispatch(id=14, item_id=4, state="completed"),
+                dispatch(id=15, item_id=5, state="running"),
+            ],
+        ],
+    )
+
+    counts = ContentLibraryService(lambda: db, lambda _v: "task").availability_counts(
+        SimpleNamespace(app_user_id=7)
+    )
+
+    assert (counts.unsearchable_total, counts.processing_total) == (3, 1)
+    items_sql = str(db.statements[0])
+    assert "content_item.user_id" in items_sql
+    assert "content_item.deleted_at IS NULL" in items_sql
+    assert "content_item.archived_at IS NULL" in items_sql

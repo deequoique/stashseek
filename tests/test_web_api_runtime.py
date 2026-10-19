@@ -119,6 +119,32 @@ def test_runtime_always_enables_web_save_capability():
     assert response.json()["save_enabled"] is True
 
 
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({"asr_enabled": True}, ["bilibili", "youtube"]),
+        ({"asr_enabled": False}, []),
+        ({}, []),  # settings doubles without the flag advertise nothing
+    ],
+)
+def test_runtime_advertises_transcription_platforms_only_when_asr_is_enabled(
+    overrides, expected
+):
+    app = build_web_app(
+        settings(**overrides),
+        session_factory=lambda: None,
+        publisher=lambda _dispatch_id: "task",
+        object_store=object(),
+        mount_static=False,
+    )
+
+    with TestClient(app, base_url="https://testserver") as client:
+        response = client.get("/api/v1/capabilities")
+
+    assert response.status_code == 200
+    assert response.json()["transcription_platforms"] == expected
+
+
 def test_runtime_can_run_api_only_without_a_static_build(tmp_path):
     missing_build = tmp_path / "missing-web-dist"
 

@@ -8,6 +8,7 @@ from app.api.app import WebApiServices, create_app
 from app.api.conversation_routes import resolve_browser_session_identity
 from app.api.email_auth_routes import EmailWebAuthAdapter
 from app.api.extension_routes import ExtensionSessionService
+from app.asr.types import ASR_PLATFORMS
 from app.config import Settings, get_settings
 from app.browser_capture_submission import BrowserCaptureSubmissionService
 from app.browser_companion import BrowserCompanionService
@@ -163,6 +164,12 @@ def build_api_app(
         # Settings test doubles without the flag keep the route unmounted.
         include_page_qa_routes=bool(getattr(settings, "page_qa_enabled", False)),
         asr_audio_store=store,
+        # Settings test doubles without the flag advertise no transcription.
+        transcription_platforms=(
+            tuple(sorted(ASR_PLATFORMS))
+            if getattr(settings, "asr_enabled", False)
+            else ()
+        ),
     )
     return create_app(
         services=services,

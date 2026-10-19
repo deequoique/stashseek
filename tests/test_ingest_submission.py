@@ -488,6 +488,86 @@ def test_retry_forwards_remaining_publish_budget_and_public_id(monkeypatch):
     assert store.dispatches[-1].state == "enqueued"
 
 
+def _retry_fixture(state, *, fail_reason=None, latest_state="completed"):
+    item = ContentItem(
+        id=41,
+        public_id="retry-public",
+        user_id=57,
+        platform="youtube",
+        platform_id="dQw4w9WgXcQ",
+        kind="video",
+        url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        state=state,
+        fail_reason=fail_reason,
+    )
+    latest = IngestDispatch(
+        id=71,
+        public_id="old-dispatch",
+        item_id=item.id,
+        request_key="old-request",
+        attempt=1,
+        state=latest_state,
+    )
+    store = FakeStore([item, None, latest])
+    store.dispatches.append(latest)
+    return item, store
+
+
+@pytest.mark.parametrize(
+    ("state", "fail_reason"),
+    [
+        ("failed", "ingestion_failed"),
+        ("needs_asr", "asr_disabled"),
+        ("needs_asr", None),  # rows written before reasons were recorded
+        ("no_text", None),
+    ],
+)
+def test_retry_accepts_failed_and_unfinished_asr_items(state, fail_reason):
+    item, store = _retry_fixture(
+        state,
+        fail_reason=fail_reason,
+        latest_state="failed" if state == "failed" else "completed",
+    )
+    published = []
+
+    result = IngestSubmissionService(
+        store.session, lambda dispatch_id: published.append(dispatch_id) or "task"
+    ).retry_item(
+        TenantContext(57, 9, "telegram", "account", "external"),
+        item.id,
+        request_key="retry:unfinished",
+    )
+
+    assert result.status == "queued"
+    assert item.state == "pending"
+    assert item.fail_reason is None
+    assert published == [72]
+    assert store.dispatches[-1].attempt == 2
+
+
+@pytest.mark.parametrize("state", ["needs_extension", "ready", "fetching", "chunking"])
+def test_retry_still_refuses_login_required_ready_and_in_flight_items(state):
+    item, store = _retry_fixture(
+        state,
+        fail_reason="bilibili_login_required" if state == "needs_extension" else None,
+    )
+    published = []
+
+    result = IngestSubmissionService(
+        store.session, lambda dispatch_id: published.append(dispatch_id) or "task"
+    ).retry_item(
+        TenantContext(57, 9, "telegram", "account", "external"),
+        item.id,
+        request_key="retry:refused",
+    )
+
+    assert result.status == "retry_not_allowed"
+    assert result.safe_error_code == "retry_not_allowed"
+    assert item.state == state
+    assert published == []
+    assert len(store.dispatches) == 1
+
+
 def test_retry_rejects_non_positive_publish_budget_before_database_work():
     store = FakeStore([])
     service = IngestSubmissionService(store.session, lambda _dispatch_id: "task")

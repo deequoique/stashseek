@@ -419,6 +419,17 @@
             "title": "Transcript Pagination",
             "type": "boolean"
           },
+          "transcription_platforms": {
+            "items": {
+              "enum": [
+                "youtube",
+                "bilibili"
+              ],
+              "type": "string"
+            },
+            "title": "Transcription Platforms",
+            "type": "array"
+          },
           "web_login_channels": {
             "default": [
               "telegram",
@@ -1674,6 +1685,94 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "IngestReasonResponse": {
+        "additionalProperties": false,
+        "description": "A reason from the fixed ingest reason table (``app.ingest.reasons``).",
+        "properties": {
+          "category": {
+            "enum": [
+              "no_speech",
+              "no_transcription",
+              "fetch_failed",
+              "asr_failed",
+              "quota",
+              "too_large",
+              "login_required",
+              "error"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "retry_useful": {
+            "title": "Retry Useful",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "category",
+          "retry_useful"
+        ],
+        "title": "IngestReasonResponse",
+        "type": "object"
+      },
+      "IngestStageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "enum": [
+                  "queued",
+                  "fetching",
+                  "transcribing",
+                  "indexing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IngestReasonResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "done",
+              "failed",
+              "skipped"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "status"
+        ],
+        "title": "IngestStageResponse",
+        "type": "object"
+      },
       "LibraryItemResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1694,6 +1793,10 @@
             },
             "title": "Available Actions",
             "type": "array"
+          },
+          "body_searchable": {
+            "title": "Body Searchable",
+            "type": "boolean"
           },
           "chapters": {
             "items": {
@@ -1804,6 +1907,16 @@
             ],
             "title": "Published At"
           },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IngestReasonResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "saved_at": {
             "format": "date-time",
             "title": "Saved At",
@@ -1835,6 +1948,13 @@
               }
             ],
             "title": "Stage Updated At"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/IngestStageResponse"
+            },
+            "title": "Stages",
+            "type": "array"
           },
           "summary": {
             "anyOf": [
@@ -1932,8 +2052,16 @@
             "title": "Page Size",
             "type": "integer"
           },
+          "processing_total": {
+            "title": "Processing Total",
+            "type": "integer"
+          },
           "total": {
             "title": "Total",
+            "type": "integer"
+          },
+          "unsearchable_total": {
+            "title": "Unsearchable Total",
             "type": "integer"
           }
         },

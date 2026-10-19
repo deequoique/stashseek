@@ -24,7 +24,7 @@ from sqlalchemy import and_, delete, func, inspect, or_, select, text
 
 from app.asr.connector import AsrFallbackConnector
 from app.asr.transcriber import AsrTranscriber
-from app.asr.types import ASR_ERROR_CODES, AsrError
+from app.asr.types import ASR_ERROR_CODES, ASR_PLATFORMS, AsrError
 from app.config import Settings, get_settings
 from app.browser_capture import parse_canonical_transcript
 from app.connectors.base import (
@@ -344,11 +344,28 @@ def create_item(url: str, *, user_id: int, why_saved: str | None = None, connect
 # ``process_dispatch`` that a caption-less public item continues on the ``asr``
 # queue under the same dispatch.  It is never persisted or user visible.
 ASR_PENDING = "asr_pending"
-_ASR_PLATFORMS = frozenset({"youtube", "bilibili"})
+_ASR_PLATFORMS = ASR_PLATFORMS
 # Browser captures whose caption track was unavailable may still be transcribed
-# when the video is a public YouTube one the backend can fetch itself.  Private
-# ``ntu_kaltura`` media is never reachable by the server and is excluded.
-_ASR_CAPTURE_PLATFORMS = frozenset({"youtube"})
+# when the video is a public YouTube or Bilibili one the backend can fetch
+# itself.  Private ``ntu_kaltura`` media is never reachable by the server and is
+# excluded.
+_ASR_CAPTURE_PLATFORMS = frozenset({"youtube", "bilibili"})
+
+
+def _needs_asr_reason(settings: Any, item: Any, platforms: frozenset[str]) -> str:
+    """Reason code recorded when a caption-less item is not sent to ASR.
+
+    The platform is checked first: a platform the server can never transcribe
+    (``ntu_kaltura``) must not read as "ASR is off, retry later".
+    """
+
+    if item.platform not in platforms:
+        return "asr_unsupported_platform"
+    if not settings.asr_enabled:
+        return "asr_disabled"
+    # ASR is on and the platform is supported, so the caller only skipped the
+    # hand-off (a synchronous ``ingest_url`` call or a pre-stored capture).
+    return "asr_unavailable"
 
 
 def process_item(item_id: int, *, connector: Any | None = None, embedder: EmbeddingProvider | None = None, object_store: Any | None = None, session_factory=None, asr_handoff: bool = False) -> str:
@@ -398,6 +415,9 @@ def process_item(item_id: int, *, connector: Any | None = None, embedder: Embedd
                     return ASR_PENDING
                 item.state = "needs_asr"
                 item.text_source = "none"
+                item.fail_reason = _needs_asr_reason(
+                    settings, item, _ASR_CAPTURE_PLATFORMS
+                )
                 db.commit()
                 return item.state
             if (
@@ -438,6 +458,7 @@ def process_item(item_id: int, *, connector: Any | None = None, embedder: Embedd
 
         if isinstance(result, NeedsExtension):
             item.state = "needs_extension"
+            item.fail_reason = result.code
             db.commit()
             return item.state
         if isinstance(result, NeedsASR):
@@ -453,6 +474,7 @@ def process_item(item_id: int, *, connector: Any | None = None, embedder: Embedd
                 db.commit()
                 return ASR_PENDING
             item.state = "needs_asr"
+            item.fail_reason = _needs_asr_reason(settings, item, _ASR_PLATFORMS)
             db.commit()
             return item.state
         if not isinstance(result, TextResult):
@@ -1301,9 +1323,13 @@ def _handoff_dispatch_to_asr(
             )
         ):
             return False
+        handed_off_at = datetime.now(UTC)
         dispatch.state = "enqueued"
         dispatch.task_id = None
-        dispatch.updated_at = datetime.now(UTC)
+        dispatch.updated_at = handed_off_at
+        # Durable "transcribing" signal for the status projection: the item
+        # stays ``fetching`` on both queues, so this is the only difference.
+        dispatch.asr_handoff_at = handed_off_at
         db.commit()
     try:
         publish_asr_dispatch(dispatch_id)
@@ -1320,6 +1346,7 @@ def _handoff_dispatch_to_asr(
             process_state="needs_asr",
             from_states=("enqueued",),
             converge_item_state="needs_asr",
+            converge_reason="asr_handoff_failed",
             session_factory=factory,
         )
         return False
@@ -1432,6 +1459,7 @@ def _complete_dispatch(
     process_state: str | None = None,
     from_states: tuple[str, ...] = ("running",),
     converge_item_state: str | None = None,
+    converge_reason: str | None = None,
     session_factory=None,
 ) -> int | None:
     factory = session_factory or get_session_factory()
@@ -1484,6 +1512,8 @@ def _complete_dispatch(
                 # ASR handoff could not be published: end exactly as the
                 # pre-ASR worker did, in the same transaction as the dispatch.
                 item.state = converge_item_state
+                if converge_reason is not None:
+                    item.fail_reason = converge_reason
             event_item_state = _terminal_item_state(item, process_state)
             event_outcome = "completed"
             dispatch.state = "completed"

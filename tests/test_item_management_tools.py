@@ -124,7 +124,8 @@ CREATE TABLE ingest_dispatch (
   task_id TEXT,
   error_code TEXT,
   created_at DATETIME,
-  updated_at DATETIME
+  updated_at DATETIME,
+  asr_handoff_at DATETIME
 )
 """
 

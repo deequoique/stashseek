@@ -45,6 +45,9 @@ class TextResult:
 @dataclass(frozen=True)
 class NeedsExtension:
     reason: str = "authenticated page capture required"
+    # Stable reason code (``app.ingest.reasons``) recorded on the item so the
+    # UI can say why the server could not read the text.
+    code: str = "browser_capture_required"
 
 
 @dataclass(frozen=True)

@@ -49,6 +49,33 @@ class ChapterResponse(BaseModel):
     end_sec: float | None = None
 
 
+class IngestReasonResponse(BrowserModel):
+    """A reason from the fixed ingest reason table (``app.ingest.reasons``)."""
+
+    code: str
+    category: Literal[
+        "no_speech",
+        "no_transcription",
+        "fetch_failed",
+        "asr_failed",
+        "quota",
+        "too_large",
+        "login_required",
+        "error",
+    ]
+    # Whether re-running ingestion can change the outcome; steers UI wording only.
+    retry_useful: bool
+
+
+class IngestStageResponse(BrowserModel):
+    # A plain string, not an enum: new stages must not change the generated type.
+    key: str
+    status: Literal["pending", "running", "done", "failed", "skipped"]
+    # Only the ``body`` stage has a detail, and only while it is running.
+    detail: Literal["queued", "fetching", "transcribing", "indexing"] | None = None
+    reason: IngestReasonResponse | None = None
+
+
 class LibraryItemResponse(BrowserModel):
     public_id: str
     platform: str
@@ -77,6 +104,13 @@ class LibraryItemResponse(BrowserModel):
     # generated TypeScript field stays optional, like ``page_qa``.
     stage: Stage = Field(default_factory=lambda: "queued")
     stage_updated_at: datetime | None = None
+    # Per-stage status, body first; the body entry is projected, later stages
+    # are stored.  Optional with defaults so older fakes and clients still work.
+    stages: list[IngestStageResponse] = Field(default_factory=list)
+    # Why the body is not searchable (== the body stage's reason).
+    reason: IngestReasonResponse | None = Field(default=None)
+    # ``item.state == 'ready'``, whether or not the item is archived.
+    body_searchable: bool = Field(default_factory=lambda: False)
 
 
 class LibraryPageResponse(BrowserModel):
@@ -85,6 +119,9 @@ class LibraryPageResponse(BrowserModel):
     page: int
     page_size: int
     is_true_first_empty: bool
+    # Non-archived, non-deleted items: needs_action/failed, and queued/processing.
+    unsearchable_total: int = Field(default_factory=lambda: 0)
+    processing_total: int = Field(default_factory=lambda: 0)
 
 
 class BatchSaveRequest(BrowserModel):

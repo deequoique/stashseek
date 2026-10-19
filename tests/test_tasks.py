@@ -284,7 +284,11 @@ def test_worker_fetches_and_persists_metadata_before_text():
 
 
 def test_browser_capture_without_captions_goes_to_needs_asr_without_remote_fetch(monkeypatch):
-    item = type("Item", (), {"id": 41, "user_id": 7, "state": "pending", "text_source": "none"})()
+    item = type(
+        "Item",
+        (),
+        {"id": 41, "user_id": 7, "platform": "youtube", "state": "pending", "text_source": "none"},
+    )()
     capture = type("Capture", (), {"caption_status": "unavailable"})()
     statements = []
 
@@ -298,10 +302,12 @@ def test_browser_capture_without_captions_goes_to_needs_asr_without_remote_fetch
         def commit(self): return None
 
     monkeypatch.setattr("app.ingest.tasks._connector", lambda _url: pytest.fail("capture path must not use the remote connector"))
+    monkeypatch.setattr("app.ingest.tasks.get_settings", lambda: replace(Settings(), asr_enabled=False))
     state = process_item(item.id, session_factory=lambda: DB())
 
     assert state == "needs_asr"
     assert item.text_source == "none"
+    assert item.fail_reason == "asr_disabled"
     assert "browser_capture.app_user_id" in statements[0]
 
 

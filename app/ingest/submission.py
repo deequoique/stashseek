@@ -32,6 +32,10 @@ from app.limits import normalize_why_saved
 
 MAX_SAVE_BATCH_SIZE = 10
 MIN_REMAINING_PUBLISH_BUDGET_SECONDS = 0.01
+# Item states an explicit retry may re-run.  ``needs_extension`` is excluded:
+# its reason is a browser-side login/capture a server re-run cannot fix, which
+# is also why the Web library hides ``retry`` for login-required reasons.
+_RETRYABLE_ITEM_STATES = frozenset({"failed", "needs_asr", "no_text"})
 
 
 class BatchValidationError(ValueError):
@@ -792,7 +796,10 @@ class IngestSubmissionService:
         publish_budget_seconds: float | None = None,
         source_thread_id: int | None = None,
     ) -> SaveItemResult:
-        """Queue one stable failed item for its next durable attempt.
+        """Queue one stable failed or unfinished item for its next durable attempt.
+
+        Eligible items are ``failed`` ones and ``needs_asr``/``no_text`` ones
+        (e.g. saved while ASR was off); ``needs_extension`` is not retryable.
 
         The request key is trusted application state (thread/action/message),
         never a model argument.  Replaying it returns the same dispatch
@@ -874,7 +881,7 @@ class IngestSubmissionService:
                 ):
                     item.state = "failed"
                     item.fail_reason = "queue_unavailable"
-                if item.state != "failed":
+                if item.state not in _RETRYABLE_ITEM_STATES:
                     return SaveItemResult(result_id, 0, "retry_not_allowed", item_id=item.id, item_public_id=item.public_id, state=item.state, safe_error_code="retry_not_allowed")
                 if latest is not None and latest.state in {"pending", "enqueued", "running"}:
                     return SaveItemResult(result_id, 0, "retry_not_allowed", item_id=item.id, item_public_id=item.public_id, state=item.state, safe_error_code="retry_not_allowed")

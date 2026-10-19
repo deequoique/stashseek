@@ -750,6 +750,13 @@ class IngestDispatch(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Set when the dispatch is handed to the asr queue.  It is the durable
+    # signal that a ``fetching`` item is being transcribed, for URL imports
+    # that have no browser capture.  A retry creates a new dispatch, so a
+    # stale marker never survives a new attempt.
+    asr_handoff_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -771,6 +778,43 @@ class IngestDispatch(Base):
             "item_id",
         ),
         Index("ix_ingest_dispatch_source_thread", "source_thread_id"),
+    )
+
+
+class ContentItemStage(Base):
+    """Status of one post-body ingest stage (classification, summary, ...).
+
+    The ``body`` stage is never stored: it is projected from
+    ``content_item.state`` and the latest dispatch, so retrieval, completion
+    events and this table cannot disagree.  A missing row means ``pending``
+    (or ``skipped`` when the body failed).  The primary key doubles as the
+    ``item_id IN (...)`` read index.
+    """
+
+    __tablename__ = "content_item_stage"
+
+    item_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("content_item.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    stage: Mapped[str] = mapped_column(Text, primary_key=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("stage <> 'body'", name="ck_content_item_stage_not_body"),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'done', 'failed', 'skipped')",
+            name="ck_content_item_stage_status",
+        ),
+        CheckConstraint(
+            "(status = 'failed') = (error_code IS NOT NULL)",
+            name="ck_content_item_stage_failed_error",
+        ),
     )
 
 

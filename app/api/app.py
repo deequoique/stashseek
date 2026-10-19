@@ -138,6 +138,11 @@ class CapabilitiesResponse(BaseModel):
     # Instant side-panel Q&A over a caller-supplied transcript is mounted.
     # (A default factory keeps the generated TypeScript property optional.)
     page_qa: bool = Field(default_factory=lambda: False)
+    # Platforms the server transcribes when a video has no captions; empty while
+    # ASR is off.  (A default factory keeps the generated property optional.)
+    transcription_platforms: tuple[Literal["youtube", "bilibili"], ...] = Field(
+        default_factory=tuple
+    )
 
 
 @dataclass(frozen=True)
@@ -173,6 +178,9 @@ class WebApiServices:
     # signed-download route, which exists solely when ASR is enabled; when
     # omitted the route builds a default store on first use.
     asr_audio_store: Any | None = None
+    # Platforms advertised as ``transcription_platforms``; runtime composition
+    # sets it from ASR_ENABLED, so it is empty when ASR is off.
+    transcription_platforms: tuple[str, ...] = ()
 
 
 _SAFE_MESSAGES = {
@@ -552,6 +560,11 @@ def create_app(
             web_login_channels=public_login_channels,
             save_enabled=save_enabled,
             page_qa=page_qa_enabled,
+            transcription_platforms=(
+                tuple(services.transcription_platforms)
+                if services is not None
+                else ()
+            ),
         )
 
     if services is not None:

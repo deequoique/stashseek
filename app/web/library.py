@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import inspect
@@ -15,12 +15,20 @@ from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.asr.types import ASR_ERROR_CODES
+from app.ingest.reasons import (
+    DEFAULT_NEEDS_ASR_REASON,
+    DEFAULT_NEEDS_EXTENSION_REASON,
+    LOGIN_REQUIRED,
+    IngestReason,
+    reason_for,
+)
+from app.ingest.stages import BODY_STAGE, ENRICHMENT_STAGES, stage_sort_key
 from app.ingest.submission import (
     MIN_REMAINING_PUBLISH_BUDGET_SECONDS,
     IngestQuotaExceeded,
     IngestQuotaPolicy,
 )
-from app.models import BrowserCapture, ContentItem, IngestDispatch
+from app.models import BrowserCapture, ContentItem, ContentItemStage, IngestDispatch
 from app.limits import normalize_why_saved
 
 
@@ -54,10 +62,13 @@ Stage = Literal[
     "failed",
     "archived",
 ]
+StageStatus = Literal["pending", "running", "done", "failed", "skipped"]
+# Only the ``body`` stage has a detail, and only while it is running.
+BodyDetail = Literal["queued", "fetching", "transcribing", "indexing"]
 # Platforms whose caption-less browser captures are handed to the ASR worker
 # (mirrors ``_ASR_CAPTURE_PLATFORMS`` in ``app.ingest.tasks``; kept local so the
 # web layer does not import the Celery task module).
-_ASR_CAPTURE_PLATFORMS = frozenset({"youtube"})
+_ASR_CAPTURE_PLATFORMS = frozenset({"youtube", "bilibili"})
 
 
 class UserScopeLike(Protocol):
@@ -93,6 +104,24 @@ class StageProjection:
 
 
 @dataclass(frozen=True)
+class IngestStageDTO:
+    """One stage of the ingest pipeline as shown to clients."""
+
+    key: str
+    status: StageStatus
+    detail: BodyDetail | None = None
+    reason: IngestReason | None = None
+
+
+@dataclass(frozen=True)
+class AvailabilityCounts:
+    """Non-archived, non-deleted items by what a content search can reach."""
+
+    unsearchable_total: int
+    processing_total: int
+
+
+@dataclass(frozen=True)
 class LibraryItemDTO:
     public_id: str
     platform: str
@@ -116,6 +145,12 @@ class LibraryItemDTO:
     latest_dispatch_public_id: str | None
     stage: Stage = "queued"
     stage_updated_at: datetime | None = None
+    # Body stage first, then the enabled enrichment stages.
+    stages: tuple[IngestStageDTO, ...] = ()
+    # Why the body is not searchable; equals the body stage's reason.
+    reason: IngestReason | None = None
+    # ``item.state == 'ready'``: the only state content retrieval returns.
+    body_searchable: bool = False
 
 
 @dataclass(frozen=True)
@@ -125,6 +160,8 @@ class LibraryPage:
     page: int
     page_size: int
     is_true_first_empty: bool
+    unsearchable_total: int = 0
+    processing_total: int = 0
 
 
 @dataclass(frozen=True)
@@ -142,45 +179,145 @@ def _safe_error(value: str | None, *, default: str = "ingestion_failed") -> str:
     return value if value in SAFE_ERROR_CODES else default
 
 
-def project_lifecycle(item: Any, latest: Any | None) -> LifecycleProjection:
-    if item.archived_at is not None:
-        return LifecycleProjection("archived", None, ("restore",))
+def _base_lifecycle(item: Any, latest: Any | None) -> tuple[Lifecycle, str | None]:
+    """Lifecycle and public error code of the ingest pipeline, ignoring archival."""
+
     if item.state == "ready":
-        state: Lifecycle = "ready"
-        error = None
-    elif item.state in {"needs_extension", "needs_asr", "no_text"}:
-        state = "needs_action"
-        error = None
-    elif (latest is not None and latest.state == "failed") or item.state == "failed":
-        state = "failed"
-        error = _safe_error(
+        return "ready", None
+    if item.state in {"needs_extension", "needs_asr", "no_text"}:
+        return "needs_action", None
+    if (latest is not None and latest.state == "failed") or item.state == "failed":
+        return "failed", _safe_error(
             latest.error_code if latest is not None and latest.state == "failed" else item.fail_reason
         )
-    elif (latest is not None and latest.state == "running") or item.state in {
+    if (latest is not None and latest.state == "running") or item.state in {
         "fetching",
         "chunking",
         "embedding",
     }:
-        state = "processing"
-        error = None
-    elif item.state == "pending" and latest is not None and latest.state in {
+        return "processing", None
+    if item.state == "pending" and latest is not None and latest.state in {
         "pending",
         "enqueued",
     }:
-        state = "queued"
-        error = None
-    else:
-        state = "failed"
-        error = "missing_dispatch"
+        return "queued", None
+    return "failed", "missing_dispatch"
+
+
+def _reason_of(item: Any, state: Lifecycle, error: str | None) -> IngestReason | None:
+    if state == "failed":
+        return reason_for(error)
+    if state == "needs_action":
+        code = getattr(item, "fail_reason", None)
+        if not code:
+            # Rows written before reasons were recorded.
+            code = (
+                DEFAULT_NEEDS_EXTENSION_REASON
+                if item.state == "needs_extension"
+                else DEFAULT_NEEDS_ASR_REASON
+            )
+        return reason_for(code)
+    return None
+
+
+def project_reason(item: Any, latest: Any | None) -> IngestReason | None:
+    """Why the body is not searchable, from the reason registry.
+
+    Only ``failed`` and ``needs_action`` items have a reason.  Archival is
+    ignored, so an archived item keeps the reason it had.  Codes outside the
+    registry are shown as ``ingestion_failed``.
+    """
+
+    return _reason_of(item, *_base_lifecycle(item, latest))
+
+
+def project_lifecycle(item: Any, latest: Any | None) -> LifecycleProjection:
+    if item.archived_at is not None:
+        return LifecycleProjection("archived", None, ("restore",))
+    state, error = _base_lifecycle(item, latest)
 
     actions = ["edit_why_saved", "archive"]
-    if state == "failed" and (
+    if state in {"failed", "needs_action"} and (
         latest is None or latest.state not in ACTIVE_DISPATCH_STATES
     ):
-        actions.append("retry")
+        reason = _reason_of(item, state, error)
+        # A server-side re-run cannot read login-only Bilibili subtitles; the
+        # user re-collects from the video page instead.
+        if reason is not None and reason.category != LOGIN_REQUIRED:
+            actions.append("retry")
     if getattr(item, "url", None):
         actions.append("open_source")
     return LifecycleProjection(state, error, tuple(actions))
+
+
+def project_body_stage(
+    item: Any,
+    latest: Any | None,
+    *,
+    asr_capture: bool = False,
+) -> IngestStageDTO:
+    """Project the ``body`` stage (captions, ASR, index) from the item state.
+
+    Nothing is stored for it, so it cannot disagree with ``content_item.state``
+    (the only state retrieval honours).  Archival is ignored.  ``detail`` is
+    set only while running: ``transcribing`` when the dispatch was handed to
+    the asr queue (``asr_handoff_at``) or, for items still in flight from
+    before that column existed, when the latest ready browser capture found no
+    caption track (``asr_capture``); ``indexing`` while chunking or embedding.
+    """
+
+    state, error = _base_lifecycle(item, latest)
+    if state == "queued":
+        return IngestStageDTO(BODY_STAGE, "pending", "queued")
+    if state == "processing":
+        detail: BodyDetail
+        if item.state in {"chunking", "embedding"}:
+            detail = "indexing"
+        elif item.state == "fetching" and (
+            asr_capture or getattr(latest, "asr_handoff_at", None) is not None
+        ):
+            detail = "transcribing"
+        else:
+            detail = "fetching"
+        return IngestStageDTO(BODY_STAGE, "running", detail)
+    if state == "ready":
+        return IngestStageDTO(BODY_STAGE, "done")
+    return IngestStageDTO(BODY_STAGE, "failed", None, _reason_of(item, state, error))
+
+
+def project_stages(
+    item: Any,
+    latest: Any | None,
+    rows: Iterable[Any],
+    *,
+    enabled: Sequence[str],
+    asr_capture: bool = False,
+) -> tuple[IngestStageDTO, ...]:
+    """The body stage followed by every enabled enrichment stage.
+
+    ``rows`` are the item's ``content_item_stage`` rows.  An enabled stage
+    takes its stored row; with no row it is ``skipped`` when the body failed
+    and ``pending`` otherwise (so existing ready items read "not started").
+    Enrichment never changes the lifecycle or ``body_searchable``.
+    """
+
+    body = project_body_stage(item, latest, asr_capture=asr_capture)
+    by_stage = {row.stage: row for row in rows}
+    keys = sorted(
+        (key for key in dict.fromkeys(enabled) if key != BODY_STAGE),
+        key=stage_sort_key,
+    )
+    stages = [body]
+    for key in keys:
+        row = by_stage.get(key)
+        if row is not None:
+            reason = reason_for(row.error_code) if row.status == "failed" else None
+            stages.append(IngestStageDTO(key, row.status, None, reason))
+        elif body.status == "failed":
+            stages.append(IngestStageDTO(key, "skipped"))
+        else:
+            stages.append(IngestStageDTO(key, "pending"))
+    return tuple(stages)
 
 
 def project_stage(
@@ -196,8 +333,10 @@ def project_stage(
     item's latest ready browser capture found no caption track: the pipeline
     then hands the same dispatch to the ASR worker and the item stays
     ``fetching`` until it is chunked, so this is the only reliable ASR signal.
-    An ASR run for a URL-submitted item (connector ``NeedsASR``) leaves no
-    durable marker and is reported as ``fetching``.
+    An ASR run for a URL-submitted item (connector ``NeedsASR``) is reported as
+    ``fetching`` here to keep the legacy field unchanged; the body stage
+    detail of ``project_body_stage`` reads ``asr_handoff_at`` and reports it
+    as ``transcribing``.
 
     ``updated_at`` is the best available time the item entered its stage.
     There is no per-stage timestamp, so it is the latest dispatch's
@@ -227,6 +366,16 @@ def project_stage(
     )
 
 
+def _count_availability(states: Iterable[str]) -> AvailabilityCounts:
+    unsearchable = processing = 0
+    for state in states:
+        if state in {"needs_action", "failed"}:
+            unsearchable += 1
+        elif state in {"queued", "processing"}:
+            processing += 1
+    return AvailabilityCounts(unsearchable, processing)
+
+
 class ContentLibraryService:
     def __init__(
         self,
@@ -235,11 +384,16 @@ class ContentLibraryService:
         *,
         quota_policy: IngestQuotaPolicy | None = None,
         save_enabled: bool = True,
+        enrichment_stages: Sequence[str] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._publisher = publisher
         self._quota_policy = quota_policy or IngestQuotaPolicy()
         self._save_enabled = bool(save_enabled)
+        # Post-body stages the API reports; defaults to the registry value.
+        self._enrichment_stages = tuple(
+            ENRICHMENT_STAGES if enrichment_stages is None else enrichment_stages
+        )
         try:
             signature = inspect.signature(publisher)
             self._publisher_accepts_budget = (
@@ -331,32 +485,84 @@ class ContentLibraryService:
                 scope.app_user_id,
             )
             asr_ids = self._asr_capture_item_ids(db, items, scope.app_user_id)
-            projected = [
-                self._dto(
-                    value,
-                    latest_by_item.get(value.id),
-                    asr_capture=value.id in asr_ids,
-                )
+            states = [
+                (value, project_lifecycle(value, latest_by_item.get(value.id)).state)
                 for value in items
             ]
+            # The counts cover every non-archived item.  The loop above already
+            # saw all of them unless a search, collection or archive filter
+            # narrowed the query; only then is a second pass needed.
+            if (search and search.strip()) or collection is not None or lifecycle == "archived":
+                counts = self._availability_counts(db, scope.app_user_id)
+            else:
+                counts = _count_availability(state for _, state in states)
             if lifecycle is not None:
-                projected = [value for value in projected if value.lifecycle == lifecycle]
-            total = len(projected)
+                states = [(value, state) for value, state in states if state == lifecycle]
+            total = len(states)
             start = (page - 1) * page_size
+            page_items = [value for value, _ in states[start : start + page_size]]
+            stage_rows = self._stage_rows(
+                db, [value.id for value in page_items], scope.app_user_id
+            )
             return LibraryPage(
-                tuple(projected[start : start + page_size]),
+                tuple(
+                    self._dto(
+                        value,
+                        latest_by_item.get(value.id),
+                        asr_capture=value.id in asr_ids,
+                        stage_rows=stage_rows.get(value.id, ()),
+                    )
+                    for value in page_items
+                ),
                 total,
                 page,
                 page_size,
                 true_total == 0,
+                counts.unsearchable_total,
+                counts.processing_total,
             )
+
+    def availability_counts(self, scope: UserScopeLike) -> AvailabilityCounts:
+        """Non-archived, non-deleted items whose body is not searchable.
+
+        ``unsearchable_total`` counts ``needs_action`` and ``failed`` items;
+        ``processing_total`` counts ``queued`` and ``processing`` ones (searchable
+        soon, but not yet).  Shared by the library list and content search.
+        """
+
+        with self._session_factory() as db:
+            return self._availability_counts(db, scope.app_user_id)
+
+    def _availability_counts(self, db, user_id: int) -> AvailabilityCounts:
+        # Lifecycle is projected in Python (as in ``list_items``), so this loads
+        # the user's whole library; move to a SQL aggregate with DB pagination.
+        items = list(
+            db.scalars(
+                select(ContentItem).where(
+                    ContentItem.user_id == user_id,
+                    ContentItem.deleted_at.is_(None),
+                    ContentItem.archived_at.is_(None),
+                )
+            ).all()
+        )
+        latest_by_item = self._latest_for_items(db, [value.id for value in items], user_id)
+        return _count_availability(
+            project_lifecycle(value, latest_by_item.get(value.id)).state
+            for value in items
+        )
 
     def get_item(self, scope: UserScopeLike, item_public_id: str) -> LibraryItemDTO:
         with self._session_factory() as db:
             item = self._owned_item(db, scope, item_public_id)
             latest = self._latest_dispatch(db, item.id, scope.app_user_id)
             asr_ids = self._asr_capture_item_ids(db, [item], scope.app_user_id)
-            return self._dto(item, latest, asr_capture=item.id in asr_ids)
+            stage_rows = self._stage_rows(db, [item.id], scope.app_user_id)
+            return self._dto(
+                item,
+                latest,
+                asr_capture=item.id in asr_ids,
+                stage_rows=stage_rows.get(item.id, ()),
+            )
 
     def update_why_saved(
         self,
@@ -435,12 +641,18 @@ class ContentLibraryService:
                     self._latest_dispatch(db, item.id, scope.app_user_id),
                     asr_capture=item.id
                     in self._asr_capture_item_ids(db, [item], scope.app_user_id),
+                    stage_rows=self._stage_rows(
+                        db, [item.id], scope.app_user_id
+                    ).get(item.id, ()),
                 )
             latest = self._latest_dispatch(db, item.id, scope.app_user_id)
-            projection = project_lifecycle(item, latest)
-            if item.archived_at is not None or projection.state != "failed" or (
-                latest is not None and latest.state in ACTIVE_DISPATCH_STATES
-            ):
+            # The same rule that offers ``retry`` in ``available_actions``:
+            # failed or needs_action, nothing in flight, and not a reason a
+            # server-side re-run cannot fix.  A ready item (even with a failed
+            # enrichment stage) is rejected here.
+            if item.archived_at is not None or "retry" not in project_lifecycle(
+                item, latest
+            ).available_actions:
                 raise LibraryConflict("retry_unavailable")
             try:
                 self._quota_policy.enforce(
@@ -576,6 +788,31 @@ class ContentLibraryService:
             result.setdefault(dispatch.item_id, dispatch)
         return result
 
+    def _stage_rows(
+        self, db, item_ids: list[int], user_id: int
+    ) -> dict[int, list[ContentItemStage]]:
+        """Enrichment stage rows of ``item_ids`` in one query, by item id.
+
+        Skipped when no enrichment stage is enabled: stored rows are ignored
+        then, so the common path pays nothing.
+        """
+
+        if not self._enrichment_stages or not item_ids:
+            return {}
+        rows = db.scalars(
+            select(ContentItemStage)
+            .join(ContentItem, ContentItem.id == ContentItemStage.item_id)
+            .where(
+                ContentItemStage.item_id.in_(item_ids),
+                ContentItem.user_id == user_id,
+                ContentItem.deleted_at.is_(None),
+            )
+        ).all()
+        result: dict[int, list[ContentItemStage]] = {}
+        for row in rows:
+            result.setdefault(row.item_id, []).append(row)
+        return result
+
     @staticmethod
     def _asr_capture_item_ids(db, items, user_id: int) -> frozenset[int]:
         """Ids of ``fetching`` items whose latest ready capture has no captions.
@@ -622,9 +859,17 @@ class ContentLibraryService:
         latest: IngestDispatch | None,
         *,
         asr_capture: bool = False,
+        stage_rows: Iterable[Any] = (),
     ) -> LibraryItemDTO:
         projection = project_lifecycle(item, latest)
         stage = project_stage(item, latest, asr_capture=asr_capture)
+        stages = project_stages(
+            item,
+            latest,
+            stage_rows,
+            enabled=self._enrichment_stages,
+            asr_capture=asr_capture,
+        )
         available_actions = (
             tuple(
                 action
@@ -657,6 +902,9 @@ class ContentLibraryService:
             latest_dispatch_public_id=latest.public_id if latest is not None else None,
             stage=stage.stage,
             stage_updated_at=stage.updated_at,
+            stages=stages,
+            reason=stages[0].reason,
+            body_searchable=item.state == "ready",
         )
 
     def _set_dispatch(

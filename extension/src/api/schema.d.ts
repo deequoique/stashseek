@@ -124,6 +124,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/browser-companion/extension/library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Extension Library */
+        get: operations["extension_library_api_v1_browser_companion_extension_library_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser-companion/extension/library/{item_public_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Extension Library Item */
+        get: operations["extension_library_item_api_v1_browser_companion_extension_library__item_public_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/browser-companion/extension/pairings": {
         parameters: {
             query?: never;
@@ -152,6 +186,26 @@ export interface paths {
         get: operations["pairing_status_api_v1_browser_companion_extension_pairings__pairing_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser-companion/extension/pairings/{pairing_id}:approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Pairing From Extension
+         * @description Approve a pairing directly from the extension's email login flow.
+         */
+        post: operations["approve_pairing_from_extension_api_v1_browser_companion_extension_pairings__pairing_id__approve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -316,6 +370,74 @@ export interface paths {
         get: operations["get_conversation_turns_api_v1_conversations__thread_id__turns_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extension/auth/challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Challenge */
+        post: operations["challenge_api_v1_extension_auth_challenge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extension/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout_api_v1_extension_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extension/auth/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Session */
+        get: operations["session_api_v1_extension_auth_session_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extension/auth/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify */
+        post: operations["verify_api_v1_extension_auth_verify_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -700,6 +822,8 @@ export interface components {
              * @default true
              */
             transcript_pagination: boolean;
+            /** Transcription Platforms */
+            transcription_platforms?: ("youtube" | "bilibili")[];
             /**
              * Web Login Channels
              * @default [
@@ -789,6 +913,21 @@ export interface components {
              */
             target_channel: "telegram" | "wechat";
         };
+        /** ChallengeRequest */
+        ChallengeRequest: {
+            /** Email */
+            email: string;
+        };
+        /** ChallengeResponse */
+        ChallengeResponse: {
+            /** Challenge Id */
+            challenge_id: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
         /** ChallengeStatusResponse */
         ChallengeStatusResponse: {
             /**
@@ -876,6 +1015,40 @@ export interface components {
             next_cursor?: string | null;
         };
         /**
+         * ConversationMediaCitationResponse
+         * @description Browser-safe projection of validated media evidence.
+         */
+        ConversationMediaCitationResponse: {
+            /**
+             * End Sec
+             * @default null
+             */
+            end_sec: number | null;
+            /** Evidence */
+            evidence?: string[];
+            /** Evidence Id */
+            evidence_id: string;
+            /** Item Id */
+            item_id: number;
+            /**
+             * Location
+             * @default null
+             */
+            location: string | null;
+            /** Media Id */
+            media_id: string;
+            /**
+             * Start Sec
+             * @default null
+             */
+            start_sec: number | null;
+            /**
+             * Title
+             * @default null
+             */
+            title: string | null;
+        };
+        /**
          * ConversationPlanItem
          * @description Browser-safe projection of one transient turn plan item.
          */
@@ -906,6 +1079,8 @@ export interface components {
              * @default null
              */
             error_code: string | null;
+            /** Media Citations */
+            media_citations?: components["schemas"]["ConversationMediaCitationResponse"][];
             /** Status */
             status: string;
             /** Text */
@@ -986,6 +1161,8 @@ export interface components {
             created_at: string;
             /** Error Code */
             error_code?: string | null;
+            /** Media Citations */
+            media_citations?: components["schemas"]["ConversationMediaCitationResponse"][];
             /** Status */
             status: string;
             /** User Text */
@@ -1053,6 +1230,16 @@ export interface components {
             /** Message */
             message: string;
         };
+        /**
+         * ExtensionLoginRequest
+         * @description Email proof used by the extension when no Web cookie exists.
+         */
+        ExtensionLoginRequest: {
+            /** Code */
+            code: string;
+            /** Email */
+            email: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1067,12 +1254,42 @@ export interface components {
              */
             status: "ok";
         };
+        /**
+         * IngestReasonResponse
+         * @description A reason from the fixed ingest reason table (``app.ingest.reasons``).
+         */
+        IngestReasonResponse: {
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "no_speech" | "no_transcription" | "fetch_failed" | "asr_failed" | "quota" | "too_large" | "login_required" | "error";
+            /** Code */
+            code: string;
+            /** Retry Useful */
+            retry_useful: boolean;
+        };
+        /** IngestStageResponse */
+        IngestStageResponse: {
+            /** Detail */
+            detail?: ("queued" | "fetching" | "transcribing" | "indexing") | null;
+            /** Key */
+            key: string;
+            reason?: components["schemas"]["IngestReasonResponse"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "running" | "done" | "failed" | "skipped";
+        };
         /** LibraryItemResponse */
         LibraryItemResponse: {
             /** Author */
             author: string | null;
             /** Available Actions */
             available_actions: string[];
+            /** Body Searchable */
+            body_searchable?: boolean;
             /** Chapters */
             chapters: components["schemas"]["ChapterResponse"][];
             /** Cover Url */
@@ -1100,6 +1317,7 @@ export interface components {
             public_id: string;
             /** Published At */
             published_at: string | null;
+            reason?: components["schemas"]["IngestReasonResponse"] | null;
             /**
              * Saved At
              * Format: date-time
@@ -1112,6 +1330,8 @@ export interface components {
             stage?: "queued" | "fetching" | "transcribing" | "chunking" | "embedding" | "ready" | "needs_action" | "failed" | "archived";
             /** Stage Updated At */
             stage_updated_at?: string | null;
+            /** Stages */
+            stages?: components["schemas"]["IngestStageResponse"][];
             /** Summary */
             summary?: string | null;
             /** Tags */
@@ -1135,8 +1355,12 @@ export interface components {
             page: number;
             /** Page Size */
             page_size: number;
+            /** Processing Total */
+            processing_total?: number;
             /** Total */
             total: number;
+            /** Unsearchable Total */
+            unsearchable_total?: number;
         };
         /** LinkTokenInput */
         LinkTokenInput: {
@@ -1260,25 +1484,6 @@ export interface components {
              */
             status: "pending" | "approved" | "expired" | "used";
         };
-        /** SessionResponse */
-        SessionResponse: {
-            /**
-             * Authenticated
-             * @default true
-             * @constant
-             */
-            authenticated: true;
-            /**
-             * Expires At
-             * Format: date-time
-             */
-            expires_at: string;
-            /**
-             * Login Channel
-             * @enum {string}
-             */
-            login_channel: "email" | "telegram" | "wechat";
-        };
         /** TranscriptBlockResponse */
         TranscriptBlockResponse: {
             /** End Sec */
@@ -1312,10 +1517,59 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** VerifyRequest */
+        VerifyRequest: {
+            /** Challenge Id */
+            challenge_id: string;
+            /** Code */
+            code: string;
+        };
         /** WhySavedRequest */
         WhySavedRequest: {
             /** Why Saved */
             why_saved?: string | null;
+        };
+        /** SessionResponse */
+        app__api__auth_schemas__SessionResponse: {
+            /**
+             * Authenticated
+             * @default true
+             * @constant
+             */
+            authenticated: true;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Login Channel
+             * @enum {string}
+             */
+            login_channel: "email" | "telegram" | "wechat";
+        };
+        /** SessionResponse */
+        app__api__extension_routes__SessionResponse: {
+            /** Access Token */
+            access_token?: string | null;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Tenant */
+            tenant: {
+                [key: string]: string;
+            };
+            /**
+             * Token Type
+             * @default Bearer
+             */
+            token_type: string;
+            /** User */
+            user: {
+                [key: string]: string;
+            };
         };
     };
     responses: never;
@@ -1401,7 +1655,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionResponse"];
+                    "application/json": components["schemas"]["app__api__auth_schemas__SessionResponse"];
                 };
             };
             /** @description Unauthorized */
@@ -1499,7 +1753,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionResponse"];
+                    "application/json": components["schemas"]["app__api__auth_schemas__SessionResponse"];
                 };
             };
             /** @description Unauthorized */
@@ -1642,6 +1896,70 @@ export interface operations {
             };
         };
     };
+    extension_library_api_v1_browser_companion_extension_library_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+                search?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryPageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    extension_library_item_api_v1_browser_companion_extension_library__item_public_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_public_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryItemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_pairing_api_v1_browser_companion_extension_pairings_post: {
         parameters: {
             query?: never;
@@ -1693,6 +2011,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PairingStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_pairing_from_extension_api_v1_browser_companion_extension_pairings__pairing_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pairing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtensionLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingApprovalResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1886,6 +2239,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Unprocessable Entity */
             422: {
                 headers: {
@@ -1968,6 +2330,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Unprocessable Entity */
             422: {
                 headers: {
@@ -2012,6 +2383,15 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2164,6 +2544,110 @@ export interface operations {
             };
         };
     };
+    challenge_api_v1_extension_auth_challenge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChallengeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChallengeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_api_v1_extension_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    session_api_v1_extension_auth_session_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["app__api__extension_routes__SessionResponse"];
+                };
+            };
+        };
+    };
+    verify_api_v1_extension_auth_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["app__api__extension_routes__SessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_api_v1_health_get: {
         parameters: {
             query?: never;
@@ -2286,8 +2770,8 @@ export interface operations {
     update_api_v1_library_items__item_public_id__patch: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 item_public_id: string;
@@ -2357,8 +2841,8 @@ export interface operations {
     archive_api_v1_library_items__item_public_id__archive_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 item_public_id: string;
@@ -2390,8 +2874,8 @@ export interface operations {
     restore_api_v1_library_items__item_public_id__restore_post: {
         parameters: {
             query?: never;
-            header: {
-                "X-CSRF-Token": string;
+            header?: {
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 item_public_id: string;
@@ -2425,7 +2909,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 item_public_id: string;
@@ -2477,7 +2961,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                "X-CSRF-Token": string;
+                "X-CSRF-Token"?: string | null;
             };
             path?: never;
             cookie?: never;

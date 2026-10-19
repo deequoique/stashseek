@@ -238,6 +238,8 @@ def test_list_filters_sort_page_and_detail_use_injected_scope_without_private_id
     )
     assert listed.json()["items"][0]["public_id"] == "item-public"
     assert listed.json()["items"][0]["summary"] is None
+    # A service double that predates the counts reports zero, not an error.
+    assert (listed.json()["unsearchable_total"], listed.json()["processing_total"]) == (0, 0)
     assert detail.json()["lifecycle"] == "ready"
     chapter_schema = openapi.json()["components"]["schemas"]["LibraryItemResponse"]["properties"]["chapters"]["items"]
     assert chapter_schema["$ref"].endswith("/ChapterResponse")
@@ -245,6 +247,26 @@ def test_list_filters_sort_page_and_detail_use_injected_scope_without_private_id
     for forbidden in ("user_id", "app_user_id", "channel_identity_id", "item_id"):
         assert forbidden not in serialized
         assert forbidden not in str(openapi.json())
+
+
+def test_list_reports_the_availability_counts_of_the_whole_library():
+    client, library, _, _ = client_for()
+    original = library.list_items
+
+    def list_items(scope, **kwargs):
+        page = original(scope, **kwargs)
+        page.unsearchable_total = 4
+        page.processing_total = 2
+        return page
+
+    library.list_items = list_items
+
+    with client:
+        listed = client.get("/api/v1/library/items", params={"page": 1, "page_size": 5})
+
+    assert listed.status_code == 200
+    assert (listed.json()["unsearchable_total"], listed.json()["processing_total"]) == (4, 2)
+    assert listed.json()["total"] == 1
 
 
 def test_batch_is_bounded_partial_and_namespaces_hashed_idempotency_key():

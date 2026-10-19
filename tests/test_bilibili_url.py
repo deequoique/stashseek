@@ -172,7 +172,9 @@ def test_login_only_subtitle_routes_to_browser_companion():
 
     connector.fetch_meta("BV12N4y1M7rh")
 
-    assert isinstance(connector.fetch_text("BV12N4y1M7rh"), NeedsExtension)
+    result = connector.fetch_text("BV12N4y1M7rh")
+    assert isinstance(result, NeedsExtension)
+    assert result.code == "bilibili_login_required"
 
 
 def test_video_without_subtitles_routes_to_asr():
@@ -198,6 +200,7 @@ def test_subtitle_without_inline_data_fails_closed_to_browser_capture():
     result = connector.fetch_text("BV1xx411c7mD")
 
     assert isinstance(result, NeedsExtension)
+    assert result.code == "bilibili_capture_required"
     assert "private-signed-query" not in result.reason
 
 

@@ -17,7 +17,8 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src --max-warnings 0",
     "check:api": "node workspace/openapi.mjs check",
-    "generate:api": "node workspace/openapi.mjs generate"
+    "generate:api": "node workspace/openapi.mjs generate",
+    "generate:types": "openapi-typescript src/api/openapi.json -o src/api/schema.d.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
