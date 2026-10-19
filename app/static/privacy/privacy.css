@@ -1,0 +1,77 @@
+/* Public privacy policy. External stylesheet only: the app's CSP allows
+   style-src 'self', so the page carries no inline style or script. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #fbfaf7;
+  --ink: #1f2328;
+  --muted: #5c636b;
+  --line: #e1ddd3;
+  --accent: #1b5e4b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15181b;
+    --ink: #e7e4dd;
+    --muted: #a3a9ae;
+    --line: #2d3338;
+    --accent: #7fd1b5;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  padding: 0 1.25rem 4rem;
+  background: var(--bg);
+  color: var(--ink);
+  font: 1rem/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.page-header,
+main {
+  max-width: 46rem;
+  margin: 0 auto;
+}
+
+.page-header { padding: 2.5rem 0 1rem; border-bottom: 1px solid var(--line); }
+
+h1 { margin: 0 0 0.5rem; font-size: 1.7rem; line-height: 1.3; }
+.page-header__alt { display: block; margin-top: 0.15rem; color: var(--muted); font-size: 1.05rem; font-weight: 500; }
+
+.meta { margin: 0 0 1rem; color: var(--muted); font-size: 0.9rem; }
+
+.lang-nav { display: flex; gap: 0.75rem; margin-bottom: 0.5rem; }
+.lang-nav a {
+  padding: 0.3rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  text-decoration: none;
+}
+
+article { padding-top: 2rem; scroll-margin-top: 1rem; }
+article + article { margin-top: 2.5rem; border-top: 1px solid var(--line); }
+
+h2 { margin: 2rem 0 0.5rem; font-size: 1.2rem; line-height: 1.4; }
+article > h2:first-child { margin-top: 0; }
+
+p, ul { margin: 0.5rem 0; }
+ul { padding-left: 1.3rem; }
+li { margin: 0.35rem 0; }
+
+a { color: var(--accent); text-underline-offset: 0.2rem; }
+a:hover { text-decoration-thickness: 2px; }
+
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}

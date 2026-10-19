@@ -3,6 +3,7 @@ import { type FormEvent, useState } from "react";
 import { BILIBILI_NO_CAPTIONS_HINT, workerErrorCopy } from "./copy";
 import type { PanelDeps } from "./deps";
 import { PanelLogin } from "./PanelLogin";
+import { PrivacyLink } from "./PrivacyLink";
 import { QaThread } from "./QaThread";
 import { isActiveCollect } from "./useCollect";
 import { questionBlock, usePageQa, type VideoSession } from "./usePageQa";
@@ -182,6 +183,7 @@ export function PageWorkspace({ deps, paired, pageQa, transcriptionPlatforms, on
 
       <footer className="sp-footer">
         <button className="text-button" type="button" onClick={() => { void deps.worker.openWorkspace(); }}>打开工作区</button>
+        <PrivacyLink deps={deps} />
       </footer>
     </div>
   );

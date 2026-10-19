@@ -26,6 +26,7 @@ from app.api.email_auth_routes import build_email_auth_router
 from app.api.extension_routes import build_extension_router
 from app.api.library_routes import build_library_router
 from app.api.library_schemas import ErrorResponse
+from app.api.privacy import register_privacy_routes
 from app.asr.signing import audio_object_key, verify_audio_signature
 from app.channels.types import UserScope
 from app.ingest.submission import MAX_SAVE_BATCH_SIZE
@@ -700,6 +701,10 @@ def create_app(
     if services is not None:
         # Must stay before the SPA catch-all so the signed path is not shadowed.
         _register_asr_audio_route(app, services)
+
+    # Public, login-free privacy policy. Registered before the SPA catch-all
+    # below, which would otherwise answer these paths with index.html.
+    register_privacy_routes(app, getattr(services, "settings", None))
 
     if static_dir is not None:
         _mount_spa(app, Path(static_dir))

@@ -84,7 +84,8 @@ body { min-width: 0; min-height: 100vh; background-image: none; }
 .sp-compose textarea { width: 100%; min-height: 2.9rem; max-height: 9rem; padding: 0.6rem 0.75rem; border: 1px solid var(--line); border-radius: 0.8rem; background: #fffdf8; color: var(--ink); font-size: 0.88rem; line-height: 1.5; resize: none; field-sizing: content; }
 .sp-compose .button { min-height: 44px; padding-inline: 1rem; }
 
-.sp-footer { display: flex; justify-content: center; margin-top: auto; padding-top: 0.4rem; }
+.sp-footer { display: flex; justify-content: center; align-items: center; gap: 1.25rem; margin-top: auto; padding-top: 0.4rem; }
+.sp-privacy-link { display: inline-flex; align-items: center; }
 
 @keyframes sp-pulse { from { opacity: 0.45; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {

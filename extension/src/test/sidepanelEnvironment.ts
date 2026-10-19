@@ -221,6 +221,7 @@ export function makeEnvironment(options: {
     now: () => clock.now,
     isVisible: () => clock.visible,
     workspaceUrl: (route) => `chrome-extension://test/workspace.html#${route}`,
+    privacyUrl: () => "https://api.test/privacy",
     createId: () => `message-${++ids}`,
     createConversationId: () => `page-${String(++conversations).padStart(32, "0")}`,
     settleDelayMs: 0,

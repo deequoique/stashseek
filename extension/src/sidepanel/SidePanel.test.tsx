@@ -557,3 +557,36 @@ describe("side panel citations", () => {
     expect(env.worker.seek).not.toHaveBeenCalled();
   });
 });
+
+describe("side panel privacy policy link", () => {
+  it("shows the link on the login screen, pointing at the API origin and opening a new tab", async () => {
+    const env = makeEnvironment({ paired: false });
+    env.getSession.mockRejectedValueOnce(new ApiError(401, "session_invalid", "登录已失效"));
+    render(<SidePanel deps={env.deps} />);
+
+    const link = await screen.findByRole("link", { name: "隐私政策" });
+
+    expect(link).toHaveAttribute("href", "https://api.test/privacy");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+  });
+
+  it("shows the link in the footer of the signed-in panel", async () => {
+    const env = makeEnvironment();
+    await renderReady(env);
+
+    const footerLink = within(screen.getByRole("contentinfo")).getByRole("link", { name: "隐私政策" });
+
+    expect(footerLink).toHaveAttribute("href", "https://api.test/privacy");
+    expect(footerLink).toHaveAttribute("target", "_blank");
+  });
+
+  it("omits the link instead of breaking the panel when no API origin can be resolved", async () => {
+    const env = makeEnvironment();
+    env.deps.privacyUrl = () => { throw new Error("extension_api_origin_invalid"); };
+    await renderReady(env);
+
+    expect(screen.queryByRole("link", { name: "隐私政策" })).toBeNull();
+    expect(screen.getByRole("button", { name: "打开工作区" })).toBeInTheDocument();
+  });
+});

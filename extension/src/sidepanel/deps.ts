@@ -1,3 +1,4 @@
+import { resolveApiOrigin } from "../api-client";
 import { getCapabilities, getLibraryItem, getSession, retryItem, streamPageQuestion, submitVideoBatch } from "../api/client";
 import type { StoredCollect } from "./collectModel";
 import { newConversationId } from "./pageIdentity";
@@ -43,6 +44,8 @@ export interface PanelDeps {
   isVisible: () => boolean;
   /** Extension-page URL for a workspace route such as `/videos/<id>`. */
   workspaceUrl: (route: string) => string;
+  /** Public privacy policy on this build's API origin. Throws when the manifest names no single API origin. */
+  privacyUrl: () => string;
   createId: () => string;
   createConversationId: () => string;
   /** Wait after a tab change before reading, so a YouTube SPA navigation can settle. */
@@ -139,6 +142,7 @@ export const defaultDeps: PanelDeps = {
   now: () => Date.now(),
   isVisible: () => document.visibilityState === "visible",
   workspaceUrl: (route) => chrome.runtime.getURL(`workspace.html#${route}`),
+  privacyUrl: () => `${resolveApiOrigin(chrome.runtime.getManifest().host_permissions ?? [])}/privacy`,
   createId: () => crypto.randomUUID(),
   createConversationId: newConversationId,
   settleDelayMs: 600,

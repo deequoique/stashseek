@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StashSeek Chat 隐私政策 · Privacy Policy</title>
+  <meta name="description" content="StashSeek Chat（搜藏助手）隐私政策 / StashSeek Chat privacy policy">
+  <link rel="stylesheet" href="/privacy/privacy.css">
+</head>
+<body>
+  <header class="page-header">
+    <h1>StashSeek Chat 隐私政策 <span class="page-header__alt">Privacy Policy</span></h1>
+    <p class="meta">生效日期 / Effective date：<time datetime="{{effective_date}}">{{effective_date}}</time></p>
+    <nav class="lang-nav" aria-label="语言 / Language">
+      <a href="#zh">中文</a>
+      <a href="#en">English</a>
+    </nav>
+  </header>
+
+  <main>
+    <article id="zh" lang="zh-CN">
+      <h2>1. 我们是谁，如何联系我们</h2>
+      <p>StashSeek Chat（搜藏助手）由一名独立开发者（下称“StashSeek Chat 开发者”或“我们”）个人运营，不属于任何公司。本政策适用于 Chrome 浏览器扩展“StashSeek Chat — 搜藏助手”（下称“扩展”），以及扩展所连接的服务 {{service_origin}}（下称“服务”）。</p>
+      <p>关于隐私的任何问题，以及账号删除、数据导出请求，请发邮件至 <a href="mailto:{{contact_email}}">{{contact_email}}</a>。</p>
+
+      <h2>2. 我们收集哪些信息</h2>
+      <p>我们只收集提供功能所必需的信息：</p>
+      <ul>
+        <li><strong>账号信息。</strong>你的电子邮箱地址。登录时我们向该邮箱发送一次性验证码，并保存登录验证码记录和登录会话记录（创建、到期和最近使用时间）。验证码、会话凭据和设备凭据在服务器端只以哈希形式保存，不保存明文。</li>
+        <li><strong>你保存的资料库内容。</strong>当你点“收藏视频”或提交视频链接时，我们保存该视频的公开信息（标题、作者、简介、章节、封面链接和视频链接）、字幕或转写文本、为了便于按内容搜索而切分的文本片段及其向量，以及你自己填写的保存理由、集合和标签，还有处理进度记录。如果你提交的是视频链接，服务器会向视频平台（YouTube、哔哩哔哩）读取该视频公开的信息和字幕。</li>
+        <li><strong>对话记录。</strong>资料库对话会保存你的提问、回答、引用的来源，以及继续对话所需的对话上下文。在侧边栏就当前视频提问（页面问答）只保存你的提问、回答和不超过 180 个字符的被引用片段，<strong>不保存字幕</strong>。</li>
+        <li><strong>扩展设备记录。</strong>当你在扩展里用邮箱验证码登录并连接这台设备时，我们保存设备标签、扩展版本、授权时间和到期时间；设备凭据只以哈希形式保存。</li>
+        <li><strong>可选的关联信息。</strong>如果你主动把 Telegram 或微信聊天账号、或 MCP 客户端与你的账号关联，我们会保存完成关联所需的标识和授权记录。</li>
+        <li><strong>保存在你浏览器里的数据。</strong>登录会话、设备凭据和进行中的“收藏视频”状态保存在浏览器的扩展存储里，只在你的设备上；在扩展里退出登录会清除这些凭据。</li>
+      </ul>
+
+      <h2>3. 浏览器扩展会读取什么、何时读取</h2>
+      <ul>
+        <li><strong>在哪里：</strong>只在 YouTube 和哔哩哔哩（Bilibili）的视频页面。</li>
+        <li><strong>何时：</strong>只在你打开侧边栏，或主动操作（提问、点“收藏视频”）时。</li>
+        <li><strong>读取什么：</strong>该视频的字幕（如果有）、公开的视频信息（标题、作者、简介、章节、封面链接、视频链接），以及当前播放位置（用于定位你的提问，并在点击引用时跳转到对应时间点）。</li>
+        <li><strong>不会读取或上传：</strong>扩展不会读取你的 Cookie、密码或其他登录凭据并发送给我们，也不会读取或上传音频、视频文件。在哔哩哔哩页面上，浏览器会像你正常观看时那样用你自己的登录状态向哔哩哔哩请求你有权查看的字幕，这些登录信息只发给哔哩哔哩，不经过我们。带签名的字幕地址只在页面内使用，不会发送给我们，也不会被保存或记录。</li>
+        <li><strong>提问时：</strong>你点发送后，扩展才会把这个视频的字幕连同你的问题发给服务；服务把这些字幕（较长的视频只取与问题相关的部分）交给大模型问答服务商生成回答。字幕只用于这一次回答，<strong>不写入数据库、对象存储或日志</strong>。</li>
+        <li><strong>收藏时：</strong>只有你点“收藏视频”，字幕才会被提交并保存到你的资料库。</li>
+      </ul>
+
+      <h2>4. 我们如何使用这些信息</h2>
+      <ul>
+        <li>回答你的提问，并给出带来源和时间点的回答。</li>
+        <li>保存、整理你的资料库，并让你按内容搜索。</li>
+        <li>让你登录、保持会话，并管理已连接的设备。</li>
+        <li>保障服务安全、防止滥用（例如限制提问频率），并通过不含内容的运行日志排查故障。</li>
+        <li>当你收藏的视频没有字幕且转写功能可用时，对其音频做语音转写。</li>
+      </ul>
+      <p>我们不投放广告，不出售你的数据，不用你的数据做用户画像，也不用它判断信用或贷款资格。</p>
+
+      <h2>5. 数据处理方与跨境处理</h2>
+      <p>为提供上述功能，我们使用下列类别的服务商。它们只为向我们提供相应服务而处理数据：</p>
+      <ul>
+        <li><strong>大模型问答服务商：</strong>在一次请求期间，接收你的提问、必要的对话上下文，以及用来回答的内容（当前视频的字幕，较长的视频只含与问题相关的部分；或你资料库中与问题相关的片段），用来生成回答。</li>
+        <li><strong>文本向量服务商：</strong>接收你收藏条目的文本片段，以及用于检索的搜索或提问文本，用来生成向量。</li>
+        <li><strong>语音转写服务商：</strong>仅当你收藏的视频没有字幕、且转写功能被使用时，接收该视频的临时音频；转写完成后临时音频即被删除。</li>
+        <li><strong>云数据库和对象存储：</strong>保存上文第 2 节列出的账号、资料库和对话数据。</li>
+        <li><strong>服务器托管：</strong>运行本服务的服务器。</li>
+        <li><strong>邮件发送服务商：</strong>接收你的邮箱地址和登录验证码，用来向你发送登录邮件。</li>
+      </ul>
+      <p>这些服务商可能位于你所在的国家或地区之外，因此你的数据可能被传输到其他国家或地区处理。数据在网络传输中使用 HTTPS。</p>
+
+      <h2>6. 保存期限与删除</h2>
+      <ul>
+        <li><strong>资料库条目：</strong>你删除条目后，它先进入回收站，你可以在此期间恢复；{{retention_days}} 天后条目会被永久清除，包括它的字幕、检索片段和向量。</li>
+        <li><strong>对话：</strong>你可以在应用内删除对话。</li>
+        <li><strong>设备和登录：</strong>你可以在账号里撤销已连接的设备；在扩展里退出登录会撤销这台设备的授权。登录验证码和会话到期后失效，并被定期清理。</li>
+        <li><strong>账号删除和数据导出：</strong>请发邮件至 <a href="mailto:{{contact_email}}">{{contact_email}}</a>，我们会在核实你对该邮箱的所有权后，于合理期限内处理。</li>
+        <li><strong>日志：</strong>服务器的生产日志只记录请求编号、状态码、耗时等运行信息，不含你的提问、回答或字幕文本。</li>
+      </ul>
+
+      <h2>7. 不出售、不投放广告，以及 Limited Use 声明</h2>
+      <p>我们不出售用户数据，不把用户数据用于或转让给广告用途，也不用它判断信用或贷款资格。</p>
+      <p>本扩展对所获取信息的使用和转让，遵守 Chrome 网上应用店用户数据政策（Chrome Web Store User Data Policy），包括其中的有限使用（Limited Use）要求。具体来说：</p>
+      <ul>
+        <li>我们只在提供和改进面向用户的功能（提问、收藏、搜索）时使用这些数据；</li>
+        <li>除为提供上述功能而使用第 5 节所列服务商、遵守法律或配合并购外，我们不向第三方转让这些数据；</li>
+        <li>我们不把这些数据用于广告，包括个性化或再营销广告；</li>
+        <li>除非得到你对具体内容的明确同意、出于安全目的（例如调查滥用）、遵守法律，或在汇总且匿名的前提下用于内部运营，否则人工不会读取这些数据。</li>
+      </ul>
+
+      <h2>8. 儿童</h2>
+      <p>本服务不面向 13 岁以下的儿童，我们也不会有意收集他们的个人信息。如果你认为某个儿童向我们提供了信息，请发邮件至 <a href="mailto:{{contact_email}}">{{contact_email}}</a>，我们会删除。</p>
+
+      <h2>9. 政策变更</h2>
+      <p>我们可能更新本政策。更新后，本页顶部的生效日期会随之改变，请在继续使用前查看最新版本。</p>
+
+      <h2>10. 生效日期与联系方式</h2>
+      <p>本政策自 {{effective_date}} 起生效。联系方式：<a href="mailto:{{contact_email}}">{{contact_email}}</a>。</p>
+    </article>
+
+    <article id="en" lang="en">
+      <h2>1. Who we are and how to contact us</h2>
+      <p>StashSeek Chat is run personally by an individual developer (“the StashSeek Chat developer”, “we”), not by a company. This policy covers the Chrome extension “StashSeek Chat — 搜藏助手” (“the extension”) and the service it connects to, {{service_origin}} (“the service”).</p>
+      <p>For any privacy question, and to request account deletion or a copy of your data, email <a href="mailto:{{contact_email}}">{{contact_email}}</a>.</p>
+
+      <h2>2. What we collect</h2>
+      <p>We collect only what the features need:</p>
+      <ul>
+        <li><strong>Account.</strong> Your email address. When you sign in we email you a one-time code and keep login-code and session records (creation, expiry and last-use times). Codes, session credentials and device credentials are stored on the server only as hashes, never in plain text.</li>
+        <li><strong>Your library.</strong> When you press “Save video” or submit a video link, we store the video’s public details (title, author, description, chapters, thumbnail link and video link), its captions or transcript, the text chunks and vectors built from it so you can search by content, the reason, collections and tags you enter, and processing-status records. If you submit a link, the server reads the video’s public details and captions from the video platform (YouTube, Bilibili).</li>
+        <li><strong>Conversations.</strong> Library conversations store your questions, the answers, the sources they cite, and the conversation context needed to continue them. Asking about the current video in the side panel (page Q&amp;A) stores only your question, the answer and cited excerpts of at most 180 characters. <strong>Captions are not stored.</strong></li>
+        <li><strong>Extension device records.</strong> When you sign in to the extension with an email code and connect this device, we store a device label, the extension version, and the authorization and expiry times. The device credential is stored only as a hash.</li>
+        <li><strong>Optional links.</strong> If you choose to link a Telegram or WeChat chat account, or an MCP client, to your account, we store the identifiers and authorization records needed for that link.</li>
+        <li><strong>Data kept in your browser.</strong> Your session, the device credential and any unfinished “Save video” state live in the browser’s extension storage on your device. Signing out in the extension clears these credentials.</li>
+      </ul>
+
+      <h2>3. What the extension reads, and when</h2>
+      <ul>
+        <li><strong>Where:</strong> only on YouTube and Bilibili video pages.</li>
+        <li><strong>When:</strong> only when you open the side panel or act (ask a question, press “Save video”).</li>
+        <li><strong>What it reads:</strong> the video’s captions (if any), its public details (title, author, description, chapters, thumbnail link, video link) and the current playback position (to place your question and to jump to the cited time when you click a citation).</li>
+        <li><strong>What it never reads or uploads:</strong> the extension does not read your cookies, passwords or other sign-in credentials in order to send them to us, and it does not read or upload audio or video files. On Bilibili, the browser asks Bilibili for the captions you are allowed to see using your own Bilibili sign-in, exactly as when you watch normally; that sign-in goes only to Bilibili and never through us. Signed caption addresses stay inside the page and are never sent to us, stored or logged.</li>
+        <li><strong>When you ask a question:</strong> only after you press send does the extension send this video’s captions together with your question to the service, which passes those captions (for a long video, only the parts relevant to the question) to the language-model provider to write the answer. The captions are used for that one answer and are <strong>not written to the database, object storage or logs</strong>.</li>
+        <li><strong>When you save a video:</strong> captions are submitted and stored in your library only when you press “Save video”.</li>
+      </ul>
+
+      <h2>4. How we use your data</h2>
+      <ul>
+        <li>To answer your questions, with sources and time stamps.</li>
+        <li>To save and organize your library and let you search it by content.</li>
+        <li>To sign you in, keep your session and manage your connected devices.</li>
+        <li>To keep the service secure and prevent abuse (for example, limiting question rates) and to diagnose faults through logs that contain no content.</li>
+        <li>To transcribe the audio of a video you save when it has no captions and transcription is available.</li>
+      </ul>
+      <p>We show no ads, do not sell your data, do not build advertising profiles from it, and do not use it to decide creditworthiness or lending eligibility.</p>
+
+      <h2>5. Processors and international transfers</h2>
+      <p>To provide these features we use the following categories of service providers. They process data only to provide us that service:</p>
+      <ul>
+        <li><strong>Language-model provider:</strong> during a request, receives your question, the necessary conversation context, and the content used to answer (the current video’s captions, for a long video only the parts relevant to the question; or the passages from your library relevant to the question), to write the answer.</li>
+        <li><strong>Text-embedding provider:</strong> receives text chunks of the items you save, and the search or question text used for retrieval, to produce vectors.</li>
+        <li><strong>Speech-transcription provider:</strong> only when a video you save has no captions and transcription is used, receives that video’s temporary audio; the temporary audio is deleted once transcription finishes.</li>
+        <li><strong>Cloud database and object storage:</strong> hold the account, library and conversation data listed in section 2.</li>
+        <li><strong>Server hosting:</strong> the servers that run the service.</li>
+        <li><strong>Email-delivery provider:</strong> receives your email address and sign-in code to send you the login email.</li>
+      </ul>
+      <p>These providers may be located outside your country or region, so your data may be transferred to and processed in other countries or regions. Data in transit is protected with HTTPS.</p>
+
+      <h2>6. Retention and deletion</h2>
+      <ul>
+        <li><strong>Library items:</strong> when you delete an item it moves to the recycle bin, where you can restore it; after {{retention_days}} days it is permanently purged, including its captions, search chunks and vectors.</li>
+        <li><strong>Conversations:</strong> you can delete conversations in the app.</li>
+        <li><strong>Devices and sign-in:</strong> you can revoke connected devices in your account; signing out in the extension revokes that device’s authorization. Login codes and sessions stop working when they expire and are cleaned up periodically.</li>
+        <li><strong>Account deletion and data export:</strong> email <a href="mailto:{{contact_email}}">{{contact_email}}</a>; after verifying that you own the address we will handle the request within a reasonable time.</li>
+        <li><strong>Logs:</strong> production server logs record only operational facts such as a request ID, status code and duration; they contain no question, answer or caption text.</li>
+      </ul>
+
+      <h2>7. No sale, no ads, and the Limited Use statement</h2>
+      <p>We do not sell user data, we do not use or transfer it for advertising, and we do not use it to determine creditworthiness or lending eligibility.</p>
+      <p>The extension’s use and transfer of the information it handles adheres to the Chrome Web Store User Data Policy, including the Limited Use requirements. Specifically:</p>
+      <ul>
+        <li>we use the data only to provide and improve the user-facing features (asking, saving, searching);</li>
+        <li>we do not transfer the data to third parties except to provide those features through the providers listed in section 5, to comply with the law, or as part of a merger or acquisition;</li>
+        <li>we do not use the data for advertising, including personalized or retargeted ads;</li>
+        <li>humans do not read the data unless you give explicit consent for specific content, it is necessary for security (for example, investigating abuse), it is required by law, or it is aggregated and anonymized for internal operations.</li>
+      </ul>
+
+      <h2>8. Children</h2>
+      <p>The service is not directed to children under 13 and we do not knowingly collect their personal information. If you believe a child has given us information, email <a href="mailto:{{contact_email}}">{{contact_email}}</a> and we will delete it.</p>
+
+      <h2>9. Changes to this policy</h2>
+      <p>We may update this policy. When we do, the effective date at the top of this page changes; please review the latest version before you keep using the service.</p>
+
+      <h2>10. Effective date and contact</h2>
+      <p>This policy is effective from {{effective_date}}. Contact: <a href="mailto:{{contact_email}}">{{contact_email}}</a>.</p>
+    </article>
+  </main>
+</body>
+</html>
