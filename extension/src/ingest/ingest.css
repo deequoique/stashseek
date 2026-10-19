@@ -2,8 +2,8 @@
    Palette and buttons come from ../styles.css; imported after it by both entries. */
 
 .ingest-progress, .ingest-unfinished { display: grid; gap: 0.6rem; min-width: 0; max-width: 32rem; }
-/* On the detail page the unfinished screen is a notice above the video, not a panel. */
-.detail-layout > .ingest-unfinished { margin-bottom: 1.6rem; padding: 1.1rem 1.2rem; border: 1px solid var(--line); border-radius: 1.2rem 1.2rem 1.2rem 0.35rem; background: rgba(255, 255, 255, 0.5); }
+/* On the detail page the unfinished screen is a notice under the title block, not a panel. */
+.detail-layout > .ingest-unfinished { margin-top: 1.6rem; padding: 1.1rem 1.2rem; border: 1px solid var(--line); border-radius: 1.2rem 1.2rem 1.2rem 0.35rem; background: rgba(255, 255, 255, 0.5); }
 .ingest-progress .eyebrow { margin: 0; font-size: 0.64rem; }
 .ingest-progress h2, .ingest-unfinished h2 { margin: 0; font-size: 1.1rem; line-height: 1.3; letter-spacing: -0.01em; overflow-wrap: anywhere; }
 .ingest-muted { margin: 0; color: var(--muted); font-size: 0.82rem; line-height: 1.6; }

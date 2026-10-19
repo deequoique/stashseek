@@ -200,11 +200,13 @@ ingest_dispatch（pending → enqueued → running）
 
 | 位置 | 现在的写法 | 新写入的 fail_reason |
 |---|---|---|
-| `process_item` 走浏览器提交、页面没字幕、又没交给转写（`tasks.py:399-402`） | `needs_asr` | ASR 关闭 → `asr_disabled`；平台不在 `_ASR_CAPTURE_PLATFORMS` 里 → `asr_unsupported_platform`；其他情况（同步调用）→ `asr_unavailable` |
-| `process_item` 遇到 `NeedsASR`、又没交给转写（`tasks.py:443-456`） | `needs_asr` | ASR 关闭 → `asr_disabled`；平台不在 `_ASR_PLATFORMS` 里 → `asr_unsupported_platform`；其他情况（浏览器提交过、同步调用）→ `asr_unavailable` |
+| `process_item` 走浏览器提交、页面没字幕、又没交给转写（`tasks.py:399-402`） | `needs_asr` | 先看平台：不在 `_ASR_CAPTURE_PLATFORMS` 里 → `asr_unsupported_platform`；再看开关：ASR 关闭 → `asr_disabled`；其他情况（同步调用）→ `asr_unavailable` |
+| `process_item` 遇到 `NeedsASR`、又没交给转写（`tasks.py:443-456`） | `needs_asr` | 先看平台：不在 `_ASR_PLATFORMS` 里 → `asr_unsupported_platform`；再看开关：ASR 关闭 → `asr_disabled`；其他情况（浏览器提交过、同步调用）→ `asr_unavailable` |
 | `process_item` 遇到 `NeedsExtension`（`tasks.py:439-442`） | `needs_extension` | 取 `NeedsExtension.code` 的值 |
 | 交给转写队列失败（`_handoff_dispatch_to_asr` 调用 `_complete_dispatch(..., converge_item_state="needs_asr")`） | `needs_asr` | `asr_handoff_failed`。给 `_complete_dispatch` 加一个参数 `converge_reason`，在同一个事务里写入 |
 | `asr_backfill.py:216` 发布失败 | `needs_asr` | `asr_handoff_failed` |
+
+先看平台、再看开关（2026-10-19 评审时调整）：NTULearn 这类平台不管开关开没开都转写不了，如果先看开关，ASR 关闭时会显示“暂未开启转写，可以重试”，这会误导用户。
 
 `app/connectors/base.py` 的 `NeedsExtension` 新增字段 `code: str = "browser_capture_required"`。B站连接器（`bilibili.py:356,361`）分别传入 `bilibili_login_required` 和 `bilibili_capture_required`。`browser_capture_required` 同样登记进原因表，类别是 `login_required`。
 

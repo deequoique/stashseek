@@ -519,3 +519,128 @@ def test_retry_over_quota_is_rejected_and_keeps_the_reason(library_factory):
             select(func.count(IngestDispatch.id)).where(IngestDispatch.item_id == item_id)
         )
     assert (item.state, item.fail_reason, count) == ("needs_asr", "asr_disabled", 1)
+
+
+def _add_segment(factory, item_id, text_value, *, seq=0):
+    with factory() as db:
+        db.add(Segment(
+            item_id=item_id,
+            seq=seq,
+            start_sec=1,
+            end_sec=2,
+            text=text_value,
+            embedding=[0.01] * 1536,
+            fts=func.to_tsvector("english", text_value),
+            boundary_kind="gap",
+        ))
+        db.commit()
+
+
+def test_content_search_skips_unsearchable_items_but_title_and_note_search_find_them(
+    library_factory,
+):
+    scope = add_user(library_factory)
+    other = add_user(library_factory)
+    ready_pid, ready_id, _ = _seed(
+        library_factory, scope, platform_id="ready-lighthouse", state="ready"
+    )
+    unsearchable = {
+        "failed": _seed(library_factory, scope, platform_id="failed-lighthouse",
+                        state="failed", dispatch_state="failed", error_code="asr_no_speech"),
+        "needs_asr": _seed(library_factory, scope, platform_id="needsasr-lighthouse",
+                           state="needs_asr", fail_reason="asr_disabled"),
+        "needs_extension": _seed(library_factory, scope, platform_id="needsext-lighthouse",
+                                 state="needs_extension", platform="bilibili"),
+        "no_text": _seed(library_factory, scope, platform_id="notext-lighthouse",
+                         state="no_text"),
+        "fetching": _seed(library_factory, scope, platform_id="fetching-lighthouse",
+                          state="fetching", dispatch_state="running"),
+    }
+    # Segments left over from an earlier successful run must stay unreachable.
+    for item_id in [ready_id, *(values[1] for values in unsearchable.values())]:
+        _add_segment(library_factory, item_id, "the lighthouse keeper")
+    _, other_id, _ = _seed(
+        library_factory, other, platform_id="other-lighthouse", state="ready"
+    )
+    _add_segment(library_factory, other_id, "the lighthouse keeper")
+    with library_factory() as db:
+        note_item = db.scalar(
+            select(ContentItem).where(ContentItem.public_id == unsearchable["needs_asr"][0])
+        )
+        note_item.why_saved = "remember the harbour talk"
+        db.commit()
+
+    with library_factory() as db:
+        text_hits = bm25_search(db, "lighthouse", user_id=scope.app_user_id)
+        vector_hits = vector_search(db, [0.01] * 1536, user_id=scope.app_user_id)
+    assert {hit.item_id for hit in text_hits} == {ready_id}
+    assert {hit.item_id for hit in vector_hits} == {ready_id}
+
+    service = ContentLibraryService(library_factory, lambda _dispatch_id: "task")
+    for query, expected in (
+        ("failed-lighthouse", unsearchable["failed"][0]),
+        ("needsasr-lighthouse", unsearchable["needs_asr"][0]),
+        ("harbour", unsearchable["needs_asr"][0]),  # found by its note
+    ):
+        page = service.list_items(scope, search=query)
+        assert [value.public_id for value in page.items] == [expected], query
+        assert page.items[0].body_searchable is False
+    assert service.list_items(scope, search="other-lighthouse").items == ()
+    assert ready_pid in {value.public_id for value in service.list_items(scope).items}
+
+
+def test_recollecting_a_login_required_item_reuses_the_same_item(library_factory):
+    from app.browser_capture import BrowserCaptureRequest
+    from app.browser_capture_submission import BrowserCaptureSubmissionService
+    from tests.test_bilibili_capture import BVID, capture_payload
+
+    class MemoryStore:
+        def __init__(self):
+            self.objects = {}
+
+        def put(self, key, body, content_type):
+            self.objects[key] = body
+
+        def delete(self, key):
+            self.objects.pop(key, None)
+
+    scope = add_user(library_factory)
+    pid, item_id, _ = _seed(
+        library_factory, scope, platform_id=BVID, state="needs_extension",
+        fail_reason="bilibili_login_required", platform="bilibili",
+    )
+    published = []
+    captures = BrowserCaptureSubmissionService(
+        library_factory,
+        lambda dispatch_id: published.append(dispatch_id) or "task",
+        MemoryStore(),
+        quota_policy=IngestQuotaPolicy(),
+        max_raw_bytes=5_000_000,
+    )
+    library = ContentLibraryService(library_factory, lambda _dispatch_id: "task")
+    before = library.get_item(scope, pid)
+    assert (before.lifecycle, before.reason.category) == ("needs_action", "login_required")
+    assert "retry" not in before.available_actions
+
+    result = captures.submit(
+        scope,
+        BrowserCaptureRequest.model_validate(capture_payload()),
+        request_key="recollect-after-login",
+    )
+
+    assert (result.status, result.item_public_id) == ("queued", pid)
+    after = library.get_item(scope, pid)
+    assert (after.lifecycle, after.reason) == ("queued", None)
+    with library_factory() as db:
+        items = db.scalars(
+            select(ContentItem).where(ContentItem.user_id == scope.app_user_id)
+        ).all()
+        item = db.get(ContentItem, item_id)
+        attempts = sorted(
+            db.scalars(select(IngestDispatch).where(IngestDispatch.item_id == item_id)).all(),
+            key=lambda value: value.attempt,
+        )
+    assert len(items) == 1
+    assert (item.state, item.fail_reason) == ("pending", None)
+    assert [value.attempt for value in attempts] == [1, 2]
+    assert len(published) == 1

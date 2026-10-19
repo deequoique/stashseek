@@ -1201,7 +1201,10 @@ def create_mcp_server(
         "confirm_item_deletion": "Confirm the server-owned pending deletion; item ids are never accepted here.",
         "cancel_item_deletion": "Cancel the server-owned pending deletion.",
         "restore_saved_items": "Restore bounded items from the recycle bin.",
-        "retry_item_ingestion": "Retry one failed ingestion dispatch.",
+        "retry_item_ingestion": (
+            "Retry ingestion of one failed or unfinished item (no captions, needs ASR). "
+            "Items that need a browser login are not retried here."
+        ),
     }
     tool_names = allowed_tool_names(scope)
     if scope == "full" and facade.mutation_ready is False:

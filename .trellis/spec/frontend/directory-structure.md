@@ -34,6 +34,7 @@ extension/
     ├── account/  library/  videos/  showcase/
     ├── chat/                # ChatPage (page_qa threads read-only), MarkdownAnswer, answerText
     ├── sidepanel/           # SidePanel, usePageQa (per-video session), workerApi, deps (chrome adapters), pageIdentity
+    ├── ingest/              # ingest status shared by side panel + workspace: ingestCopy (all status copy), ingestModel, IngestProgress (P01b/D02), IngestUnfinished (P01c), ingest.css
     ├── test/                # setup and fake environments (never shipped)
     └── main.tsx
 ```
@@ -48,7 +49,7 @@ Tests are colocated as `*.test.ts` or `*.test.tsx`. The complete browser contrac
 - Side-panel code reaches Chrome only through `sidepanel/deps.ts` and `sidepanel/workerApi.ts`, so tests inject fakes. Injected page functions stay in `page-capture.ts` and must be self-contained.
 - `app/` owns routing, session gating, tenant-cache clearing, and the single top bar.
 - Feature folders own page-specific query and mutation orchestration.
-- Pure presentation logic stays close to the view using it; lifecycle copy is centralized in `library/lifecycle.ts`.
+- Pure presentation logic stays close to the view using it; all ingest status copy (lifecycle labels, stage labels, failure reasons, placeholders) is centralized in `ingest/ingestCopy.ts`. Never add status strings elsewhere; unknown server values must fall back instead of indexing a closed map.
 - Generated files are tracked but never edited manually.
 
 Do not add a generic `utils/`, `services/`, or global state folder until two real consumers require the same responsibility.

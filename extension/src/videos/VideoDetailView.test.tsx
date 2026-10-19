@@ -332,6 +332,18 @@ describe("video detail", () => {
       expect(screen.getByText("整理知识管理方法")).toBeInTheDocument();
     });
 
+    it("keeps the page title first: the unfinished screen comes after the h1 and its heading is an h2", () => {
+      renderFailed();
+
+      const pageTitle = screen.getByRole("heading", { level: 1 });
+      const cardHeading = screen.getByRole("heading", { level: 2, name: "收藏还在，整理没有完成" });
+      expect(pageTitle).toHaveTextContent("如何把信息变成理解");
+      expect(pageTitle.compareDocumentPosition(cardHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // Still above the other sections of the page.
+      const savedContext = screen.getByRole("heading", { level: 2, name: "为什么保存" });
+      expect(cardHeading.compareDocumentPosition(savedContext) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
     it("retries from the screen's main button, the one button of that name", async () => {
       const user = userEvent.setup();
       const handlers = renderFailed();
@@ -370,7 +382,7 @@ describe("video detail", () => {
       });
 
       const screenTop = screen.getByRole("region", { name: "收藏还在，整理没有完成" });
-      expect(within(screenTop).getByText("Bilibili · 链接已保存")).toBeInTheDocument();
+      expect(within(screenTop).getByText("B站 · 链接已保存")).toBeInTheDocument();
       expect(within(screenTop).getByRole("status")).toHaveTextContent("这个视频的字幕需要登录 B站 才能读取，正文暂不可检索。");
       expect(within(screenTop).getByText("请先登录 B站，再在视频页重新收藏。")).toBeInTheDocument();
       expect(within(screenTop).getByRole("link", { name: "打开视频页" })).toHaveAttribute("href", "https://www.bilibili.com/video/BV1xx411c7mD");

@@ -113,7 +113,7 @@ export function lifecycleFilterLabel(lifecycle: string): string {
 
 const PLATFORM_LABEL: Record<string, string> = {
   youtube: "YouTube",
-  bilibili: "哔哩哔哩",
+  bilibili: "B站",
   ntu_kaltura: "NTULearn",
 };
 

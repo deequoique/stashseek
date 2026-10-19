@@ -58,7 +58,14 @@ export type LibraryLifecycle = LibraryItem["lifecycle"];
 - Use generated nullable fields exactly as returned by the API.
 - Treat transcript cursors and public IDs as opaque strings.
 - Regenerate `openapi.json` and `schema.d.ts` together and require
-  `pnpm check:api` in CI.
+  `pnpm check:api` in CI: `pnpm generate:api` (exports `openapi.json`), then
+  `pnpm generate:types` (`openapi-typescript` 7.13.0 → `schema.d.ts`). Commit
+  both files in the same change. `check:api` only diffs `openapi.json`, so a
+  skipped `generate:types` leaves `schema.d.ts` silently stale (it had drifted
+  by ~500 lines before 2026-10-19).
+- New response fields use `Field(default=...)`/`default_factory` so the
+  generated property is optional; old extension builds and typed test
+  fixtures keep compiling.
 
 ---
 

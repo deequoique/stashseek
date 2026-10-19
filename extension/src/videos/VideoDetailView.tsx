@@ -9,7 +9,7 @@ import {
   WHY_SAVED_MAX_LENGTH,
 } from "../library/collections";
 import { type IngestPrimaryAction, IngestUnfinished, UnsearchableBadge } from "../ingest/IngestUnfinished";
-import { ACTION_LABEL, lifecycleLabel, QUOTA_RETRY_COPY, RETRY_FAILED_COPY } from "../ingest/ingestCopy";
+import { ACTION_LABEL, lifecycleLabel, platformLabel, QUOTA_RETRY_COPY, RETRY_FAILED_COPY } from "../ingest/ingestCopy";
 import { BODY_KEY, isBodyUnsearchable, reasonOf, visibleStages } from "../ingest/ingestModel";
 import { formatDuration } from "../library/VideoCard";
 import { StageRegion } from "./StageRegion";
@@ -103,9 +103,7 @@ export function VideoDetailView({
   const nextCursor = transcriptPages.at(-1)?.next_cursor ?? null;
   const actions = new Set(item.available_actions);
   const language = formatLanguage(item.lang);
-  const platformLabel = item.platform === "ntu_kaltura"
-    ? "NTULearn"
-    : item.platform === "bilibili" ? "Bilibili" : "YouTube";
+  const platform = platformLabel(item.platform);
   const collectionSuffixLength = collections.reduce(
     (total, name) => total + name.length + 1,
     Math.max(0, collections.length - 1),
@@ -166,16 +164,6 @@ export function VideoDetailView({
 
   return (
     <article className="detail-layout">
-      {unfinishedReason ? (
-        <IngestUnfinished
-          title={item.title}
-          platformName={platformLabel}
-          reason={unfinishedReason}
-          primary={primary}
-          onSearchTitles={onSearchTitles}
-          error={actionMessage}
-        />
-      ) : null}
       <header className="detail-hero">
         <div className="detail-cover">
           {item.cover_url ? <img src={item.cover_url} alt="" width={960} height={540} fetchPriority="high" /> : <div className="cover-placeholder cover-placeholder--large" aria-hidden="true"><span>暂无封面</span></div>}
@@ -190,13 +178,24 @@ export function VideoDetailView({
             {language ? <span>{language}</span> : null}
           </p>
           <div className="detail-actions" aria-label="视频操作">
-            <a className="button button--primary" href={item.url} target="_blank" rel="noreferrer">在 {platformLabel} 查看</a>
+            <a className="button button--primary" href={item.url} target="_blank" rel="noreferrer">在 {platform} 查看</a>
             {actions.has("archive") ? <button className="button button--ghost" disabled={actionPending} onClick={onArchive}>归档</button> : null}
             {actions.has("restore") ? <button className="button button--quiet" disabled={actionPending} onClick={onRestore}>恢复到资料库</button> : null}
           </div>
           {actionMessage && !unfinishedReason ? <p className="inline-error" role="alert" aria-label="视频操作失败">{actionMessage}</p> : null}
         </div>
       </header>
+
+      {unfinishedReason ? (
+        <IngestUnfinished
+          title={item.title}
+          platformName={platform}
+          reason={unfinishedReason}
+          primary={primary}
+          onSearchTitles={onSearchTitles}
+          error={actionMessage}
+        />
+      ) : null}
 
       <section className="detail-section reason-section" id="saved-context" aria-labelledby="reason-title">
         <div className="section-heading-row">
@@ -262,7 +261,7 @@ export function VideoDetailView({
 
       {item.description?.trim() ? (
         <section className="detail-section" aria-labelledby="description-title">
-          <p className="eyebrow">来自 {platformLabel}</p>
+          <p className="eyebrow">来自 {platform}</p>
           <h2 id="description-title">视频简介</h2>
           <p className="description-copy">{item.description}</p>
         </section>

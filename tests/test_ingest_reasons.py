@@ -58,6 +58,21 @@ def test_the_eight_categories_are_all_in_use():
     assert len(CATEGORIES) == 8
 
 
+def test_the_response_schema_lists_exactly_the_registry_categories_and_statuses():
+    # A category or status the schema does not list would make every library
+    # response that carries it fail validation, so the two lists must agree.
+    from typing import get_args
+
+    from app.api.library_schemas import IngestReasonResponse, IngestStageResponse
+    from app.ingest.stages import STAGE_STATUSES
+
+    categories = IngestReasonResponse.model_fields["category"].annotation
+    statuses = IngestStageResponse.model_fields["status"].annotation
+
+    assert set(get_args(categories)) == set(CATEGORIES)
+    assert set(get_args(statuses)) == set(STAGE_STATUSES)
+
+
 @pytest.mark.parametrize(
     "code",
     [

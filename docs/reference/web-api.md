@@ -115,6 +115,28 @@ channel challenge 由 Telegram/WeChat 的 `/web-login <code>` 批准。它是兼
 `processing`、`queued`。`needs_action` 表示需要浏览器伴侣或其他后续处理，
 不是已生成 ASR 的承诺。
 
+整理状态的补充字段（都是可选字段，旧客户端可以忽略）：
+
+- `stages`：按顺序列出各整理阶段。每项是 `{key, status, detail?, reason?}`，`key` 是普通字符串
+  （当前只有 `body`，以后会增加 `classify`、`summary`、`movie`），`status` 为
+  `pending`/`running`/`done`/`failed`/`skipped`，`body` 阶段运行时 `detail` 为
+  `queued`/`fetching`/`transcribing`/`indexing`。客户端应忽略不认识的 `key`，不显示 `skipped` 的阶段。
+- `reason`：正文没整理完（`failed` 或 `needs_action`）的原因 `{code, category, retry_useful}`，
+  只会取自服务端固定的原因表，未知错误统一是 `ingestion_failed`。`category` 为 `no_speech`、
+  `no_transcription`、`fetch_failed`、`asr_failed`、`quota`、`too_large`、`login_required`、`error`。
+- `body_searchable`：正文是否已进入检索索引（等同于内部状态 `ready`，不受归档影响）。
+  后面的阶段失败不会改变它。
+- 列表响应的 `unsearchable_total`、`processing_total`：不含归档和已删除的收藏里，
+  正文不可检索（`needs_action`/`failed`）和仍在整理（`queued`/`processing`）的条目数，
+  不受筛选条件影响。
+
+`available_actions` 里有 `retry` 的条件：`lifecycle` 是 `failed` 或 `needs_action`、没有进行中的整理任务、
+未归档，并且原因类别不是 `login_required`（Bilibili 登录字幕需要先登录，再在视频页重新收藏）。
+`ready` 的条目即使后面的阶段失败，也不能重新整理。
+
+`GET /api/v1/capabilities` 的 `transcription_platforms` 列出服务器会做语音转写的平台
+（`ASR_ENABLED=false` 时为空数组）。
+
 ## 对话和会话链接端点
 
 对话路由使用同一 Web session/CSRF boundary，并把一次执行交给一个

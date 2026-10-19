@@ -51,7 +51,7 @@ describe("IngestUnfinished", () => {
   });
 
   it("asks a Bilibili login-required item to be collected again from the video page", () => {
-    renderUnfinished({ platformName: "哔哩哔哩", reason: reason("login_required", false) });
+    renderUnfinished({ platformName: "B站", reason: reason("login_required", false) });
 
     expect(screen.getByText("请先登录 B站，再在视频页重新收藏。")).toBeInTheDocument();
     expect(screen.queryByText("可以按标题和备注查找，也可以稍后重试。")).not.toBeInTheDocument();

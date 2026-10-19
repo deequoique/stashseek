@@ -220,7 +220,7 @@ describe("a Bilibili video whose captions need a login", () => {
     await loginPanel();
 
     expect(card().getByText("Bilibili BV1xx411c7mD")).toBeInTheDocument();
-    expect(card().getByText("哔哩哔哩 · 链接已保存")).toBeInTheDocument();
+    expect(card().getByText("B站 · 链接已保存")).toBeInTheDocument();
     expect(card().getByRole("status")).toHaveTextContent("这个视频的字幕需要登录 B站 才能读取，正文暂不可检索。");
     expect(card().getByText("请先登录 B站，再在视频页重新收藏。")).toBeInTheDocument();
     expect(card().getByRole("button", { name: "重新收藏" })).toBeEnabled();
