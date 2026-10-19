@@ -11,7 +11,7 @@ import { questionBlock, usePageQa, type VideoSession } from "./usePageQa";
 const MAX_QUESTION_CHARS = 4000;
 const SUGGESTIONS = ["这个视频讲了什么？", "刚才说的是什么意思？"];
 
-const PLATFORM_LABEL = { youtube: "YouTube", ntu_kaltura: "NTULearn", bilibili: "哔哩哔哩" } as const;
+const PLATFORM_LABEL = { youtube: "YouTube", bilibili: "哔哩哔哩" } as const;
 
 interface PageWorkspaceProps {
   deps: PanelDeps;

@@ -305,7 +305,7 @@ ASR 终态失败使用稳定错误码：`asr_too_long`、`asr_audio_unavailable`
 
 开发时的 `chrome-extension://*` 仅在 `STASHSEEK_ENV=development` 且 Web
 只绑定 loopback 时允许。当前 extension 的平台范围是 YouTube 和
-NTULearn/Kaltura；插件在浏览器本地读取已授权字幕，服务端只收到规范化 cue、
+Bilibili（0.2.1 起不再读取 NTULearn/Kaltura）；插件在浏览器本地读取已授权字幕，服务端只收到规范化 cue、
 公开 metadata 和无秘密 canonical reference。
 
 ### 页面即时问答（侧边栏）

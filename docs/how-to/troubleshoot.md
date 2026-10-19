@@ -112,7 +112,7 @@ dimensions。YouTube/Bilibili provider 的 rate limit、timeout、no-caption 和
 
 服务器端只支持当前 connector 声明的来源。Bilibili 的登录后或 URL-only 字幕目前
 没有可用的浏览器捕获 adapter，应保留 `needs_extension` 状态并等待受支持的导入路径，
-不要转到当前不支持 Bilibili 的浏览器伴侣。NTULearn 及受限 YouTube 可以使用
+不要转到当前不支持 Bilibili 的浏览器伴侣。受限 YouTube 可以使用
 [浏览器伴侣](use-browser-companion.md)，而不是无限重试服务器抓取。
 
 ## 6. 完成通知没有送达
@@ -224,8 +224,8 @@ docker compose exec -T redis redis-cli LLEN ingest-completion
 3. 从扩展发起新 pairing，在同一 Web origin 点击“允许连接”；
 4. 重新打开视频页面后再捕获。
 
-扩展只能上传规范化 caption cue；若日志、请求 body 或 URL 出现 Cookie、SAML、Kaltura
-KS、signed URL 或 video/audio bytes，应立即撤销 grant 并停止该 build。
+扩展只能上传规范化 caption cue；若日志、请求 body 或 URL 出现 Cookie、Authorization、
+signed URL 或 video/audio bytes，应立即撤销 grant 并停止该 build。
 
 ## 8. LangBot 渠道不可用
 

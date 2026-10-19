@@ -31,7 +31,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Ingestion Completion Queue](./ingest-completion-queue.md) | Transactional completion outbox, durable broker boundary, at-least-once delivery, and bounded repair sweeps | Active |
 | [MCP Channel Runtime](./mcp-channel-runtime.md) | Official MCP v2 transports, tenant-bound grants, scope-gated tools, URL-token safety, and fail-closed readiness | Active |
 | [Web Browser Runtime](./web-browser-runtime.md) | Canonical browser app ownership, email session/CSRF contract, tenant affinity, OpenAPI composition, and MCP isolation | Active |
-| [Browser Companion Capture](./browser-companion-capture.md) | MV3 pairing grants, capture.v1, canonical transcripts, extension CORS, and YouTube/NTU Kaltura ingestion | Active |
+| [Browser Companion Capture](./browser-companion-capture.md) | MV3 pairing grants, capture.v1, canonical transcripts, extension CORS, and YouTube/Bilibili capture ingestion | Active |
 | [Deployment Lifecycle](./deployment-lifecycle.md) | Profile-aware one-command startup, minimal configuration, process ownership, and exactly-one-Beat safety | Active |
 | [Ingest Status Model](./ingest-status-model.md) | Projected body stage + stored post-body stages, fixed reason registry, `stages`/`reason`/`body_searchable` API fields, one retry rule for Web/Agent/MCP | Active |
 | [ASR Transcription Pipeline](./asr-transcription.md) | `asr_pending` handoff to the `asr` queue, Fun-ASR/whisper fallback rules, signed audio route, stable `asr_*` error codes, and cleanup/privacy contracts | Active |

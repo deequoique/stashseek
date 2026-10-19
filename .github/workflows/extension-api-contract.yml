@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: Production
-      url: https://notebookai.deequoique.tech
+      url: https://stashseek.deequoique.tech
     concurrency:
       group: stashseek-production
       cancel-in-progress: false

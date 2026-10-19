@@ -1,7 +1,7 @@
 # 生产环境 LangBot：仅限 Telegram 的私有运行方式
 
 本运维手册适用于 OVH 生产环境中的
-`notebookai.deequoique.tech` 部署。LangBot 是内部管理入口，不是第二个公开应用。
+`stashseek.deequoique.tech` 部署。LangBot 是内部管理入口，不是第二个公开应用。
 Caddy 必须继续只代理位于 `127.0.0.1:8800` 的 StashSeek Chat 组合服务。
 
 ## 运行时边界

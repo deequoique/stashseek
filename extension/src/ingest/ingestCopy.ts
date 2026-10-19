@@ -114,7 +114,8 @@ export function lifecycleFilterLabel(lifecycle: string): string {
 const PLATFORM_LABEL: Record<string, string> = {
   youtube: "YouTube",
   bilibili: "B站",
-  ntu_kaltura: "NTULearn",
+  // Existing library items from the retired course-video capture keep a neutral label.
+  ntu_kaltura: "课程视频",
 };
 
 export function platformLabel(platform: string): string {

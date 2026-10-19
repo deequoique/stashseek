@@ -16,5 +16,5 @@
   `ChannelIdentity`、`TenantContext` 与 Web/MCP/LangBot 的关系。
 
 这些页面描述的是当前实现：YouTube/Bilibili server connector、YouTube 和
-NTULearn/Kaltura browser companion、Web、MCP 以及可选 LangBot。ASR、任意
+Bilibili browser companion、Web、MCP 以及可选 LangBot。ASR、任意
 登录网站抓取和更多平台不是默认已交付能力。

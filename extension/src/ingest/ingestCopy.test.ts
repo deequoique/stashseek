@@ -94,7 +94,7 @@ describe("labels and actions", () => {
   it("names platforms and leaves an unknown one as it is", () => {
     expect(platformLabel("youtube")).toBe("YouTube");
     expect(platformLabel("bilibili")).toBe("B站");
-    expect(platformLabel("ntu_kaltura")).toBe("NTULearn");
+    expect(platformLabel("ntu_kaltura")).toBe("课程视频");
     expect(platformLabel("vimeo")).toBe("vimeo");
     expect(platformLabel("")).toBe("");
     expect(platformLabel("constructor")).toBe("constructor");

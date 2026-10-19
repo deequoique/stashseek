@@ -89,7 +89,7 @@ status GET。生产禁止 `chrome-extension://*`。
 
 页面授权始终留在浏览器：
 
-- Cookie、SAML、Kaltura KS、signed caption/media URL、Authorization header 和
+- Cookie、signed caption/media URL、Authorization header 和
   page exception 不会进入 StashSeek Chat payload、broker、PostgreSQL 或日志；
 - server 只接收 `capture.v1` 的 platform id、secret-free canonical/page URL、
   bounded public metadata、ordered cues 和 server-defined cue hash；
@@ -99,7 +99,7 @@ status GET。生产禁止 `chrome-extension://*`。
   tenant revoke device。
 
 这也是为什么 browser companion 不是“任意登录网站通用抓取”：manifest 和
-服务器都使用精确的 YouTube/NTULearn/Kaltura host/平台 allowlist。
+服务器都使用精确的 YouTube/Bilibili host/平台 allowlist。
 
 ## 数据、队列和日志
 

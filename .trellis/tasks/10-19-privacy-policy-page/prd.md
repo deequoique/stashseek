@@ -55,7 +55,7 @@ to it and match it.
 
 ## Requirements
 
-- **P1.** A public, script-free page at `https://notebookai.deequoique.tech/privacy`.
+- **P1.** A public, script-free page at `https://stashseek.deequoique.tech/privacy`.
   - It is served by the API server itself, so it works on both `dev`
     (API-only) and `main` (serves `web/dist`).
   - It is registered before any SPA catch-all.

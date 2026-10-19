@@ -391,7 +391,7 @@ describe("a server this panel is newer or older than", () => {
 
 describe("what a caption-less video is told", () => {
   it("says the video will be transcribed when the server transcribes its platform", async () => {
-    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") }, transcriptionPlatforms: ["youtube", "bilibili"] });
+    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage() }, transcriptionPlatforms: ["youtube", "bilibili"] });
     feed(env, libraryItem({ stage: "fetching" }));
     const user = await renderPanel(env);
     await screen.findByText(/收藏后会自动语音转写/);
@@ -404,7 +404,7 @@ describe("what a caption-less video is told", () => {
   });
 
   it("keeps the original line when the server does not transcribe", async () => {
-    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") }, transcriptionPlatforms: [] });
+    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage() }, transcriptionPlatforms: [] });
     feed(env, libraryItem({ stage: "fetching" }));
     const user = await renderPanel(env);
     await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答");
@@ -416,7 +416,7 @@ describe("what a caption-less video is told", () => {
   });
 
   it("does not promise transcription on a platform the server does not transcribe", async () => {
-    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") }, transcriptionPlatforms: ["bilibili"] });
+    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage() }, transcriptionPlatforms: ["bilibili"] });
     feed(env, libraryItem({ stage: "fetching" }));
     const user = await renderPanel(env);
     await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答");

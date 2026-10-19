@@ -30,6 +30,7 @@ data/
 /.pnpm-store/
 extension/node_modules/
 extension/dist/
+extension/release/
 output/playwright/
 
 # Local interview preparation notes

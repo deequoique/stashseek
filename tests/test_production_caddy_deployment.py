@@ -13,7 +13,8 @@ def _text(path: str) -> str:
 def test_caddy_site_adds_only_the_notebook_hostname_and_loopback_upstream():
     site = _text("deploy/caddy/notebook-agent.caddy")
 
-    assert "notebookai.deequoique.tech" in site
+    assert "stashseek.deequoique.tech" in site
+    assert "notebookai" not in site
     assert "reverse_proxy 127.0.0.1:8800" in site
     assert "output discard" in site
     assert "localhost:3030" not in site
@@ -30,6 +31,12 @@ def test_combined_runtime_and_background_units_are_isolated():
     assert "Environment=MCP_PORT=8800" in runtime
     assert "Environment=MCP_URL_TOKEN_MODE=true" in runtime
     assert "Environment=WEB_AUTH_ENABLED=true" in runtime
+    # Zip installs (self-generated key) and the Chrome Web Store item both pair.
+    assert (
+        "Environment=BROWSER_COMPANION_ALLOWED_ORIGINS="
+        "chrome-extension://omogodipchfidpikpeebgmlplpkjnpfm,"
+        "chrome-extension://jeemllapbelpglmpnhjfamcnoibpeail"
+    ) in runtime
     assert "web-server" not in runtime
     assert "--queues=ingest,maintenance" in worker
     assert " worker " in worker

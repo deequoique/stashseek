@@ -15,7 +15,7 @@ from app.asr.signing import (
 )
 
 SECRET = "k" * 32
-BASE = "https://notebookai.example.test"
+BASE = "https://stashseek.example.test"
 NOW = 1_800_000_000.0
 TTL = 7200
 NAME = "0123456789abcdef0123456789abcdef.m4a"

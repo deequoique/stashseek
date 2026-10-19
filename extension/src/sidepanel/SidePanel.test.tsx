@@ -8,7 +8,6 @@ import {
   BILI_P2_URL,
   BILI_URL,
   bilibiliPage,
-  KALTURA_URL,
   makeEnvironment,
   noCaptionBilibiliPage,
   noCaptionPage,
@@ -133,18 +132,8 @@ describe("side panel page states", () => {
     expect(env.streamQuestion).not.toHaveBeenCalled();
   });
 
-  it("blocks questions on a caption-less Kaltura video without calling the server", async () => {
-    const env = makeEnvironment({ tab: { id: 7, url: KALTURA_URL }, pages: { [KALTURA_URL]: noCaptionPage("ntu_kaltura") } });
-    await renderReady(env);
-
-    expect(await screen.findByText("该视频没有可用字幕，暂时无法提问")).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: "就当前视频提问" })).not.toBeInTheDocument();
-    expect(env.streamQuestion).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "收藏视频" })).toBeEnabled();
-  });
-
   it("allows a metadata-only question on a caption-less YouTube video", async () => {
-    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") } });
+    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage() } });
     const user = await renderReady(env);
 
     expect(await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答")).toBeInTheDocument();
@@ -153,7 +142,7 @@ describe("side panel page states", () => {
   });
 
   it("points a caption-less video at 「收藏视频」 when the server transcribes its platform", async () => {
-    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") }, transcriptionPlatforms: ["youtube", "bilibili"] });
+    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage() }, transcriptionPlatforms: ["youtube", "bilibili"] });
     const user = await renderReady(env);
 
     expect(await screen.findByText(
@@ -181,18 +170,18 @@ describe("side panel page states", () => {
   });
 
   it("keeps the original line when the server does not transcribe, or not this platform", async () => {
-    const off = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") }, transcriptionPlatforms: [] });
+    const off = makeEnvironment({ pages: { [YT_A]: noCaptionPage() }, transcriptionPlatforms: [] });
     const { unmount } = render(<SidePanel deps={off.deps} />);
     expect(await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答")).toBeInTheDocument();
     expect(screen.queryByText(/自动语音转写/)).not.toBeInTheDocument();
     unmount();
 
-    const legacy = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") } });
+    const legacy = makeEnvironment({ pages: { [YT_A]: noCaptionPage() } });
     const second = render(<SidePanel deps={legacy.deps} />);
     expect(await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答")).toBeInTheDocument();
     second.unmount();
 
-    const other = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") }, transcriptionPlatforms: ["bilibili"] });
+    const other = makeEnvironment({ pages: { [YT_A]: noCaptionPage() }, transcriptionPlatforms: ["bilibili"] });
     render(<SidePanel deps={other.deps} />);
     expect(await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答")).toBeInTheDocument();
     expect(screen.queryByText(/自动语音转写/)).not.toBeInTheDocument();
@@ -392,7 +381,7 @@ describe("side panel Q&A", () => {
   });
 
   it("says so in the first step when a YouTube video has no captions", async () => {
-    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") } });
+    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage() } });
     const user = await renderReady(env);
 
     await ask(user, "它讲什么？");

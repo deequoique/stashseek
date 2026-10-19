@@ -41,15 +41,14 @@ describe("page identity", () => {
     });
     expect(captureIdentityKey(bilibili("https://www.bilibili.com/video/BV1xx411c7mD"))).toBe("bilibili:BV1xx411c7mD:p1");
     expect(captureIdentityKey(bilibili("https://www.bilibili.com/video/BV1xx411c7mD?p=4"))).toBe("bilibili:BV1xx411c7mD:p4");
-    expect(captureIdentityKey(noCaptionPage("ntu_kaltura"))).toBeNull();
     // The key of a captured part equals the key of the tab that showed it.
     expect(captureIdentityKey(bilibili("https://www.bilibili.com/video/BV1xx411c7mD?p=4")))
       .toBe(identifyPage("https://www.bilibili.com/video/BV1xx411c7mD?p=4&spm=x")?.key);
   });
 
-  it("keys NTULearn pages by URL without the fragment", () => {
-    const identity = identifyPage("https://ntulearnv1.ntu.edu.sg/media/t/1_abc?x=1#section");
-    expect(identity).toEqual({ platform: "ntu_kaltura", key: "ntu_kaltura:https://ntulearnv1.ntu.edu.sg/media/t/1_abc?x=1" });
+  it("treats NTULearn and Kaltura pages as unsupported", () => {
+    expect(identifyPage("https://ntulearnv1.ntu.edu.sg/media/t/1_abc?x=1#section")).toBeNull();
+    expect(identifyPage("https://ntulearn.ntu.edu.sg/ultra/courses/example")).toBeNull();
   });
 
   it("rejects unsupported and missing URLs", () => {
@@ -83,9 +82,8 @@ describe("panel copy helpers", () => {
 
   it("mirrors the server rule for pages without captions", () => {
     expect(questionBlock(youtubePage())).toBeNull();
-    expect(questionBlock(noCaptionPage("youtube"))).toBeNull();
-    expect(questionBlock(noCaptionPage("ntu_kaltura"))).toBe("该视频没有可用字幕，暂时无法提问");
-    const bare = noCaptionPage("youtube");
+    expect(questionBlock(noCaptionPage())).toBeNull();
+    const bare = noCaptionPage();
     bare.metadata = { ...bare.metadata, title: null, description: null, chapters: [] };
     expect(questionBlock(bare)).toMatch(/没有可用的标题和简介/);
   });

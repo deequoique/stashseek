@@ -77,7 +77,7 @@ def _settings(**overrides):
     values = {
         "asr_enabled": True,
         "dashscope_api_key": "test-dashscope-key",
-        "asr_public_base_url": "https://notebookai.example.com",
+        "asr_public_base_url": "https://stashseek.example.com",
         "asr_audio_url_secret": SECRET,
     }
     values.update(overrides)

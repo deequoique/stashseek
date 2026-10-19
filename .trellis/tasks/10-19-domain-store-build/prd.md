@@ -69,15 +69,14 @@ during a transition.
 - **D2.** `WEB_PUBLIC_ORIGIN` (main) and all docs, tests and specs move to the
   new domain.
 - **D3 Extension 0.2.1.**
-  - The production and store targets use the new API origin and host
-    permission.
-  - A new `store` build target:
-    - no `key`;
-    - no NTULearn/Kaltura hosts;
-    - same code, its own audit;
-    - a packaging script that produces the store zip.
-  - The manifest gains `icons` 16/32/48/128, generated from the same artwork as
-    the store icon.
+  - The production build uses the new API origin and host permission. There is
+    one production build, with no NTULearn/Kaltura hosts or adapter.
+  - `extension/scripts/package-release.mjs` (`pnpm package:release`) builds and
+    audits it, then writes two deterministic zips to `extension/release/`: the
+    production zip as is (with `key`) and the store zip (identical except the
+    manifest has no `key`).
+  - The manifest gains `icons` 16/32/48/128 and `action.default_icon`, from the
+    same artwork as the store icon (`extension/public/icons/`).
 - **D4 Allowed origins.** `BROWSER_COMPANION_ALLOWED_ORIGINS` adds
   `chrome-extension://jeemllapbelpglmpnhjfamcnoibpeail` and keeps the zip ID.
 - **D5 Web download entry.** On `main` it serves the 0.2.1 production zip.
@@ -88,12 +87,11 @@ during a transition.
 ## Acceptance criteria (draft)
 
 - [ ] `https://stashseek.deequoique.tech/api/v1/capabilities` returns 200 with a
-      valid certificate. The old domain keeps the API and MCP working, and
-      pages redirect.
+      valid certificate. There is no old domain (direct cutover).
 - [ ] Web login works on the new domain.
 - [ ] The store zip has no `key` and no NTU hosts, includes icons, and passes
       its audit. A store-installed extension (ID
       `jeemllapbelpglmpnhjfamcnoibpeail`) can log in, ask, and collect against
       production.
-- [ ] A 0.2.0 zip install still works through the old domain during the
-      transition.
+- [ ] A 0.2.0 zip install must move to 0.2.1 (its API origin is the removed
+      domain); the zip ID stays allowed on the server.

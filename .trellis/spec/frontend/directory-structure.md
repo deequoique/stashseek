@@ -18,10 +18,11 @@ extension/
 ├── workspace.html           # vite input → full workspace (library, chat, account, showcase)
 ├── sidepanel.html           # vite input → side panel (page Q&A, save, login)
 ├── vite.config.ts           # two inputs; tsc emits worker/page-capture unbundled
-├── scripts/                 # clean, copy-static (per-target host permission), audit-package
+├── scripts/                 # clean, copy-static (per-target host permission), audit-package, package-release, generate-icons.py
+├── public/icons/            # icon-{16,32,48,128}.png, copied to dist/icons/
 └── src/
     ├── worker.ts            # service worker: closed Command union (capture, login, READ_PAGE, PLAYBACK, SEEK, SAVE_CAPTURE)
-    ├── page-capture.ts      # self-contained MAIN-world adapters (YouTube, Kaltura) + controlPlayer
+    ├── page-capture.ts      # self-contained MAIN-world adapters (YouTube, Bilibili) + controlPlayer
     ├── protocol.ts          # capture.v1 types, CLIENT_VERSION
     ├── chrome.d.ts          # hand-written minimal chrome typings (only what is used)
     ├── api/

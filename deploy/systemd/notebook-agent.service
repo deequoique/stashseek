@@ -15,7 +15,7 @@ Environment=STASHSEEK_ENV=production
 Environment=STASHSEEK_LOG_RETRIEVAL_CONTENT=false
 Environment=STASHSEEK_LOG_DIR=/var/log/notebook-agent
 Environment=WEB_AUTH_ENABLED=true
-Environment=BROWSER_COMPANION_ALLOWED_ORIGINS=chrome-extension://omogodipchfidpikpeebgmlplpkjnpfm
+Environment=BROWSER_COMPANION_ALLOWED_ORIGINS=chrome-extension://omogodipchfidpikpeebgmlplpkjnpfm,chrome-extension://jeemllapbelpglmpnhjfamcnoibpeail
 Environment=MCP_HOST=127.0.0.1
 Environment=MCP_PORT=8800
 Environment=MCP_PATH=/mcp

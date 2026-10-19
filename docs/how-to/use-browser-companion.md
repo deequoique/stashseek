@@ -1,7 +1,7 @@
 # 使用浏览器伴侣
 
 浏览器伴侣是可选的 Chrome/Chromium Manifest V3 获取入口。它在你当前打开的
-YouTube 或 NTULearn/Kaltura 页面中读取字幕，然后只提交规范化字幕 cue 和公开元数据。
+YouTube 或哔哩哔哩页面中读取字幕，然后只提交规范化字幕 cue 和公开元数据。
 它不会替换服务器端 YouTube 获取，也不是任意网站抓取器。
 
 ## 1. 选择正确的安装包
@@ -42,7 +42,7 @@ pnpm package:local           # http://127.0.0.1:8000
 支持的页面包括：
 
 - YouTube 当前视频页；
-- NTULearn/Kaltura 中用户已经获准访问的播放器页面。
+- 哔哩哔哩当前视频页（`/video/BV…` 或 `/video/av…`，含分 P）。
 
 打开视频并等待播放器完成加载，然后在扩展弹窗点击“保存当前视频”。扩展会先在
 浏览器内读取受信任的字幕表示，再提交规范化 cue。成功后会显示 `已提交到资料库`，
@@ -62,7 +62,7 @@ pnpm package:local           # http://127.0.0.1:8000
 
 ## 隐私边界
 
-扩展不会把 YouTube/NTULearn 登录 Cookie、SAML、Kaltura KS、Authorization、签名
+扩展不会把 YouTube/哔哩哔哩登录 Cookie、Authorization、签名
 字幕 URL 或播放凭据提交给 StashSeek Chat。服务端只接收受校验的 `capture.v1` 内容。
 浏览器捕获 token 与 Web session、MCP grant 完全隔离；发现其中任何一个出现在日志或
 代理 URL 中，应立即撤销对应设备并按[排查与响应](troubleshoot.md)处理。

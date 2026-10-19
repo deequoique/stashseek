@@ -86,7 +86,7 @@ export async function requestJson<T>(
   let requestUrl = path;
   if (!/^https?:\/\//.test(path) && typeof chrome !== "undefined" && chrome.storage?.local && globalThis.location?.protocol === "chrome-extension:") {
     const state = await chrome.storage.local.get(["apiOrigin", "accessToken"]);
-    const origin = typeof state.apiOrigin === "string" ? state.apiOrigin : "https://notebookai.deequoique.tech";
+    const origin = typeof state.apiOrigin === "string" ? state.apiOrigin : "https://stashseek.deequoique.tech";
     requestUrl = `${origin}${path}`;
     if (typeof state.accessToken === "string" && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${state.accessToken}`);
   }
@@ -464,7 +464,7 @@ async function openConversationStream(
   let streamUrl = path;
   if (typeof chrome !== "undefined" && chrome.storage?.local) {
     const state = await chrome.storage.local.get(["apiOrigin", "accessToken"]);
-    streamUrl = `${typeof state.apiOrigin === "string" ? state.apiOrigin : "https://notebookai.deequoique.tech"}${path}`;
+    streamUrl = `${typeof state.apiOrigin === "string" ? state.apiOrigin : "https://stashseek.deequoique.tech"}${path}`;
     if (typeof state.accessToken === "string") headers.set("Authorization", `Bearer ${state.accessToken}`);
   }
   let response: Response;
