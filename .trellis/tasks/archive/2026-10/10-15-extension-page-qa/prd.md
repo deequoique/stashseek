@@ -92,7 +92,7 @@ Checked 2026-10-19. A box is ticked only where code or tests prove it.
 | --- | --- |
 | `10-15-side-panel-page-qa` | Closed. Shipped in PR #32; live checks not run. |
 | `10-17-bilibili-side-panel` | Closed. Shipped in PR #32; live checks not run. |
-| `10-15-web-companion-build` | Not started (planning). This is why the parent stays open. |
+| `10-15-web-companion-build` | Not started (planning). Detached on 2026-10-19 when the parent was archived at lane's request; it continues as a standalone task. |
 
 lane (2026-10-19) said they only tested the extension's subtitle summary, and
 that the remaining live checks moved into another task. They did not name that
@@ -116,3 +116,13 @@ task.
     3. Keep the old ID during the transition for zip installs.
   - Upload only the production build; a manifest carries exactly one API origin.
   - The privacy policy (web W5) must match the Privacy-practices disclosures.
+
+## 收尾记录 (2026-10-19)
+
+- Archived at lane's request, with two of three children closed (see the table
+  above). The cross-child criterion about the log grep during a live smoke was
+  not met, and the live checks of both closed children were moved into another
+  task that lane did not name.
+- `10-15-web-companion-build` is not part of this closure. Archiving cleared its
+  `parent` field; its own PRD still says "Parent: `10-15-extension-page-qa`",
+  which now points at the archive.

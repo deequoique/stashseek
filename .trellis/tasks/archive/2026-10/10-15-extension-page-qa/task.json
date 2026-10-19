@@ -3,7 +3,7 @@
   "name": "extension-page-qa",
   "title": "Extension page Q&A and web companion",
   "description": "",
-  "status": "planning",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "lane",
   "assignee": "lane",
   "createdAt": "2026-10-15",
-  "completedAt": null,
+  "completedAt": "2026-10-19",
   "branch": "dev",
   "base_branch": "dev",
   "worktree_path": null,
@@ -25,6 +25,6 @@
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
+  "notes": "Archived 2026-10-19 at lane's request. Children side-panel-page-qa and bilibili-side-panel closed (PR #32, live checks not run); web-companion-build not started and detached as a standalone task. See prd.md 收尾记录.",
   "meta": {}
 }
