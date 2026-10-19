@@ -12,9 +12,10 @@ StashSeek Chat 的核心区别不是“把 URL 存下来”，而是把可获取
 | YouTube 普通视频 URL | server-side `yt-dlp` metadata + JSON3 subtitle | `needs_asr`；不会自动上传音视频 |
 | Bilibili 普通视频 URL | server-side `yt-dlp` metadata + inline official/automatic SRT | `needs_asr` 或明确登录字幕时 `needs_extension`；不保存 cookies |
 | 当前 YouTube 页面 | 可选 browser companion；在浏览器本地读取 JSON3/WebVTT/XML/官方 transcript fallback | `unavailable` → ASR 开启时同一 dispatch 转入 `asr` 队列，否则 worker `needs_asr` |
-| NTULearn/Kaltura 页面 | 可选 browser companion；读取用户当前页/授权 player frame 的 captions | `unavailable` → worker `needs_asr` |
+| 当前 Bilibili 页面 | 可选 browser companion；在页面内用观看者自己的登录态读取字幕 | `unavailable` → worker `needs_asr` |
 
-browser companion 当前只接受 `youtube` 和 `ntu_kaltura` capture。Bilibili
+browser companion（0.2.1）读取 `youtube` 和 `bilibili` 页面；服务端仍接受并保留
+已有的 `ntu_kaltura` capture 数据，但扩展不再读取 NTULearn/Kaltura 页面。Bilibili
 connector 返回 `needs_extension` 并不表示当前扩展已经支持任意 Bilibili 登录
 页面；它只是避免服务端扩大 cookie 或字幕 URL 获取范围。ASR 不是通用的已交付
 导入路径。
@@ -70,10 +71,8 @@ browser companion 在页面内消费授权媒体：
 
 - YouTube caption endpoint 的 signed query、Cookie、player key 和 transcript
   params 只在当前页临时使用；上传前只保留 cue、视频 ID、公开 canonical URL。
-- Kaltura VOD WebVTT playlist 只允许 bounded、可信 relative timed-text segment，
-  在浏览器本地应用 timestamp map 并合并 cues。
 - `page_url` 仅保留允许 host 的 HTTPS origin/path；capture 不携带 signed caption
-  URL、KS、Authorization 或 browser credential。
+  URL、Authorization 或 browser credential。
 
 所有 connector/capture 输入都会通过 raw bytes、cue 数、文本字符、segment 数
 和 embedding 字符预算。超限在 object storage、embedding 或 queue 之前失败，

@@ -31,6 +31,7 @@ web/dist/
 web/coverage/
 extension/node_modules/
 extension/dist/
+extension/release/
 output/playwright/
 
 # Local Codex/OMX runtime state

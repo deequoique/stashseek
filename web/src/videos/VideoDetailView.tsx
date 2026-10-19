@@ -96,7 +96,7 @@ export function VideoDetailView({
   const actions = new Set(item.available_actions);
   const language = formatLanguage(item.lang);
   const platformLabel = item.platform === "ntu_kaltura"
-    ? "NTULearn"
+    ? "课程视频"
     : item.platform === "bilibili" ? "Bilibili" : "YouTube";
   const collectionSuffixLength = collections.reduce(
     (total, name) => total + name.length + 1,

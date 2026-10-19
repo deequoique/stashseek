@@ -27,7 +27,7 @@ The frontend is a mobile-first React and TypeScript application under `web/`. It
 ## Product Boundary
 
 - Supported content: server-saved YouTube URLs plus optional browser-companion
-  captures from YouTube and NTULearn/Kaltura.
+  captures from YouTube and Bilibili.
 - Supported routes: `/login`, `/library`, `/videos/:id`, protected
   `/account/link`, and protected `/account/browser-companion`.
 - The first-empty Agent message is static copy and must never call an LLM.

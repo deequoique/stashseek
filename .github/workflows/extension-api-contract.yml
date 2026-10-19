@@ -54,7 +54,7 @@ jobs:
           tests/test_page_qa_api.py tests/test_page_qa_guard.py
           tests/test_page_qa_service.py tests/test_page_qa_transcript.py
           tests/test_web_api_runtime.py tests/test_web_api_app.py
-          tests/test_mcp_server.py
+          tests/test_mcp_server.py tests/test_privacy_page.py
       - name: Alembic graph
         run: .venv/bin/alembic heads
       - name: OpenAPI contract

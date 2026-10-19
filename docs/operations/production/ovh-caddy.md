@@ -1,7 +1,7 @@
 # OVHcloud + Caddy 生产部署
 
 本运维手册会在 Ubuntu VPS 上，将浏览器与 Streamable HTTP MCP 组合运行时部署到
-`https://notebookai.deequoique.tech`。其中的安全规则采用叠加方式，因此即使该主机
+`https://stashseek.deequoique.tech`。其中的安全规则采用叠加方式，因此即使该主机
 日后被共享，同一套流程也不会替换无关的 Caddy 站点或服务。
 
 ## 运行时结构
@@ -75,7 +75,7 @@ AGENT_API_KEY=<provider-secret>
 AGENT_BASE_URL=<provider-url-if-required>
 
 WEB_AUTH_ENABLED=true
-WEB_PUBLIC_ORIGIN=https://notebookai.deequoique.tech
+WEB_PUBLIC_ORIGIN=https://stashseek.deequoique.tech
 WEB_AUTH_SECRET=<new-at-least-32-character-secret>
 WEB_SESSION_CACHE_TTL_SECONDS=60
 EMAIL_PROVIDER=smtp
@@ -87,7 +87,7 @@ SMTP_PASSWORD=<gmail-app-password>
 SMTP_FROM_EMAIL=<gmail-address>
 WEB_COOKIE_SECURE=true
 WEB_FORWARDED_ALLOW_IPS=127.0.0.1
-WEB_TRUSTED_PROXY_HOSTS=notebookai.deequoique.tech
+WEB_TRUSTED_PROXY_HOSTS=stashseek.deequoique.tech
 
 MCP_HOST=127.0.0.1
 MCP_PORT=8800
@@ -167,9 +167,9 @@ notebook-agent.service
   --created-by production-bootstrap
 ```
 
-可以在 `https://notebookai.deequoique.tech/mcp` 上使用
+可以在 `https://stashseek.deequoique.tech/mcp` 上使用
 `Authorization: Bearer <token>`，也可以使用仅限 URL 的 evaluator capability
-`https://notebookai.deequoique.tech/mcp/c/<token>`。Path-token mode 要求使用
+`https://stashseek.deequoique.tech/mcp/c/<token>`。Path-token mode 要求使用
 HTTPS，且 Caddy 站点会丢弃 access log；`?token=` 仍然禁止使用。评估结束或怀疑
 泄露后，应轮换、禁用或撤销该 grant。
 
@@ -244,7 +244,7 @@ access log，签名只出现在这个 URL 的 query 里），转写结束后立�
    ```dotenv
    ASR_ENABLED=true
    DASHSCOPE_API_KEY=<fun-asr-secret-singapore-region>
-   ASR_PUBLIC_BASE_URL=https://notebookai.deequoique.tech
+   ASR_PUBLIC_BASE_URL=https://stashseek.deequoique.tech
    ASR_AUDIO_URL_SECRET=<new-at-least-32-character-secret>
    # 可选的 whisper-1 备选；不设置则没有备选。
    OPENAI_API_KEY=<openai-secret>

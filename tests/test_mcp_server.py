@@ -1258,7 +1258,7 @@ def test_streamable_http_keeps_rebinding_protection_and_allows_validated_public_
         settings = Settings(
             notebook_agent_env="development",
             web_auth_enabled=True,
-            web_public_origin="https://notebookai.deequoique.tech",
+            web_public_origin="https://stashseek.deequoique.tech",
             web_auth_secret="x" * 32,
             mcp_host="127.0.0.1",
             mcp_port=8000,
@@ -1290,12 +1290,12 @@ def test_streamable_http_keeps_rebinding_protection_and_allows_validated_public_
         headers = {"Authorization": f"Bearer {grant.raw_token}"}
         transport_security = _mcp_transport_security(settings)
         assert transport_security.enable_dns_rebinding_protection is True
-        assert "notebookai.deequoique.tech" in transport_security.allowed_hosts
-        assert "https://notebookai.deequoique.tech" in transport_security.allowed_origins
+        assert "stashseek.deequoique.tech" in transport_security.allowed_hosts
+        assert "https://stashseek.deequoique.tech" in transport_security.allowed_origins
         assert "attacker.example" not in transport_security.allowed_hosts
 
         with TestClient(
-            app, base_url="https://notebookai.deequoique.tech"
+            app, base_url="https://stashseek.deequoique.tech"
         ) as client:
             assert client.post("/mcp", json=initialize, headers=headers).status_code == 200
     finally:

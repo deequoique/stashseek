@@ -27,7 +27,7 @@ from app.ingest.validate import IngestLimitExceeded
 from app.object_store import ObjectStoreError
 
 SECRET = "s" * 40
-BASE_URL = "https://notebookai.example.com"
+BASE_URL = "https://stashseek.example.com"
 SPOKEN = "PRIVATE-TRANSCRIPT-WORDS"
 
 

@@ -9,6 +9,7 @@ docker-compose usage.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 import ipaddress
@@ -47,6 +48,14 @@ for _canonical, _legacy in _RENAMED_ENV_PAIRS:
 # constant next to configuration validation so the provider cap and the
 # post-response safety budget cannot drift apart.
 COMPOSER_VALIDATION_REQUEST_LIMIT = 1
+
+# The public privacy policy page shows these two settings, so their defaults
+# live here and the page falls back to them when no Settings object is wired.
+DEFAULT_PRIVACY_CONTACT_EMAIL = "deequoique@gmail.com"
+DEFAULT_TRASH_RETENTION_DAYS = 30
+_PLAUSIBLE_EMAIL = re.compile(
+    r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"
+)
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -470,7 +479,16 @@ class Settings:
         default_factory=lambda: _env_bool("AGENT_STREAMING_ENABLED", True)
     )
     trash_retention_days: int = field(
-        default_factory=lambda: _env_int("TRASH_RETENTION_DAYS", 30)
+        default_factory=lambda: _env_int(
+            "TRASH_RETENTION_DAYS", DEFAULT_TRASH_RETENTION_DAYS
+        )
+    )
+    # Shown on the public /privacy page as the way to ask for account deletion
+    # or data export. Never used for sending mail.
+    privacy_contact_email: str = field(
+        default_factory=lambda: (
+            _env("PRIVACY_CONTACT_EMAIL", DEFAULT_PRIVACY_CONTACT_EMAIL) or ""
+        ).strip()
     )
     # Once a day by default: every purge sweep is a PostgreSQL visit, and an
     # idle Neon compute can only scale to zero between visits.
@@ -949,6 +967,8 @@ class Settings:
             raise ValueError("AGENT_COMPOSER_MAX_TOKENS must be positive")
         if self.trash_retention_days <= 0:
             raise ValueError("TRASH_RETENTION_DAYS must be positive")
+        if not _PLAUSIBLE_EMAIL.fullmatch(self.privacy_contact_email):
+            raise ValueError("PRIVACY_CONTACT_EMAIL must be a valid email address")
         if self.trash_purge_interval_seconds <= 0:
             raise ValueError("TRASH_PURGE_INTERVAL_SECONDS must be positive")
         if self.trash_purge_batch_size <= 0 or self.trash_purge_batch_size > 100:

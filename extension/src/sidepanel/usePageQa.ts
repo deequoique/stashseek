@@ -64,7 +64,7 @@ export interface PageQaController {
 }
 
 /** Player not loaded yet: worth reading again shortly. */
-const RETRYABLE_READ_ERRORS = new Set(["stale_player_response", "kaltura_entry_missing", "caption_player_not_ready"]);
+const RETRYABLE_READ_ERRORS = new Set(["stale_player_response", "caption_player_not_ready"]);
 const MAX_READ_RETRIES = 3;
 
 function emptySession(identity: PageIdentity, conversationId: string): VideoSession {
@@ -104,7 +104,6 @@ export function buildPageQuestion(
 /** Why the server cannot answer about this page, or null when a question may be asked. */
 export function questionBlock(page: PageCapture): string | null {
   if (page.caption.status === "available") return null;
-  if (page.platform !== "youtube" && page.platform !== "bilibili") return "该视频没有可用字幕，暂时无法提问";
   const { title, description, chapters } = page.metadata;
   return title || description || chapters.length > 0 ? null : "该视频没有字幕，也没有可用的标题和简介，暂时无法提问";
 }
@@ -201,7 +200,7 @@ export function usePageQa(deps: PanelDeps, onSessionInvalid: () => void, pairing
       const page = await depsRef.current.worker.readPage(activeTab.id);
       // A page read straight after an SPA navigation may still describe the previous video.
       const readKey = captureIdentityKey(page);
-      if (readKey !== null && readKey !== current.key) throw new Error("stale_player_response");
+      if (readKey !== current.key) throw new Error("stale_player_response");
       patchSession(conversationId, (value) => ({ ...value, readStatus: "ready", page, readError: null }));
     } catch (error) {
       const code = errorCode(error);

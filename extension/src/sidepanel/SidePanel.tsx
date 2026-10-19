@@ -5,6 +5,7 @@ import { defaultDeps, type PanelDeps } from "./deps";
 import { errorCode, workerErrorCopy } from "./copy";
 import { PageWorkspace } from "./PageWorkspace";
 import { PanelLogin } from "./PanelLogin";
+import { PrivacyLink } from "./PrivacyLink";
 
 type AuthState =
   | { phase: "checking" }
@@ -96,6 +97,7 @@ export function SidePanel({ deps = defaultDeps }: { deps?: PanelDeps }) {
           <p>登录后，可以直接就当前视频提问，也可以把字幕保存到资料库。</p>
         </section>
         <PanelLogin worker={deps.worker} onDone={() => setCheck((value) => value + 1)} />
+        <footer className="sp-footer"><PrivacyLink deps={deps} /></footer>
       </Shell>
     );
   }

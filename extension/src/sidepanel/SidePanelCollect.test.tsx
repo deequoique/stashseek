@@ -10,7 +10,6 @@ import {
   BILI_URL,
   bilibiliPage,
   type FakeEnvironment,
-  KALTURA_URL,
   libraryItem,
   makeEnvironment,
   noCaptionBilibiliPage,
@@ -152,18 +151,6 @@ describe("收藏视频 on the capture path", () => {
     expect(env.submitBatch).not.toHaveBeenCalled();
   });
 
-  it("works on a Kaltura video with captions", async () => {
-    const page = { ...youtubePage(), platform: "ntu_kaltura" as const, platform_id: "1_abcdefgh", canonical_url: KALTURA_URL, page_url: KALTURA_URL };
-    const env = makeEnvironment({ tab: { id: 7, url: KALTURA_URL }, pages: { [KALTURA_URL]: page } });
-    feed(env);
-    const user = await renderPanel(env);
-    await screen.findByText(CAPTION_LINE);
-
-    await user.click(collectButton());
-
-    await waitFor(() => expect(env.worker.saveCapture).toHaveBeenCalledOnce());
-    expect(env.submitBatch).not.toHaveBeenCalled();
-  });
 });
 
 describe("收藏视频 falls back to the server URL import by itself", () => {
@@ -185,7 +172,7 @@ describe("收藏视频 falls back to the server URL import by itself", () => {
   });
 
   it("imports by URL when the video has no captions, and expects speech transcription in the ETA", async () => {
-    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") } });
+    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage() } });
     feed(env, libraryItem({ stage: "fetching" }));
     const user = await renderPanel(env);
     await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答");
@@ -201,7 +188,7 @@ describe("收藏视频 falls back to the server URL import by itself", () => {
   });
 
   it("shows speech transcription once the server reports it, then the following stages", async () => {
-    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") } });
+    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage() } });
     const item = feed(env, libraryItem({ stage: "fetching" }));
     const user = await renderPanel(env);
     await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答");
@@ -281,19 +268,6 @@ describe("收藏视频 falls back to the server URL import by itself", () => {
     expect(await screen.findByText("未能收藏：这个视频正在保存或处理中，请稍后再试。")).toBeInTheDocument();
     expect(screen.queryByText(/capture_conflict/)).not.toBeInTheDocument();
     expect(env.submitBatch).not.toHaveBeenCalled();
-  });
-
-  it("does not send an NTULearn page to the server, which cannot import it", async () => {
-    const env = makeEnvironment({ tab: { id: 7, url: KALTURA_URL }, pages: { [KALTURA_URL]: noCaptionPage("ntu_kaltura") } });
-    const user = await renderPanel(env);
-    await screen.findByText("该视频没有可用字幕，暂时无法提问");
-
-    await user.click(collectButton());
-
-    expect(await screen.findByText("未能收藏：暂不支持直接导入这个视频")).toBeInTheDocument();
-    expect(env.submitBatch).not.toHaveBeenCalled();
-    expect(env.worker.saveCapture).not.toHaveBeenCalled();
-    expect(collectButton()).toBeEnabled();
   });
 
   it("connects the device from the panel and then saves through the capture path", async () => {
@@ -418,7 +392,7 @@ describe("URL import results", () => {
 
 describe("how an import ends", () => {
   it("asks for action and links to the item", async () => {
-    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") } });
+    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage() } });
     const item = feed(env, libraryItem({ stage: "fetching" }));
     const user = await renderPanel(env);
     await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答");
@@ -769,7 +743,7 @@ describe("收藏视频 on Bilibili", () => {
   });
 
   it("does not show the Bilibili caption hint on other platforms or when captions were read", async () => {
-    const youtube = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") } });
+    const youtube = makeEnvironment({ pages: { [YT_A]: noCaptionPage() } });
     await renderPanel(youtube);
     await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答");
     expect(screen.queryByText(/登录哔哩哔哩/)).not.toBeInTheDocument();

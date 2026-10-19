@@ -1,6 +1,6 @@
 # Add this site block to the existing Caddy configuration only after replacing
 # no existing routes. Caddy owns certificate issuance and renewal.
-notebookai.deequoique.tech {
+stashseek.deequoique.tech {
 	encode zstd gzip
 	reverse_proxy 127.0.0.1:8800
 	log {

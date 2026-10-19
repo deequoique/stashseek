@@ -41,7 +41,7 @@ describe("login page", () => {
     expect(container.querySelector(".wordmark .brand-logo")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "获取浏览器插件" })).toHaveAttribute(
       "href",
-      "/assets/stashseek-chat-browser-companion-production-0.2.0.zip",
+      "/assets/stashseek-chat-browser-companion-production-0.2.2.zip",
     );
     expect(screen.getByRole("link", { name: "获取浏览器插件" })).toHaveAttribute("download");
     expect(within(wechat).getByTestId("wechat-brand-icon")).toBeInTheDocument();

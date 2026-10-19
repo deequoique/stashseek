@@ -17,7 +17,7 @@ describe("Bilibili packaging", () => {
 
   it("keeps the package audit's exact host list in step with the manifest", () => {
     const audit = read("scripts/audit-package.mjs");
-    for (const host of manifest.host_permissions.filter((value) => !value.includes("notebookai"))) {
+    for (const host of manifest.host_permissions.filter((value) => !value.includes("stashseek"))) {
       expect(audit, host).toContain(`"${host}"`);
     }
     expect(audit).not.toMatch(/api\.bilibili\.com|hdslb\.com/);

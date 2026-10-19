@@ -46,6 +46,7 @@ describe("browser companion account page", () => {
 
     expect(screen.getByRole("heading", { name: "浏览器伴侣" })).toBeInTheDocument();
     expect(screen.getByText(/原有的 YouTube 保存方式不会被替换/)).toBeInTheDocument();
+    expect(screen.queryByText(/NTU|Kaltura/)).not.toBeInTheDocument();
     expect(await screen.findByText("目前没有已连接的插件。")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });

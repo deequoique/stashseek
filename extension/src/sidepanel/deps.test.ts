@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { API_ORIGINS } from "../api-client";
 import { newCollectEntry, toStored } from "./collectModel";
 import { defaultDeps, type PanelTab } from "./deps";
 
@@ -153,6 +154,24 @@ describe("unfinished collect store", () => {
   it("builds workspace links on the extension origin", () => {
     stubSessionStorage();
     expect(defaultDeps.workspaceUrl("/videos/item-1")).toBe("chrome-extension://abc/workspace.html#/videos/item-1");
+  });
+
+  it("builds the privacy policy link on the build's single API origin", () => {
+    const stubManifest = (hostPermissions: string[]) => vi.stubGlobal("chrome", {
+      runtime: { getManifest: () => ({ host_permissions: hostPermissions }) },
+    });
+
+    stubManifest(["https://www.youtube.com/*", `${API_ORIGINS.production}/*`]);
+    expect(defaultDeps.privacyUrl()).toBe(`${API_ORIGINS.production}/privacy`);
+
+    stubManifest(["https://www.youtube.com/*", `${API_ORIGINS.local}/*`]);
+    expect(defaultDeps.privacyUrl()).toBe(`${API_ORIGINS.local}/privacy`);
+
+    // A manifest with no API origin, or with both, fails closed instead of guessing.
+    stubManifest(["https://www.youtube.com/*"]);
+    expect(() => defaultDeps.privacyUrl()).toThrow("extension_api_origin_invalid");
+    stubManifest([`${API_ORIGINS.production}/*`, `${API_ORIGINS.local}/*`]);
+    expect(() => defaultDeps.privacyUrl()).toThrow("extension_api_origin_invalid");
   });
 
   it("polls every 2.5 s, backs off to 10 s, and stops after 30 minutes", () => {

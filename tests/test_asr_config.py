@@ -36,7 +36,7 @@ def enable(monkeypatch, **overrides):
     values = {
         "ASR_ENABLED": "true",
         "DASHSCOPE_API_KEY": API_KEY_SENTINEL,
-        "ASR_PUBLIC_BASE_URL": "https://notebookai.example.test",
+        "ASR_PUBLIC_BASE_URL": "https://stashseek.example.test",
         "ASR_AUDIO_URL_SECRET": SECRET,
     }
     values.update(overrides)
@@ -89,7 +89,7 @@ def test_enabled_with_required_values_loads_every_field(monkeypatch):
     assert settings.fun_asr_model == "fun-asr-mtl"
     assert settings.openai_api_key == "sk-openai"
     assert settings.asr_whisper_fallback_enabled is False
-    assert settings.asr_public_base_url == "https://notebookai.example.test"
+    assert settings.asr_public_base_url == "https://stashseek.example.test"
     assert settings.asr_audio_url_secret == SECRET
     assert settings.asr_audio_url_ttl_seconds == 3600
     assert settings.asr_max_duration_seconds == 7200
@@ -138,13 +138,13 @@ def test_enabled_requires_provider_and_signing_values(monkeypatch, overrides, fr
 @pytest.mark.parametrize(
     "value",
     [
-        "http://notebookai.example.test",
-        "https://notebookai.example.test/",
-        "https://notebookai.example.test/base",
-        "https://notebookai.example.test?x=1",
-        "https://notebookai.example.test#frag",
-        "https://user:pw@notebookai.example.test",
-        "notebookai.example.test",
+        "http://stashseek.example.test",
+        "https://stashseek.example.test/",
+        "https://stashseek.example.test/base",
+        "https://stashseek.example.test?x=1",
+        "https://stashseek.example.test#frag",
+        "https://user:pw@stashseek.example.test",
+        "stashseek.example.test",
         "https://",
     ],
 )
@@ -157,9 +157,9 @@ def test_public_base_url_must_be_a_bare_https_origin(monkeypatch, value):
 
 
 def test_public_base_url_accepts_explicit_port(monkeypatch):
-    enable(monkeypatch, ASR_PUBLIC_BASE_URL="https://notebookai.example.test:8443")
+    enable(monkeypatch, ASR_PUBLIC_BASE_URL="https://stashseek.example.test:8443")
 
-    assert Settings().asr_public_base_url == "https://notebookai.example.test:8443"
+    assert Settings().asr_public_base_url == "https://stashseek.example.test:8443"
 
 
 @pytest.mark.parametrize(

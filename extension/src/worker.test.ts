@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PageCapture } from "./protocol.js";
 
-const ORIGIN = "https://notebookai.deequoique.tech";
+const ORIGIN = "https://stashseek.deequoique.tech";
 const YOUTUBE_ID = "abcdefghijk";
 const YOUTUBE_URL = `https://www.youtube.com/watch?v=${YOUTUBE_ID}`;
-const KALTURA_URL = "https://ntulearn.ntu.edu.sg/ultra/courses/example";
+const NTU_URL = "https://ntulearn.ntu.edu.sg/ultra/courses/example";
 
 // The worker module is re-imported per test, so injected functions are matched by name.
 function injectedName(call: unknown): string {
@@ -189,20 +189,6 @@ describe("PLAYBACK", () => {
     await expect(send({ type: "PLAYBACK", tabId: 7 })).resolves.toEqual({ ok: true, result: { playback_sec: null } });
   });
 
-  it("picks the Kaltura frame that holds the video from a multi-frame result", async () => {
-    const { send, tabs, executeScript } = await loadWorker();
-    tabs.get.mockResolvedValue({ id: 8, url: KALTURA_URL });
-    executeScript.mockResolvedValue([
-      { frameId: 0, result: { status: "no_video" } },
-      { frameId: 3, result: { status: "no_video" } },
-      { frameId: 5, result: videoProbe({ current_sec: 421.5 }) },
-    ]);
-
-    await expect(send({ type: "PLAYBACK", tabId: 8 })).resolves.toEqual({ ok: true, result: { playback_sec: 421.5 } });
-
-    expect(executeScript.mock.calls[0]?.[0]).toMatchObject({ target: { tabId: 8, allFrames: true }, args: [null, "ntu_kaltura"] });
-  });
-
   it("fails for an unsupported page", async () => {
     const { send, tabs, executeScript } = await loadWorker();
     tabs.get.mockResolvedValue({ id: 7, url: "https://example.com/" });
@@ -241,19 +227,13 @@ describe("SEEK", () => {
     await expect(send({ type: "SEEK", tabId: 7, start_sec: 30 })).resolves.toEqual({ ok: false, error: "seek_failed" });
   });
 
-  it("seeks only the Kaltura frame that holds the video", async () => {
+  it("treats an NTULearn page as unsupported for playback and seeking", async () => {
     const { send, tabs, executeScript } = await loadWorker();
-    tabs.get.mockResolvedValue({ id: 8, url: KALTURA_URL });
-    executeScript
-      .mockResolvedValueOnce([
-        { frameId: 0, result: { status: "no_video" } },
-        { frameId: 5, result: videoProbe() },
-      ])
-      .mockResolvedValueOnce([{ frameId: 5, result: videoProbe({ seeked: true, current_sec: 300 }) }]);
+    tabs.get.mockResolvedValue({ id: 8, url: NTU_URL });
 
-    await expect(send({ type: "SEEK", tabId: 8, start_sec: 300 })).resolves.toEqual({ ok: true, result: { seeked: true } });
-
-    expect(executeScript.mock.calls[1]?.[0]).toMatchObject({ target: { tabId: 8, frameIds: [5] }, args: [300, "ntu_kaltura"] });
+    await expect(send({ type: "PLAYBACK", tabId: 8 })).resolves.toEqual({ ok: false, error: "unsupported_page" });
+    await expect(send({ type: "SEEK", tabId: 8, start_sec: 300 })).resolves.toEqual({ ok: false, error: "unsupported_page" });
+    expect(executeScript).not.toHaveBeenCalled();
   });
 });
 

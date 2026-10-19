@@ -6,7 +6,6 @@ import {
   bilibiliVideoRef,
   captureActivePage,
   captureBilibiliPage,
-  captureKalturaPage,
   captureYouTubePage,
   classifyPageUrl,
   controlPlayer,
@@ -22,19 +21,16 @@ import type { Cue, PageCapture } from "./protocol.js";
 
 const YOUTUBE_ID = "abcdefghijk";
 const OTHER_YOUTUBE_ID = "zyxwvutsrqp";
-const ENTRY_ID = "52_6ce010d";
+const YOUTUBE_URL = `https://www.youtube.com/watch?v=${YOUTUBE_ID}`;
 
-function availableCapture(platform: "youtube" | "ntu_kaltura", cues: Cue[] = [{ start_sec: 1, end_sec: 2, text: "cue" }]): PageCapture {
-  const canonical = platform === "youtube"
-    ? `https://www.youtube.com/watch?v=${YOUTUBE_ID}`
-    : `https://ntulearnvideo.ntu.edu.sg/media/${ENTRY_ID}`;
+function availableCapture(cues: Cue[] = [{ start_sec: 1, end_sec: 2, text: "cue" }]): PageCapture {
   return {
-    platform,
-    platform_id: platform === "youtube" ? YOUTUBE_ID : ENTRY_ID,
-    canonical_url: canonical,
-    page_url: canonical,
+    platform: "youtube",
+    platform_id: YOUTUBE_ID,
+    canonical_url: YOUTUBE_URL,
+    page_url: YOUTUBE_URL,
     metadata: {
-      title: platform === "youtube" ? "A video" : "NTULearn lesson",
+      title: "A video",
       author: null,
       duration_sec: 120,
       language: "en",
@@ -47,12 +43,12 @@ function availableCapture(platform: "youtube" | "ntu_kaltura", cues: Cue[] = [{ 
   };
 }
 
-function unavailableCapture(title = "Media Gallery", duration: number | null = null): PageCapture {
+function unavailableCapture(title: string | null = "A video", duration: number | null = null): PageCapture {
   return {
-    platform: "ntu_kaltura",
-    platform_id: ENTRY_ID,
-    canonical_url: `https://ntulearnvideo.ntu.edu.sg/media/${ENTRY_ID}`,
-    page_url: "https://ntulearn.ntu.edu.sg/ultra/courses/example",
+    platform: "youtube",
+    platform_id: YOUTUBE_ID,
+    canonical_url: YOUTUBE_URL,
+    page_url: YOUTUBE_URL,
     metadata: {
       title,
       author: null,
@@ -82,45 +78,6 @@ function json3(text = "Hello", startMs = 1000): { events: Array<Record<string, u
   return { events: [{ tStartMs: startMs, dDurationMs: 1500, segs: [{ utf8: text }] }] };
 }
 
-type KalturaFixture = {
-  html?: string;
-  href?: string;
-  title?: string;
-  tracks?: Array<Record<string, unknown>>;
-  videos?: Array<Record<string, unknown>>;
-  resources?: string[];
-};
-
-function stubKaltura(fixture: KalturaFixture = {}): void {
-  const tracks = fixture.tracks ?? [];
-  const videos = fixture.videos ?? [];
-  const html = fixture.html ?? `entry_id=${ENTRY_ID}`;
-  const href = fixture.href ?? `https://cdnapisec.kaltura.com/p/123/embed?entry_id=${ENTRY_ID}&ks=private`;
-  const parsed = new URL(href);
-  const documentStub = {
-    documentElement: { innerHTML: html, lang: "fr" },
-    title: fixture.title ?? "Kaltura Player",
-    querySelectorAll: (selector: string) => {
-      if (selector === "track[src]" || selector === "track") return tracks;
-      if (selector === "video") return videos;
-      return [];
-    },
-    querySelector: (selector: string) => {
-      if (selector === "meta[property='og:title']") return null;
-      if (selector === "h1") return null;
-      if (selector === "video") return videos[0] ?? null;
-      return null;
-    },
-  };
-  vi.stubGlobal("document", documentStub as unknown as Document);
-  vi.stubGlobal("location", {
-    href,
-    hostname: parsed.hostname,
-    pathname: parsed.pathname,
-  });
-  vi.stubGlobal("performance", { getEntriesByType: () => (fixture.resources ?? []).map((name) => ({ name })) });
-}
-
 function recreateAdapter(
   adapter: () => Promise<CaptureAttempt>,
   context: Record<string, unknown>,
@@ -135,20 +92,20 @@ afterEach(() => {
 });
 
 describe("capture selection and coordinator", () => {
-  it("prefers a valid caption capture over a generic shell", () => {
-    const selected = selectBestCapture([unavailableCapture(), availableCapture("ntu_kaltura")]);
+  it("prefers a valid caption capture over a capture without captions", () => {
+    const selected = selectBestCapture([unavailableCapture(), availableCapture()]);
     expect(selected?.caption.status).toBe("available");
   });
 
-  it("prefers a concrete player frame when both results have no captions", () => {
-    const selected = selectBestCapture([unavailableCapture(), unavailableCapture("NTULearn video", 3600)]);
-    expect(selected?.metadata.title).toBe("NTULearn video");
+  it("prefers a titled capture with a duration when neither has captions", () => {
+    const selected = selectBestCapture([unavailableCapture(null), unavailableCapture("A lecture", 3600)]);
+    expect(selected?.metadata.title).toBe("A lecture");
     expect(selected?.metadata.duration_sec).toBe(3600);
   });
 
   it("breaks equal-score ties independently of frame result order", () => {
-    const first = availableCapture("ntu_kaltura");
-    const second = availableCapture("ntu_kaltura");
+    const first = availableCapture();
+    const second = availableCapture();
     first.metadata.title = "Zulu lecture";
     second.metadata.title = "Alpha lecture";
 
@@ -158,105 +115,106 @@ describe("capture selection and coordinator", () => {
   it("routes YouTube to the top frame and aggregates a structured result", async () => {
     const executeScript = vi.fn(async (options: { target: { tabId: number; allFrames?: boolean } }) => {
       expect(options.target).toEqual({ tabId: 7, allFrames: false });
-      return [{ result: { status: "captured", capture: availableCapture("youtube") } }];
+      return [{ result: { status: "captured", capture: availableCapture() } }];
     });
     vi.stubGlobal("chrome", { scripting: { executeScript } });
 
-    const result = await captureActivePage(7, `https://www.youtube.com/watch?v=${YOUTUBE_ID}`);
+    const result = await captureActivePage(7, YOUTUBE_URL);
 
     expect(result.platform).toBe("youtube");
     expect(executeScript).toHaveBeenCalledOnce();
   });
 
-  it("runs Kaltura in all frames and lets a valid frame beat a failed frame", async () => {
-    const executeScript = vi.fn(async (options: { target: { tabId: number; allFrames?: boolean } }) => {
-      expect(options.target).toEqual({ tabId: 8, allFrames: true });
-      return [
-        { result: { status: "failed", error: "capture_unavailable" } },
-        { result: { status: "captured", capture: availableCapture("ntu_kaltura") } },
-      ];
-    });
-    vi.stubGlobal("chrome", { scripting: { executeScript } });
-
-    const result = await captureActivePage(8, "https://ntulearn.ntu.edu.sg/ultra/courses/example");
-
-    expect(result.caption.status).toBe("available");
-    expect(executeScript).toHaveBeenCalledOnce();
-  });
-
-  it("ignores a browser-level frame error when another frame captured subtitles", async () => {
+  it("lets a valid result beat a failed one", async () => {
     const executeScript = vi.fn(async () => [
-      { frameId: 1, error: "Frame URL contained ks=private-signature" },
-      { frameId: 2, result: { status: "captured", capture: availableCapture("ntu_kaltura") } },
+      { result: { status: "failed", error: "capture_unavailable" } },
+      { result: { status: "captured", capture: availableCapture() } },
     ]);
     vi.stubGlobal("chrome", { scripting: { executeScript } });
 
-    const result = await captureActivePage(8, "https://ntulearn.ntu.edu.sg/ultra/courses/example");
+    const result = await captureActivePage(8, YOUTUBE_URL);
+
+    expect(result.caption.status).toBe("available");
+  });
+
+  it("ignores a browser-level frame error when another result captured subtitles", async () => {
+    const executeScript = vi.fn(async () => [
+      { frameId: 1, error: "Frame URL contained ks=private-signature" },
+      { frameId: 2, result: { status: "captured", capture: availableCapture() } },
+    ]);
+    vi.stubGlobal("chrome", { scripting: { executeScript } });
+
+    const result = await captureActivePage(8, YOUTUBE_URL);
 
     expect(result.caption.status).toBe("available");
     expect(JSON.stringify(result)).not.toContain("private-signature");
   });
 
-  it("surfaces a frame's caption read failure instead of returning unavailable", async () => {
+  it("surfaces a caption read failure instead of returning unavailable", async () => {
     const executeScript = vi.fn(async () => [
-      { result: { status: "no_caption", capture: unavailableCapture("NTULearn video") } },
+      { result: { status: "no_caption", capture: unavailableCapture() } },
       { result: { status: "failed", error: "caption_fetch_failed" } },
     ]);
     vi.stubGlobal("chrome", { scripting: { executeScript } });
 
-    await expect(captureActivePage(8, "https://ntulearnvideo.ntu.edu.sg/media/52_6ce010d")).rejects.toThrow("caption_fetch_failed");
+    await expect(captureActivePage(8, YOUTUBE_URL)).rejects.toThrow("caption_fetch_failed");
   });
 
-  it("falls back to a top-frame invocation if all-frame injection is rejected", async () => {
-    const executeScript = vi.fn()
-      .mockRejectedValueOnce(new Error("inaccessible frame"))
-      .mockResolvedValueOnce([{ result: { status: "no_caption", capture: unavailableCapture("NTULearn video") } }]);
+  it("reports a rejected injection as a stable error without a second attempt", async () => {
+    const executeScript = vi.fn().mockRejectedValue(new Error("inaccessible tab"));
     vi.stubGlobal("chrome", { scripting: { executeScript } });
 
-    const result = await captureActivePage(8, "https://ntulearnvideo.ntu.edu.sg/media/52_6ce010d");
+    await expect(captureActivePage(8, YOUTUBE_URL)).rejects.toThrow("capture_unavailable");
+    expect(executeScript).toHaveBeenCalledOnce();
+  });
+
+  it("returns an unavailable capture when the page has no captions", async () => {
+    vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => [{ result: { status: "no_caption", capture: unavailableCapture() } }]) } });
+
+    const result = await captureActivePage(8, YOUTUBE_URL);
 
     expect(result.caption.status).toBe("unavailable");
-    expect(executeScript).toHaveBeenCalledTimes(2);
-    expect(executeScript.mock.calls[1]?.[0].target).toEqual({ tabId: 8, allFrames: false });
   });
 
   it("rejects unsupported hosts, malformed results, and secret-bearing public URLs", async () => {
     await expect(captureActivePage(1, "http://www.youtube.com/watch?v=abcdefghijk")).rejects.toThrow("unsupported_page");
     await expect(captureActivePage(1, "https://example.com/video")).rejects.toThrow("unsupported_page");
 
-    const secret = availableCapture("ntu_kaltura");
-    secret.canonical_url += "?ks=private-signature";
+    const secret = availableCapture();
+    secret.canonical_url += "&ks=private-signature";
     vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => [{ result: { status: "captured", capture: secret } }]) } });
-    await expect(captureActivePage(1, "https://ntulearnvideo.ntu.edu.sg/media/52_6ce010d")).rejects.toThrow("capture_unavailable");
+    await expect(captureActivePage(1, YOUTUBE_URL)).rejects.toThrow("capture_unavailable");
   });
 
   it("rejects page-world captures that violate the backend runtime contract", async () => {
-    const invalidId = availableCapture("ntu_kaltura") as PageCapture;
+    const invalidId = availableCapture() as PageCapture;
     invalidId.platform_id = "entry_id";
-    invalidId.canonical_url = "https://ntulearnvideo.ntu.edu.sg/media/entry_id";
-    const unsorted = availableCapture("youtube", [
+    invalidId.canonical_url = "https://www.youtube.com/watch?v=entry_id";
+    const unsorted = availableCapture([
       { start_sec: 2, end_sec: 3, text: "later" },
       { start_sec: 1, end_sec: 2, text: "earlier" },
     ]);
-    const malformedChapter = availableCapture("youtube") as PageCapture;
+    const malformedChapter = availableCapture() as PageCapture;
     malformedChapter.metadata.chapters = [{ title: "bad", start_sec: 2, end_sec: 1 }];
-    const values = [invalidId, unsorted, malformedChapter];
+    // A platform this build no longer reads (NTULearn/Kaltura) is not a valid capture either.
+    const retiredPlatform = { ...availableCapture(), platform: "ntu_kaltura" } as unknown as PageCapture;
+    const values = [invalidId, unsorted, malformedChapter, retiredPlatform];
     const executeScript = vi.fn(async () => [{ result: { status: "captured", capture: values.shift() } }]);
     vi.stubGlobal("chrome", { scripting: { executeScript } });
 
-    for (let index = 0; index < 3; index += 1) {
-      await expect(captureActivePage(1, `https://www.youtube.com/watch?v=${YOUTUBE_ID}`)).rejects.toThrow("capture_unavailable");
+    for (let index = 0; index < 4; index += 1) {
+      await expect(captureActivePage(1, YOUTUBE_URL)).rejects.toThrow("capture_unavailable");
     }
   });
 
   it("rebuilds accepted captures from an allowlist and drops secret-bearing extras", async () => {
-    const capture = availableCapture("ntu_kaltura") as PageCapture & Record<string, unknown>;
+    const capture = availableCapture() as PageCapture & Record<string, unknown>;
     capture.ks = "private-signature";
     (capture.metadata as PageCapture["metadata"] & Record<string, unknown>).authorization = "Bearer private";
-    (capture.caption as PageCapture["caption"] & Record<string, unknown>).caption_url = "https://cfvod.kaltura.com/caption/file.vtt?ks=private";
+    (capture.caption as PageCapture["caption"] & Record<string, unknown>).caption_url = "https://www.youtube.com/api/timedtext?signature=private";
     vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => [{ result: { status: "captured", capture } }]) } });
 
-    const result = await captureActivePage(1, "https://ntulearnvideo.ntu.edu.sg/media/example");
+    const result = await captureActivePage(1, YOUTUBE_URL);
     const serialized = JSON.stringify(result);
 
     expect(result.caption.status).toBe("available");
@@ -271,15 +229,15 @@ describe("capture selection and coordinator", () => {
     });
     vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => [injectionResult]) } });
 
-    await expect(captureActivePage(1, `https://www.youtube.com/watch?v=${YOUTUBE_ID}`)).rejects.toThrow("capture_unavailable");
+    await expect(captureActivePage(1, YOUTUBE_URL)).rejects.toThrow("capture_unavailable");
   });
 
   it("routes supported watch, shorts, and short-link shapes only", async () => {
-    const executeScript = vi.fn(async () => [{ result: { status: "captured", capture: availableCapture("youtube") } }]);
+    const executeScript = vi.fn(async () => [{ result: { status: "captured", capture: availableCapture() } }]);
     vi.stubGlobal("chrome", { scripting: { executeScript } });
 
     for (const url of [
-      `https://www.youtube.com/watch?v=${YOUTUBE_ID}`,
+      YOUTUBE_URL,
       `https://www.youtube.com/shorts/${YOUTUBE_ID}`,
       `https://youtu.be/${YOUTUBE_ID}?si=tracking-value`,
     ]) {
@@ -289,49 +247,22 @@ describe("capture selection and coordinator", () => {
     expect(executeScript).toHaveBeenCalledTimes(3);
   });
 
-  it("routes the exact ntulearnv1 media origin through all Kaltura frames", async () => {
-    const capture = availableCapture("ntu_kaltura");
-    capture.page_url = `https://ntulearnv1.ntu.edu.sg/media/${ENTRY_ID}`;
-    const executeScript = vi.fn(async (options: { target: { tabId: number; allFrames?: boolean } }) => {
-      expect(options.target).toEqual({ tabId: 9, allFrames: true });
-      return [{ result: { status: "captured", capture } }];
-    });
-    vi.stubGlobal("chrome", { scripting: { executeScript } });
-
-    const result = await captureActivePage(9, `https://ntulearnv1.ntu.edu.sg/media/${ENTRY_ID}?ks=private-signature`);
-
-    expect(result.platform).toBe("ntu_kaltura");
-    expect(result.page_url).toBe(`https://ntulearnv1.ntu.edu.sg/media/${ENTRY_ID}`);
-    expect(executeScript).toHaveBeenCalledOnce();
-  });
-
-  it("does not accept ntulearnv1 as a replacement canonical media origin", async () => {
-    const capture = availableCapture("ntu_kaltura");
-    capture.canonical_url = `https://ntulearnv1.ntu.edu.sg/media/${ENTRY_ID}`;
-    capture.page_url = `https://ntulearnv1.ntu.edu.sg/media/${ENTRY_ID}`;
-    vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => [{ result: { status: "captured", capture } }]) } });
-
-    await expect(captureActivePage(9, `https://ntulearnv1.ntu.edu.sg/media/${ENTRY_ID}`)).rejects.toThrow("capture_unavailable");
-  });
-
-  it("rejects near-hosts instead of treating them as NTU media pages", async () => {
+  it("treats NTULearn and Kaltura pages as unsupported without injecting anything", async () => {
     const executeScript = vi.fn();
     vi.stubGlobal("chrome", { scripting: { executeScript } });
-    for (const host of [
-      "ntulearnv10.ntu.edu.sg",
-      "media.ntulearnv1.ntu.edu.sg",
-      "ntulearnv1.ntu.edu.sg.evil.example",
+    for (const url of [
+      "https://ntulearn.ntu.edu.sg/ultra/courses/example",
+      "https://ntulearnvideo.ntu.edu.sg/media/52_6ce010d",
+      "https://ntulearnv1.ntu.edu.sg/media/52_6ce010d",
+      "https://cdnapisec.kaltura.com/p/123/embed?entry_id=52_6ce010d",
     ]) {
-      await expect(captureActivePage(9, `https://${host}/media/${ENTRY_ID}`)).rejects.toThrow("unsupported_page");
+      expect(classifyPageUrl(url)).toBeNull();
+      await expect(captureActivePage(9, url)).rejects.toThrow("unsupported_page");
     }
     expect(executeScript).not.toHaveBeenCalled();
   });
-
-  it("maps all empty Kaltura frames to the entry-missing error", async () => {
-    vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => [{ result: { status: "not_media_frame" } }, { result: { status: "not_media_frame" } }]) } });
-    await expect(captureActivePage(2, "https://ntulearn.ntu.edu.sg/ultra/courses/example")).rejects.toThrow("kaltura_entry_missing");
-  });
 });
+
 
 describe("YouTube caption adapter", () => {
   function stubYouTube(href = `https://www.youtube.com/watch?v=${YOUTUBE_ID}`): void {
@@ -1340,498 +1271,9 @@ describe("YouTube caption proof-of-origin token (pot)", () => {
   });
 });
 
-describe("Kaltura caption adapter", () => {
-  it("reads a top-level ntulearnv1 TextTrack and keeps its page URL secret-free", async () => {
-    const track = { kind: "subtitles", mode: "disabled", language: "en", cues: [{ startTime: 1, endTime: 2, text: "Top-level subtitle" }] };
-    stubKaltura({
-      href: `https://ntulearnv1.ntu.edu.sg/media/${ENTRY_ID}?ks=private-signature`,
-      videos: [{ textTracks: [track], duration: 20 }],
-    });
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("captured");
-    if (result.status === "captured") {
-      expect(result.capture.page_url).toBe(`https://ntulearnv1.ntu.edu.sg/media/${ENTRY_ID}`);
-      expect(result.capture.canonical_url).toBe(`https://ntulearnvideo.ntu.edu.sg/media/${ENTRY_ID}`);
-      expect(JSON.stringify(result.capture)).not.toContain("private-signature");
-    }
-    expect(track.mode).toBe("disabled");
-  });
-
-  it("fetches a caption resource from the exact ntulearnv1 host only", async () => {
-    const captionUrl = "https://ntulearnv1.ntu.edu.sg/caption/lesson.vtt?ks=private-signature";
-    stubKaltura({
-      href: `https://ntulearnv1.ntu.edu.sg/media/${ENTRY_ID}`,
-      tracks: [{ kind: "subtitles", src: captionUrl, srclang: "en" }],
-    });
-    const fetchStub = vi.fn(async () => ({
-      ok: true,
-      text: async () => "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nExact host caption\n",
-    }));
-    vi.stubGlobal("fetch", fetchStub);
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("captured");
-    expect(fetchStub).toHaveBeenCalledWith(captionUrl, expect.objectContaining({ credentials: "include" }));
-    expect(JSON.stringify(result)).not.toContain("private-signature");
-  });
-
-  it("does not fetch caption resources from ntulearnv1 near-hosts", async () => {
-    const fetchStub = vi.fn();
-    stubKaltura({
-      href: `https://ntulearnv1.ntu.edu.sg/media/${ENTRY_ID}`,
-      tracks: [
-        { kind: "subtitles", src: "https://ntulearnv10.ntu.edu.sg/caption/lesson.vtt", srclang: "en" },
-        { kind: "subtitles", src: "https://media.ntulearnv1.ntu.edu.sg/caption/lesson.vtt", srclang: "en" },
-        { kind: "subtitles", src: "https://ntulearnv1.ntu.edu.sg.evil.example/caption/lesson.vtt", srclang: "en" },
-      ],
-    });
-    vi.stubGlobal("fetch", fetchStub);
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("no_caption");
-    expect(fetchStub).not.toHaveBeenCalled();
-  });
-
-  it("consumes a signed VTT locally and never returns the signed URL", async () => {
-    const signedCaptionUrl = "https://cfvod.kaltura.com/caption/asset/caption.vtt?ks=private-signature";
-    stubKaltura({ tracks: [{ src: signedCaptionUrl, srclang: "en" }], title: "Lecture 7" });
-    const fetchStub = vi.fn(async () => ({ ok: true, text: async () => "WEBVTT\n\n00:00:01.000 --> 00:00:03.500\nWelcome to <b>the lecture</b>.\n" }));
-    vi.stubGlobal("fetch", fetchStub);
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("captured");
-    if (result.status === "captured") {
-      expect(result.capture.caption.cues).toEqual([{ start_sec: 1, end_sec: 3.5, text: "Welcome to the lecture." }]);
-      expect(result.capture.metadata.title).toBe("Lecture 7");
-      expect(JSON.stringify(result.capture)).not.toContain("private-signature");
-      expect(JSON.stringify(result.capture)).not.toContain("ks=");
-    }
-    expect(fetchStub).toHaveBeenCalledWith(signedCaptionUrl, expect.objectContaining({ credentials: "omit" }));
-  });
-
-  it("reads native TextTrack cues and restores the prior mode", async () => {
-    const track = { mode: "disabled", language: "fr", cues: [{ startTime: 1, endTime: 2, text: "Bonjour" }] };
-    const video = { textTracks: [track], duration: 20 };
-    stubKaltura({ videos: [video] });
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("captured");
-    if (result.status === "captured") expect(result.capture.caption).toEqual({ status: "available", source: "official_cc", language: "fr", cues: [{ start_sec: 1, end_sec: 2, text: "Bonjour" }] });
-    expect(track.mode).toBe("disabled");
-  });
-
-  it("does not submit metadata text tracks as captions", async () => {
-    const track = { kind: "metadata", mode: "disabled", language: "en", cues: [{ startTime: 1, endTime: 2, text: "analytics marker" }] };
-    stubKaltura({ videos: [{ textTracks: [track], duration: 20 }] });
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("no_caption");
-    expect(track.mode).toBe("disabled");
-  });
-
-  it("parses SRT timestamps and continues after the first candidate fails", async () => {
-    const first = "https://cfvod.kaltura.com/caption/first.srt";
-    const second = "https://cfvod.kaltura.com/subtitle/second.srt";
-    stubKaltura({ tracks: [{ src: first, srclang: "en" }, { src: second, srclang: "en" }] });
-    const fetchStub = vi.fn(async (url: string) => url === first
-      ? { ok: false, text: async () => "" }
-      : { ok: true, text: async () => "1\n00:00:02,000 --> 00:00:04,000\nSecond line\n" });
-    vi.stubGlobal("fetch", fetchStub);
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("captured");
-    if (result.status === "captured") expect(result.capture.caption.cues).toEqual([{ start_sec: 2, end_sec: 4, text: "Second line" }]);
-    expect(fetchStub).toHaveBeenCalledTimes(2);
-  });
-
-  it("parses TTML/DFXP with begin plus dur", async () => {
-    const url = "https://cfvod.kaltura.com/caption/lesson.ttml";
-    stubKaltura({ tracks: [{ src: url, srclang: "zh-Hans" }] });
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, text: async () => "<tt><body><p begin=\"1s\" dur=\"2s\">你好 <b>世界</b></p></body></tt>" })));
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("captured");
-    if (result.status === "captured") expect(result.capture.caption).toEqual({ status: "available", source: "official_cc", language: "zh-Hans", cues: [{ start_sec: 1, end_sec: 3, text: "你好 世界" }] });
-  });
-
-  it("discovers player-exposed track descriptors", async () => {
-    const url = "https://cfvod.kaltura.com/caption/player.vtt";
-    stubKaltura();
-    vi.stubGlobal("kalturaPlayer", { getTracks: () => [{ url, languageCode: "en" }] });
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, text: async () => "WEBVTT\n\n00:00:00.500 --> 00:00:01.500\nFrom player state\n" })));
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("captured");
-    if (result.status === "captured") expect(result.capture.caption.cues[0]?.text).toBe("From player state");
-  });
-
-  it("discovers text descriptors inside the object returned by getTracks", async () => {
-    const url = "https://cfvod.kaltura.com/caption/player-object.vtt";
-    stubKaltura();
-    vi.stubGlobal("kalturaPlayer", { getTracks: () => ({ text: [{ url, languageCode: "de" }] }) });
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, text: async () => "WEBVTT\n\n00:00:00.500 --> 00:00:01.500\nAus Playerstatus\n" })));
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("captured");
-    if (result.status === "captured") expect(result.capture.caption.language).toBe("de");
-  });
-
-  it("fails soft when a page-owned player getter throws", async () => {
-    const url = "https://cfvod.kaltura.com/subtitle/fallback.vtt";
-    stubKaltura({ resources: [url] });
-    const player = {};
-    Object.defineProperty(player, "tracks", { get: () => { throw new Error("ks=private"); } });
-    vi.stubGlobal("kalturaPlayer", player);
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, url, text: async () => "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nFallback\n" })));
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("captured");
-    expect(JSON.stringify(result)).not.toContain("private");
-  });
-
-  it("discovers an already loaded trusted caption resource", async () => {
-    const url = "https://cfvod.kaltura.com/subtitle/performance.vtt?ks=private";
-    stubKaltura({ resources: [url] });
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, text: async () => "WEBVTT\n\n00:00:02.000 --> 00:00:03.000\nObserved resource\n" })));
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("captured");
-    expect(JSON.stringify(result)).not.toContain("private");
-  });
-
-  it("expands a Kaltura serveWebVTT playlist, applies timestamp maps, and deduplicates cues", async () => {
-    const playlist = `https://cfvod.kaltura.com/caption_captionasset/action/serveWebVTT/entry/${ENTRY_ID}/a.m3u8?ks=private-signature`;
-    const first = new URL("segmentIndex/1.vtt", playlist).toString();
-    const second = new URL("segmentIndex/2.vtt", playlist).toString();
-    stubKaltura({ resources: [playlist, first] });
-    const fetchStub = vi.fn(async (url: string) => {
-      if (url === playlist) return { ok: true, url: playlist, text: async () => "#EXTM3U\n#EXTINF:2,\nsegmentIndex/1.vtt\n#EXTINF:2,\nsegmentIndex/2.vtt\n#EXT-X-ENDLIST\n" };
-      if (url === first) return { ok: true, url: first, text: async () => "WEBVTT\nX-TIMESTAMP-MAP=LOCAL:00:00:00.000,MPEGTS:900000\n\n00:00:01.000 --> 00:00:02.000\nFirst\n" };
-      if (url === second) return { ok: true, url: second, text: async () => "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:1080000,LOCAL:00:00:00.000\n\n00:00:01.000 --> 00:00:02.000\nSecond\n\n00:00:01.000 --> 00:00:02.000\nSecond\n" };
-      return { ok: false, url, text: async () => "" };
-    });
-    vi.stubGlobal("fetch", fetchStub);
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("captured");
-    if (result.status === "captured") expect(result.capture.caption.cues).toEqual([
-      { start_sec: 11, end_sec: 12, text: "First" },
-      { start_sec: 13, end_sec: 14, text: "Second" },
-    ]);
-    expect(fetchStub.mock.calls.map(([url]) => url)).toEqual([playlist, first, second]);
-    expect(fetchStub.mock.calls.map((call) => (
-      (call as unknown as [string, RequestInit])[1].credentials
-    ))).toEqual(["omit", "omit", "omit"]);
-    expect(JSON.stringify(result)).not.toContain("private-signature");
-  });
-
-  it("prefers a complete playlist over the native TextTrack buffered window", async () => {
-    const playlist = `https://cfvod.kaltura.com/caption_captionasset/action/serveWebVTT/entry/${ENTRY_ID}/a.m3u8`;
-    const first = new URL("segmentIndex/1.vtt", playlist).toString();
-    const second = new URL("segmentIndex/2.vtt", playlist).toString();
-    const nativeTrack = {
-      kind: "subtitles",
-      mode: "showing",
-      language: "en",
-      cues: [{ startTime: 10, endTime: 11, text: "Buffered only" }],
-    };
-    stubKaltura({ resources: [playlist, first], videos: [{ textTracks: [nativeTrack], duration: 30 }] });
-    const fetchStub = vi.fn(async (url: string) => {
-      if (url === playlist) return { ok: true, url, text: async () => "#EXTM3U\nsegmentIndex/1.vtt\nsegmentIndex/2.vtt\n#EXT-X-ENDLIST\n" };
-      if (url === first) return { ok: true, url, text: async () => "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nFull first\n" };
-      return { ok: true, url: second, text: async () => "WEBVTT\n\n00:00:02.000 --> 00:00:03.000\nFull second\n" };
-    });
-    vi.stubGlobal("fetch", fetchStub);
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("captured");
-    if (result.status === "captured") {
-      expect(result.capture.caption.language).toBe("en");
-      expect(result.capture.caption.cues).toEqual([
-        { start_sec: 0, end_sec: 1, text: "Full first" },
-        { start_sec: 2, end_sec: 3, text: "Full second" },
-      ]);
-    }
-    expect(nativeTrack.mode).toBe("showing");
-    expect(fetchStub.mock.calls.map(([url]) => url)).toEqual([playlist, first, second]);
-  });
-
-  it("rejects CSS and JavaScript pseudo-caption resources before fetching them", async () => {
-    const css = "https://cfvod.kaltura.com/player/captions.css";
-    const script = "https://cfvod.kaltura.com/player/captions-thumbRotator.js";
-    stubKaltura({ resources: [css, script] });
-    const fetchStub = vi.fn();
-    vi.stubGlobal("fetch", fetchStub);
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("no_caption");
-    expect(fetchStub).not.toHaveBeenCalled();
-    expect(JSON.stringify(result)).not.toContain("captions.css");
-    expect(JSON.stringify(result)).not.toContain("thumbRotator");
-  });
-
-  it("rejects a live playlist without ENDLIST instead of returning buffered native cues", async () => {
-    const playlist = `https://cfvod.kaltura.com/caption_captionasset/action/serveWebVTT/entry/${ENTRY_ID}/live.m3u8`;
-    const nativeTrack = { kind: "subtitles", mode: "showing", language: "en", cues: [{ startTime: 0, endTime: 1, text: "Buffered partial" }] };
-    stubKaltura({ resources: [playlist], videos: [{ textTracks: [nativeTrack], duration: 30 }] });
-    const fetchStub = vi.fn(async (url: string) => ({
-      ok: true,
-      url,
-      text: async () => "#EXTM3U\n#EXTINF:2,\nsegmentIndex/1.vtt\n",
-    }));
-    vi.stubGlobal("fetch", fetchStub);
-
-    const result = await captureKalturaPage();
-
-    expect(result).toEqual({ status: "failed", error: "caption_parse_failed" });
-    expect(fetchStub).toHaveBeenCalledOnce();
-    expect(nativeTrack.mode).toBe("showing");
-  });
-
-  it("rejects malicious cross-origin or non-VTT playlist fragments", async () => {
-    const playlist = `https://cfvod.kaltura.com/caption_captionasset/action/serveWebVTT/entry/${ENTRY_ID}/a.m3u8?ks=private`;
-    stubKaltura({ resources: [playlist] });
-    const fetchStub = vi.fn(async (url: string) => url === playlist
-      ? { ok: true, url: playlist, text: async () => "#EXTM3U\nhttps://evil.example/caption/segment.vtt\n#EXT-X-ENDLIST\n" }
-      : { ok: true, url, text: async () => "WEBVTT" });
-    vi.stubGlobal("fetch", fetchStub);
-
-    const result = await captureKalturaPage();
-
-    expect(result).toEqual({ status: "failed", error: "caption_parse_failed" });
-    expect(fetchStub).toHaveBeenCalledOnce();
-    expect(JSON.stringify(result)).not.toContain("evil.example");
-    expect(JSON.stringify(result)).not.toContain("private");
-  });
-
-  it("does not submit partial playlist captions when one segment fails", async () => {
-    const playlist = `https://cfvod.kaltura.com/caption_captionasset/action/serveWebVTT/entry/${ENTRY_ID}/a.m3u8`;
-    const first = new URL("chunks/first.vtt", playlist).toString();
-    const second = new URL("chunks/second.vtt", playlist).toString();
-    const nativeTrack = { kind: "subtitles", mode: "showing", language: "en", cues: [{ startTime: 0, endTime: 1, text: "Buffered partial" }] };
-    stubKaltura({ resources: [playlist, first], videos: [{ textTracks: [nativeTrack], duration: 30 }] });
-    const fetchStub = vi.fn(async (url: string) => {
-      if (url === playlist) return { ok: true, url, text: async () => "#EXTM3U\nchunks/first.vtt\nchunks/second.vtt\n#EXT-X-ENDLIST\n" };
-      if (url === first) return { ok: true, url, text: async () => "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nPartial\n" };
-      return { ok: false, url, text: async () => "" };
-    });
-    vi.stubGlobal("fetch", fetchStub);
-
-    await expect(captureKalturaPage()).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
-    expect(fetchStub.mock.calls.map(([url]) => url)).toEqual([playlist, first, second]);
-    expect(nativeTrack.mode).toBe("showing");
-  });
-
-  it("does not submit a standalone serveWebVTT segment as a complete transcript", async () => {
-    const segment = `https://cfvod.kaltura.com/caption_captionasset/action/serveWebVTT/entry/${ENTRY_ID}/segmentIndex/1.vtt?ks=private`;
-    stubKaltura({ resources: [segment] });
-    const fetchStub = vi.fn();
-    vi.stubGlobal("fetch", fetchStub);
-
-    const result = await captureKalturaPage();
-
-    expect(result).toEqual({ status: "failed", error: "caption_parse_failed" });
-    expect(fetchStub).not.toHaveBeenCalled();
-    expect(JSON.stringify(result)).not.toContain("private");
-  });
-
-  it("accepts valid empty WebVTT segments without dropping surrounding cues", async () => {
-    const playlist = `https://cfvod.kaltura.com/caption_captionasset/action/serveWebVTT/entry/${ENTRY_ID}/a.m3u8`;
-    const first = new URL("segmentIndex/1.vtt", playlist).toString();
-    const empty = new URL("segmentIndex/2.vtt", playlist).toString();
-    const last = new URL("segmentIndex/3.vtt", playlist).toString();
-    stubKaltura({ resources: [playlist] });
-    const fetchStub = vi.fn(async (url: string) => {
-      if (url === playlist) return { ok: true, url, text: async () => "#EXTM3U\nsegmentIndex/1.vtt\nsegmentIndex/2.vtt\nsegmentIndex/3.vtt\n#EXT-X-ENDLIST\n" };
-      if (url === first) return { ok: true, url, text: async () => "WEBVTT\nX-TIMESTAMP-MAP=LOCAL:00:00:00.000,MPEGTS:900000\n\n00:00:00.000 --> 00:00:01.000\nBefore silence\n" };
-      if (url === empty) return { ok: true, url, text: async () => "WEBVTT\nX-TIMESTAMP-MAP=LOCAL:00:00:00.000,MPEGTS:990000\n\nNOTE no spoken captions in this segment\n" };
-      return { ok: true, url, text: async () => "WEBVTT\nX-TIMESTAMP-MAP=LOCAL:00:00:00.000,MPEGTS:1080000\n\n00:00:00.000 --> 00:00:01.000\nAfter silence\n" };
-    });
-    vi.stubGlobal("fetch", fetchStub);
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("captured");
-    if (result.status === "captured") expect(result.capture.caption.cues).toEqual([
-      { start_sec: 10, end_sec: 11, text: "Before silence" },
-      { start_sec: 12, end_sec: 13, text: "After silence" },
-    ]);
-    expect(fetchStub.mock.calls.map(([url]) => url)).toEqual([playlist, first, empty, last]);
-  });
-
-  it("rejects a malformed timestamp map instead of submitting earlier segments", async () => {
-    const playlist = `https://cfvod.kaltura.com/caption_captionasset/action/serveWebVTT/entry/${ENTRY_ID}/a.m3u8`;
-    const first = new URL("segmentIndex/1.vtt", playlist).toString();
-    const malformed = new URL("segmentIndex/2.vtt", playlist).toString();
-    stubKaltura({ resources: [playlist] });
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-      if (url === playlist) return { ok: true, url, text: async () => "#EXTM3U\nsegmentIndex/1.vtt\nsegmentIndex/2.vtt\n#EXT-X-ENDLIST\n" };
-      if (url === first) return { ok: true, url, text: async () => "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nPartial\n" };
-      return { ok: true, url: malformed, text: async () => "WEBVTT\nX-TIMESTAMP-MAP=LOCAL:00:00:00.000\n\n00:00:00.000 --> 00:00:01.000\nWrong offset\n" };
-    }));
-
-    await expect(captureKalturaPage()).resolves.toEqual({ status: "failed", error: "caption_parse_failed" });
-  });
-
-  it("bounds playlist segment count before making segment requests", async () => {
-    const playlist = `https://cfvod.kaltura.com/caption_captionasset/action/serveWebVTT/entry/${ENTRY_ID}/a.m3u8`;
-    const lines = Array.from({ length: 241 }, (_value, index) => `segmentIndex/${index + 1}.vtt`).join("\n");
-    stubKaltura({ resources: [playlist] });
-    const fetchStub = vi.fn(async (url: string) => ({ ok: true, url, text: async () => `#EXTM3U\n${lines}\n#EXT-X-ENDLIST\n` }));
-    vi.stubGlobal("fetch", fetchStub);
-
-    await expect(captureKalturaPage()).resolves.toEqual({ status: "failed", error: "caption_parse_failed" });
-    expect(fetchStub).toHaveBeenCalledOnce();
-  });
-
-  it("rejects an oversized playlist body before parsing or segment fetches", async () => {
-    const playlist = `https://cfvod.kaltura.com/caption_captionasset/action/serveWebVTT/entry/${ENTRY_ID}/a.m3u8`;
-    stubKaltura({ resources: [playlist] });
-    const fetchStub = vi.fn(async (url: string) => ({ ok: true, url, text: async () => `${"#EXTM3U\n"}${"segmentIndex/1.vtt\n"}${"x".repeat(256_001)}` }));
-    vi.stubGlobal("fetch", fetchStub);
-
-    await expect(captureKalturaPage()).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
-    expect(fetchStub).toHaveBeenCalledOnce();
-  });
-
-  it("bounds the aggregate size of otherwise valid empty segments", async () => {
-    const playlist = `https://cfvod.kaltura.com/caption_captionasset/action/serveWebVTT/entry/${ENTRY_ID}/a.m3u8`;
-    const lines = Array.from({ length: 9 }, (_value, index) => `segmentIndex/${index + 1}.vtt`).join("\n");
-    const emptyBody = `WEBVTT\nNOTE ${"x".repeat(499_987)}\n`;
-    stubKaltura({ resources: [playlist] });
-    const fetchStub = vi.fn(async (url: string) => url === playlist
-      ? { ok: true, url, text: async () => `#EXTM3U\n${lines}\n#EXT-X-ENDLIST\n` }
-      : { ok: true, url, text: async () => emptyBody });
-    vi.stubGlobal("fetch", fetchStub);
-
-    await expect(captureKalturaPage()).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
-    expect(fetchStub).toHaveBeenCalledTimes(10);
-  });
-
-  it("times out a stalled playlist request with a safe failure", async () => {
-    vi.useFakeTimers();
-    const playlist = `https://cfvod.kaltura.com/caption_captionasset/action/serveWebVTT/entry/${ENTRY_ID}/a.m3u8`;
-    stubKaltura({ resources: [playlist] });
-    let observedSignal: AbortSignal | null | undefined;
-    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => {
-      observedSignal = init?.signal;
-      return new Promise<Response>(() => undefined);
-    }));
-
-    const pending = captureKalturaPage();
-    await vi.advanceTimersByTimeAsync(1_200);
-
-    await expect(pending).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
-    expect(observedSignal?.aborted).toBe(true);
-  });
-
-  it("returns a retryable parse failure when a discovered caption is unreadable", async () => {
-    const url = "https://cfvod.kaltura.com/caption/broken.vtt?ks=secret";
-    stubKaltura({ tracks: [{ src: url, srclang: "en" }] });
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, text: async () => "not timed text" })));
-
-    const result = await captureKalturaPage();
-
-    expect(result).toEqual({ status: "failed", error: "caption_parse_failed" });
-    expect(JSON.stringify(result)).not.toContain("secret");
-  });
-
-  it("rejects a trusted descriptor that redirects to an untrusted resource", async () => {
-    const url = "https://cfvod.kaltura.com/caption/redirect.vtt";
-    stubKaltura({ tracks: [{ src: url, srclang: "en" }] });
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      url: "https://evil.example/caption.vtt",
-      text: async () => "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nDo not consume\n",
-    })));
-
-    await expect(captureKalturaPage()).resolves.toEqual({ status: "failed", error: "caption_fetch_failed" });
-  });
-
-  it("returns no_caption only when no caption path is discovered", async () => {
-    stubKaltura({
-      href: "https://cdnapisec.kaltura.com/p/123/embed",
-      html: `entry_id="${ENTRY_ID}"`,
-    });
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("no_caption");
-    if (result.status === "no_caption") expect(result.capture.caption).toEqual({ status: "unavailable", source: null, language: null, cues: [] });
-  });
-
-  it("does not mistake serialized Kaltura field names for an entry ID", async () => {
-    stubKaltura({
-      href: "https://cdnapisec.kaltura.com/p/123/embed",
-      html: "entry_id uiconf_id media_gallery 99_randomhash",
-    });
-
-    await expect(captureKalturaPage()).resolves.toEqual({ status: "not_media_frame" });
-  });
-
-  it("does not run the Kaltura adapter inside unrelated allFrames hosts", async () => {
-    stubKaltura({
-      href: `https://www.youtube.com/watch?v=${YOUTUBE_ID}&entry_id=${ENTRY_ID}`,
-      html: `entry_id=${ENTRY_ID}`,
-    });
-
-    await expect(captureKalturaPage()).resolves.toEqual({ status: "not_media_frame" });
-  });
-
-  it("ignores untrusted caption resources and keeps secrets out of captures", async () => {
-    stubKaltura({ tracks: [
-      { src: "https://evil.example/caption.vtt?ks=secret", srclang: "en" },
-      { src: "https://user:password@cfvod.kaltura.com/caption/private.vtt", srclang: "en" },
-    ] });
-
-    const result = await captureKalturaPage();
-
-    expect(result.status).toBe("no_caption");
-    expect(JSON.stringify(result)).not.toContain("evil.example");
-    expect(JSON.stringify(result)).not.toContain("secret");
-  });
-
-  it("recreates the Kaltura adapter from its serialized function source", async () => {
-    const adapter = recreateAdapter(captureKalturaPage, {
-      URL,
-      location: {
-        href: `https://cdnapisec.kaltura.com/p/123/embed?entry_id=${ENTRY_ID}`,
-        hostname: "cdnapisec.kaltura.com",
-        pathname: "/p/123/embed",
-      },
-      document: {
-        documentElement: { innerHTML: `entry_id=${ENTRY_ID}` },
-        title: "Kaltura Player",
-        querySelectorAll: () => [],
-        querySelector: () => null,
-      },
-      performance: { getEntriesByType: () => [] },
-      setTimeout,
-    });
-
-    await expect(adapter()).resolves.toMatchObject({ status: "no_caption" });
-  });
-});
-
 describe("capture attempt shape", () => {
   it("keeps the public PageCapture shape inside captured attempts", () => {
-    const attempt: CaptureAttempt = { status: "captured", capture: availableCapture("youtube") };
+    const attempt: CaptureAttempt = { status: "captured", capture: availableCapture() };
     expect(attempt.capture).not.toHaveProperty("captionUrl");
     expect(attempt.capture).not.toHaveProperty("ks");
   });
@@ -1999,13 +1441,10 @@ describe("YouTube description and chapters", () => {
 });
 
 describe("page URL classification", () => {
-  it("accepts YouTube watch, shorts and youtu.be pages and the NTU media hosts only", () => {
+  it("accepts YouTube watch, shorts and youtu.be pages", () => {
     expect(classifyPageUrl(`https://www.youtube.com/watch?v=${YOUTUBE_ID}`)).toBe("youtube");
     expect(classifyPageUrl(`https://youtube.com/shorts/${YOUTUBE_ID}`)).toBe("youtube");
     expect(classifyPageUrl(`https://youtu.be/${YOUTUBE_ID}`)).toBe("youtube");
-    expect(classifyPageUrl("https://ntulearn.ntu.edu.sg/ultra/courses/x")).toBe("ntu_kaltura");
-    expect(classifyPageUrl("https://ntulearnvideo.ntu.edu.sg/media/52_6ce010d")).toBe("ntu_kaltura");
-    expect(classifyPageUrl("https://ntulearnv1.ntu.edu.sg/x")).toBe("ntu_kaltura");
   });
 
   it("rejects other hosts, non-HTTPS URLs, the YouTube home page and malformed input", () => {
@@ -2013,6 +1452,7 @@ describe("page URL classification", () => {
     expect(classifyPageUrl("https://www.youtube.com/watch?v=short")).toBeNull();
     expect(classifyPageUrl(`http://www.youtube.com/watch?v=${YOUTUBE_ID}`)).toBeNull();
     expect(classifyPageUrl("https://example.com/watch?v=abcdefghijk")).toBeNull();
+    expect(classifyPageUrl("https://ntulearn.ntu.edu.sg/ultra/courses/x")).toBeNull();
     expect(classifyPageUrl("not a url")).toBeNull();
   });
 });
@@ -2103,20 +1543,20 @@ describe("controlPlayer (injected player probe and seek)", () => {
 
   it("reports an unseeked probe when the element refuses the assignment", () => {
     const refusing = Object.defineProperty(fakeVideo(), "currentTime", { get: () => 9, set: () => { throw new Error("refused"); } });
-    stubPlayerDocument({ all: [refusing] });
+    stubPlayerDocument({ main: [refusing] });
 
-    expect(controlPlayer(30, "ntu_kaltura")).toMatchObject({ status: "video", seeked: false, current_sec: 9 });
+    expect(controlPlayer(30, "youtube")).toMatchObject({ status: "video", seeked: false, current_sec: 9 });
   });
 
-  it("picks the ready, playing Kaltura video among several and seeks only that one", () => {
+  it("picks the ready, playing video among several and seeks only that one", () => {
     const idle = fakeVideo({ readyState: 0, duration: Number.NaN, currentTime: 0 });
     const paused = fakeVideo({ paused: true, currentTime: 30 });
     const playing = fakeVideo({ currentTime: 61.25 });
-    stubPlayerDocument({ all: [idle, paused, playing] });
+    stubPlayerDocument({ main: [idle, paused, playing] });
 
-    expect(controlPlayer(null, "ntu_kaltura")).toEqual({ status: "video", current_sec: 61.25, ready: true, playing: true, seeked: false });
+    expect(controlPlayer(null, "youtube")).toEqual({ status: "video", current_sec: 61.25, ready: true, playing: true, seeked: false });
 
-    const result = controlPlayer(300, "ntu_kaltura");
+    const result = controlPlayer(300, "youtube");
 
     expect(result).toMatchObject({ status: "video", seeked: true, current_sec: 300 });
     expect(playing.currentTime).toBe(300);
@@ -2125,12 +1565,12 @@ describe("controlPlayer (injected player probe and seek)", () => {
   });
 
   it("reports a not-ready video honestly and survives a hostile document", () => {
-    stubPlayerDocument({ all: [fakeVideo({ readyState: 0, currentTime: 0 })] });
-    expect(controlPlayer(null, "ntu_kaltura")).toEqual({ status: "video", current_sec: 0, ready: false, playing: false, seeked: false });
+    stubPlayerDocument({ main: [fakeVideo({ readyState: 0, currentTime: 0 })] });
+    expect(controlPlayer(null, "youtube")).toEqual({ status: "video", current_sec: 0, ready: false, playing: false, seeked: false });
 
     vi.unstubAllGlobals();
     vi.stubGlobal("document", { querySelectorAll: () => { throw new Error("hostile"); } });
-    expect(controlPlayer(null, "ntu_kaltura")).toEqual({ status: "no_video" });
+    expect(controlPlayer(null, "youtube")).toEqual({ status: "no_video" });
   });
 
   it("stays self-contained when serialised into another JavaScript context", () => {
@@ -2151,7 +1591,6 @@ describe("controlPlayer (injected player probe and seek)", () => {
 
 describe("playback coordinator", () => {
   const youtubeUrl = `https://www.youtube.com/watch?v=${YOUTUBE_ID}`;
-  const kalturaUrl = "https://ntulearn.ntu.edu.sg/ultra/courses/example";
   const video = (overrides: Partial<Extract<PlayerProbe, { status: "video" }>> = {}): PlayerProbe => ({
     status: "video", current_sec: 10, ready: true, playing: true, seeked: false, ...overrides,
   });
@@ -2194,38 +1633,17 @@ describe("playback coordinator", () => {
     expect(executeScript).not.toHaveBeenCalled();
   });
 
-  it("reads Kaltura playback from the frame that has a ready, playing video", async () => {
+  it("skips malformed result entries and reads the first usable probe", async () => {
     const executeScript = vi.fn(async () => [
-      { frameId: 0, result: { status: "no_video" } },
-      { frameId: 2, result: video({ current_sec: 5, playing: false }) },
-      { frameId: 7, result: video({ current_sec: 321.5 }) },
       { frameId: 9, error: "Frame URL contained ks=private-signature" },
       { frameId: 11, result: { status: "video", current_sec: "bad" } },
+      null,
+      { frameId: 0, result: video({ current_sec: 321.5 }) },
     ]);
     vi.stubGlobal("chrome", { scripting: { executeScript } });
 
-    await expect(readPlaybackSeconds(4, kalturaUrl)).resolves.toBe(321.5);
+    await expect(readPlaybackSeconds(4, youtubeUrl)).resolves.toBe(321.5);
     expect(executeScript).toHaveBeenCalledOnce();
-    expect(executeScript).toHaveBeenCalledWith(expect.objectContaining({ target: { tabId: 4, allFrames: true }, args: [null, "ntu_kaltura"] }));
-  });
-
-  it("breaks Kaltura ties by the lowest frame id regardless of result order", async () => {
-    vi.stubGlobal("chrome", { scripting: { executeScript: vi.fn(async () => [
-      { frameId: 8, result: video({ current_sec: 80 }) },
-      { frameId: 3, result: video({ current_sec: 30 }) },
-    ]) } });
-
-    await expect(readPlaybackSeconds(4, kalturaUrl)).resolves.toBe(30);
-  });
-
-  it("retries the top frame when an all-frames Kaltura read is rejected", async () => {
-    const executeScript = vi.fn()
-      .mockRejectedValueOnce(new Error("inaccessible frame"))
-      .mockResolvedValueOnce([{ frameId: 0, result: video({ current_sec: 12 }) }]);
-    vi.stubGlobal("chrome", { scripting: { executeScript } });
-
-    await expect(readPlaybackSeconds(4, kalturaUrl)).resolves.toBe(12);
-    expect(executeScript.mock.calls[1]?.[0].target).toEqual({ tabId: 4, allFrames: false });
   });
 
   it("seeks YouTube in the top frame and fails when no player accepted the position", async () => {
@@ -2253,42 +1671,13 @@ describe("playback coordinator", () => {
     expect(executeScript).not.toHaveBeenCalled();
   });
 
-  it("finds the Kaltura player frame first and then seeks only that frame", async () => {
-    const executeScript = vi.fn()
-      .mockResolvedValueOnce([
-        { frameId: 0, result: { status: "no_video" } },
-        { frameId: 4, result: video({ playing: false }) },
-        { frameId: 6, result: video() },
-      ])
-      .mockResolvedValueOnce([{ frameId: 6, result: video({ seeked: true, current_sec: 300 }) }]);
+  it("treats NTULearn and Kaltura pages as unsupported for playback and seeking", async () => {
+    const executeScript = vi.fn();
     vi.stubGlobal("chrome", { scripting: { executeScript } });
 
-    await expect(seekPlayback(4, kalturaUrl, 300)).resolves.toBeUndefined();
-
-    expect(executeScript).toHaveBeenCalledTimes(2);
-    expect(executeScript.mock.calls[0]?.[0]).toMatchObject({ target: { tabId: 4, allFrames: true }, args: [null, "ntu_kaltura"] });
-    expect(executeScript.mock.calls[1]?.[0]).toMatchObject({ target: { tabId: 4, frameIds: [6] }, args: [300, "ntu_kaltura"] });
-    expect(executeScript.mock.calls[1]?.[0].target).not.toHaveProperty("allFrames");
-  });
-
-  it("seeks every Kaltura frame only when the frame id is unknown, and fails without a video", async () => {
-    const executeScript = vi.fn()
-      .mockResolvedValueOnce([{ result: video() }])
-      .mockResolvedValueOnce([{ result: video({ seeked: true }) }]);
-    vi.stubGlobal("chrome", { scripting: { executeScript } });
-    await expect(seekPlayback(4, kalturaUrl, 30)).resolves.toBeUndefined();
-    expect(executeScript.mock.calls[1]?.[0].target).toEqual({ tabId: 4, allFrames: true });
-
-    const noVideo = vi.fn(async () => [{ frameId: 0, result: { status: "no_video" } }]);
-    vi.stubGlobal("chrome", { scripting: { executeScript: noVideo } });
-    await expect(seekPlayback(4, kalturaUrl, 30)).rejects.toThrow("seek_failed");
-    expect(noVideo).toHaveBeenCalledOnce();
-
-    const refused = vi.fn()
-      .mockResolvedValueOnce([{ frameId: 6, result: video() }])
-      .mockResolvedValueOnce([{ frameId: 6, result: video({ seeked: false }) }]);
-    vi.stubGlobal("chrome", { scripting: { executeScript: refused } });
-    await expect(seekPlayback(4, kalturaUrl, 30)).rejects.toThrow("seek_failed");
+    await expect(readPlaybackSeconds(4, "https://ntulearn.ntu.edu.sg/ultra/courses/example")).rejects.toThrow("unsupported_page");
+    await expect(seekPlayback(4, "https://ntulearnv1.ntu.edu.sg/media/52_6ce010d", 30)).rejects.toThrow("unsupported_page");
+    expect(executeScript).not.toHaveBeenCalled();
   });
 });
 

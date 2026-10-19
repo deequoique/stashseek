@@ -32,7 +32,7 @@ describe("resolveApiOrigin", () => {
     [[]],
     [[`${API_ORIGINS.production}/*`, `${API_ORIGINS.local}/*`]],
     [["https://localhost/*"]],
-    [["https://notebookai.deequoique.tech.evil.example/*"]],
+    [["https://stashseek.deequoique.tech.evil.example/*"]],
   ])("fails closed for missing, ambiguous, or nearby permissions", (permissions) => {
     expect(() => resolveApiOrigin(permissions)).toThrowError("extension_api_origin_invalid");
   });

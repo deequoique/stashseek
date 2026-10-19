@@ -8,7 +8,6 @@ import {
   BILI_P2_URL,
   BILI_URL,
   bilibiliPage,
-  KALTURA_URL,
   makeEnvironment,
   noCaptionBilibiliPage,
   noCaptionPage,
@@ -133,18 +132,8 @@ describe("side panel page states", () => {
     expect(env.streamQuestion).not.toHaveBeenCalled();
   });
 
-  it("blocks questions on a caption-less Kaltura video without calling the server", async () => {
-    const env = makeEnvironment({ tab: { id: 7, url: KALTURA_URL }, pages: { [KALTURA_URL]: noCaptionPage("ntu_kaltura") } });
-    await renderReady(env);
-
-    expect(await screen.findByText("该视频没有可用字幕，暂时无法提问")).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: "就当前视频提问" })).not.toBeInTheDocument();
-    expect(env.streamQuestion).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "收藏视频" })).toBeEnabled();
-  });
-
   it("allows a metadata-only question on a caption-less YouTube video", async () => {
-    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") } });
+    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage() } });
     const user = await renderReady(env);
 
     expect(await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答")).toBeInTheDocument();
@@ -338,7 +327,7 @@ describe("side panel Q&A", () => {
   });
 
   it("says so in the first step when a YouTube video has no captions", async () => {
-    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage("youtube") } });
+    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage() } });
     const user = await renderReady(env);
 
     await ask(user, "它讲什么？");
@@ -501,5 +490,38 @@ describe("side panel citations", () => {
 
     expect(env.tabs.openUrl).not.toHaveBeenCalled();
     expect(env.worker.seek).not.toHaveBeenCalled();
+  });
+});
+
+describe("side panel privacy policy link", () => {
+  it("shows the link on the login screen, pointing at the API origin and opening a new tab", async () => {
+    const env = makeEnvironment({ paired: false });
+    env.getSession.mockRejectedValueOnce(new ApiError(401, "session_invalid", "登录已失效"));
+    render(<SidePanel deps={env.deps} />);
+
+    const link = await screen.findByRole("link", { name: "隐私政策" });
+
+    expect(link).toHaveAttribute("href", "https://api.test/privacy");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+  });
+
+  it("shows the link in the footer of the signed-in panel", async () => {
+    const env = makeEnvironment();
+    await renderReady(env);
+
+    const footerLink = within(screen.getByRole("contentinfo")).getByRole("link", { name: "隐私政策" });
+
+    expect(footerLink).toHaveAttribute("href", "https://api.test/privacy");
+    expect(footerLink).toHaveAttribute("target", "_blank");
+  });
+
+  it("omits the link instead of breaking the panel when no API origin can be resolved", async () => {
+    const env = makeEnvironment();
+    env.deps.privacyUrl = () => { throw new Error("extension_api_origin_invalid"); };
+    await renderReady(env);
+
+    expect(screen.queryByRole("link", { name: "隐私政策" })).toBeNull();
+    expect(screen.getByRole("button", { name: "打开工作区" })).toBeInTheDocument();
   });
 });

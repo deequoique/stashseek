@@ -135,7 +135,7 @@ provider credentials or mutate external services.
   unique PID and schedule paths.
 - Restricted deploy command: `deploy <sha>`, where `<sha>` is exactly 40
   lowercase hexadecimal characters and equals the current `origin/main`.
-- Caddy site: `notebookai.deequoique.tech` reverse proxies only to
+- Caddy site: `stashseek.deequoique.tech` reverse proxies only to
   `127.0.0.1:8800`.
 - Production full runtime additionally owns a loopback Channel Gateway at
   `127.0.0.1:8765` and patched LangBot 4.10.6 WebUI/API at
@@ -144,7 +144,7 @@ provider credentials or mutate external services.
 ### 3. Contracts
 
 - Runtime environment requires `WEB_AUTH_ENABLED=true`,
-  `WEB_PUBLIC_ORIGIN=https://notebookai.deequoique.tech`,
+  `WEB_PUBLIC_ORIGIN=https://stashseek.deequoique.tech`,
   `WEB_COOKIE_SECURE=true`, `MCP_PATH=/mcp`, `MCP_URL_TOKEN_MODE=true`, and a
   writable `STASHSEEK_LOG_DIR=/var/log/notebook-agent`. This deployment's
   URL-only evaluator uses the HTTPS `/mcp/c/<token>` capability path; query
