@@ -69,7 +69,7 @@ describe("ShowcasePage", () => {
     expect(screen.getByRole("link", { name: /进入资料库/ })).toHaveAttribute("href", "/login");
     expect(screen.getByRole("link", { name: "下载浏览器插件" })).toHaveAttribute(
       "href",
-      "/assets/stashseek-chat-browser-companion-production-0.2.0.zip",
+      "/assets/stashseek-chat-browser-companion-production-0.2.2.zip",
     );
     expect(screen.getByLabelText("从视频到可追溯答案的处理路径")).toBeInTheDocument();
     expect(screen.queryByText("来源可核对")).not.toBeInTheDocument();

@@ -14,7 +14,7 @@ from app.asr.signing import new_audio_object_name, sign_audio_url
 from app.object_store import RawObjectStore
 
 ORIGIN = "https://kb.example.test"
-BASE_URL = "https://notebookai.example.test"
+BASE_URL = "https://stashseek.example.test"
 SECRET = "r" * 32
 MAX_TTL = 7200
 MAX_BYTES = 1_000_000

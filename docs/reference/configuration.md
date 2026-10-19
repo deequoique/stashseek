@@ -243,6 +243,7 @@ ASR 终态失败使用稳定错误码：`asr_too_long`、`asr_audio_unavailable`
 | `WEB_FORWARDED_ALLOW_IPS` | `127.0.0.1` | uvicorn 可信 forwarded-header 来源；不能是 `*` |
 | `WEB_PUBLISH_BUDGET_SECONDS` | `5` | Web 保存/重试 publish budget |
 | `CHANNEL_LINK_TTL_SECONDS` | `600` | Web compatibility link token 的有效期 |
+| `PRIVACY_CONTACT_EMAIL` | `deequoique@gmail.com` | 公开隐私政策页 `GET /privacy`（中英双语，无需登录，由 API 服务自己提供）显示的联系邮箱，用于账号删除和数据导出请求；必须是合法邮箱，空值或非法值启动即失败。页面里的回收站天数取自 `TRASH_RETENTION_DAYS` |
 
 `WEB_ORIGIN` 是旧的 channel-approved Web 登录和兼容构建入口；生产的
 `app.api.runtime.build_web_app` 使用 `WEB_PUBLIC_ORIGIN` + email auth。两者都
@@ -264,7 +265,7 @@ ASR 终态失败使用稳定错误码：`asr_too_long`、`asr_audio_unavailable`
 
 开发时的 `chrome-extension://*` 仅在 `STASHSEEK_ENV=development` 且 Web
 只绑定 loopback 时允许。当前 extension 的平台范围是 YouTube 和
-NTULearn/Kaltura；插件在浏览器本地读取已授权字幕，服务端只收到规范化 cue、
+Bilibili（0.2.1 起不再读取 NTULearn/Kaltura）；插件在浏览器本地读取已授权字幕，服务端只收到规范化 cue、
 公开 metadata 和无秘密 canonical reference。
 
 ### 页面即时问答（侧边栏）

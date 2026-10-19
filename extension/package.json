@@ -1,6 +1,6 @@
 {
   "name": "stashseek-chat-browser-companion",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -12,6 +12,7 @@
     "audit:local": "node scripts/audit-package.mjs local",
     "package": "pnpm build && pnpm run audit",
     "package:local": "pnpm build:local && pnpm run audit:local",
+    "package:release": "node scripts/package-release.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

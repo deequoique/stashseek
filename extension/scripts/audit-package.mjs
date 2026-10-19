@@ -12,16 +12,20 @@ const expectedHosts = [
   "https://www.youtube.com/*",
   "https://youtu.be/*",
   "https://www.bilibili.com/*",
-  "https://ntulearn.ntu.edu.sg/*",
-  "https://ntulearnvideo.ntu.edu.sg/*",
-  "https://ntulearnv1.ntu.edu.sg/*",
-  "https://cdnapisec.kaltura.com/*",
   apiHostPermission(target),
 ];
 
 if (JSON.stringify(manifest.permissions) !== JSON.stringify(expectedPermissions)) throw new Error("unexpected extension permissions");
 if (JSON.stringify(manifest.host_permissions) !== JSON.stringify(expectedHosts)) throw new Error("unexpected extension hosts");
 if (manifest.content_security_policy || manifest.externally_connectable) throw new Error("unexpected extension execution boundary");
+const expectedIcons = { 16: "icons/icon-16.png", 32: "icons/icon-32.png", 48: "icons/icon-48.png", 128: "icons/icon-128.png" };
+if (JSON.stringify(manifest.icons) !== JSON.stringify(expectedIcons)) throw new Error("unexpected extension icons");
+if (JSON.stringify(manifest.action?.default_icon) !== JSON.stringify({ 16: expectedIcons[16], 32: expectedIcons[32] })) {
+  throw new Error("unexpected toolbar icon");
+}
+for (const path of Object.values(expectedIcons)) {
+  if (!existsSync(resolve(dist, path))) throw new Error(`icon missing from the package: ${path}`);
+}
 if (manifest.action?.default_popup) throw new Error("the toolbar action must open the side panel, not a popup");
 if (manifest.side_panel?.default_path !== "sidepanel.html") throw new Error("unexpected side panel entry");
 if (!existsSync(resolve(dist, manifest.side_panel.default_path))) throw new Error("side panel document missing from the package");

@@ -8,7 +8,6 @@ import type { WorkerApi } from "../sidepanel/workerApi";
 
 export const YT_A = "https://www.youtube.com/watch?v=aaaaaaaaaaa";
 export const YT_B = "https://www.youtube.com/watch?v=bbbbbbbbbbb";
-export const KALTURA_URL = "https://ntulearnv1.ntu.edu.sg/media/t/1_abcdefgh";
 
 export function youtubePage(id = "aaaaaaaaaaa", overrides: Partial<PageCapture> = {}): PageCapture {
   const url = `https://www.youtube.com/watch?v=${id}`;
@@ -59,19 +58,9 @@ export function noCaptionBilibiliPage(part = 1): PageCapture {
   return { ...bilibiliPage(part), caption: { status: "unavailable", source: null, language: null, cues: [] } };
 }
 
-export function noCaptionPage(platform: "youtube" | "ntu_kaltura"): PageCapture {
-  const base = platform === "youtube" ? youtubePage() : {
-    ...youtubePage(),
-    platform: "ntu_kaltura" as const,
-    platform_id: "1_abcdefgh",
-    canonical_url: KALTURA_URL,
-    page_url: KALTURA_URL,
-  };
+export function noCaptionPage(): PageCapture {
   return {
-    ...base,
-    metadata: platform === "youtube"
-      ? base.metadata
-      : { ...base.metadata, title: null, author: null, duration_sec: null, description: null },
+    ...youtubePage(),
     caption: { status: "unavailable", source: null, language: null, cues: [] },
   };
 }
@@ -213,6 +202,7 @@ export function makeEnvironment(options: {
     now: () => clock.now,
     isVisible: () => clock.visible,
     workspaceUrl: (route) => `chrome-extension://test/workspace.html#${route}`,
+    privacyUrl: () => "https://api.test/privacy",
     createId: () => `message-${++ids}`,
     createConversationId: () => `page-${String(++conversations).padStart(32, "0")}`,
     settleDelayMs: 0,

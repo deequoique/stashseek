@@ -11,6 +11,24 @@
 - The public prefix is fixed at `/api/v1`. Do not advertise a configurable
   prefix that the canonical routers cannot honor.
 
+## Public privacy policy page
+
+- `GET /privacy` (also `/privacy/`, and HEAD) and `GET /privacy/privacy.css` are
+  public, login-free routes owned by `app/api/privacy.py`. `create_app`
+  registers them before any SPA catch-all, so they work whether or not a
+  `static_dir` is mounted.
+- The page is bilingual static HTML in `app/static/privacy/` with one external
+  stylesheet. No inline `<style>`, `style=`, `<script>` or event handler: the
+  CSP is `script-src 'self'; style-src 'self'`.
+- Only the contact email (`PRIVACY_CONTACT_EMAIL`), the recycle-bin days
+  (`TRASH_RETENTION_DAYS`), the effective date and the service origin are
+  substituted, each HTML-escaped. The origin is the request's scheme and Host
+  (no hard-coded domain, so a domain transition needs no code change); it is
+  display text only. Processors are named by category, never by provider.
+- Any change to what the extension reads or the service stores must update the
+  policy text and `PRIVACY_EFFECTIVE_DATE` together; `tests/test_privacy_page.py`
+  pins the claims the code guarantees.
+
 ## Email authentication contract
 
 - Production browser login is email-only and uses:

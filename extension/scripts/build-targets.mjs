@@ -1,5 +1,5 @@
 export const apiOrigins = Object.freeze({
-  production: "https://notebookai.deequoique.tech",
+  production: "https://stashseek.deequoique.tech",
   local: "http://127.0.0.1:8000",
 });
 

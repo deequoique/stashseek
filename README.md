@@ -6,9 +6,9 @@
 
 StashSeek Chat is a browser-first conversational Agent for the videos and content you have saved. Save a source, ask a question, and get the matching video with evidence and timestamps instead of an untraceable summary.
 
-[Explore the product and public demo →](https://notebookai.deequoique.tech/)
+[Explore the product and public demo →](https://stashseek.deequoique.tech/)
 
-[![StashSeek Chat product homepage: chat with everything you've saved](docs/assets/readme/product-home.jpg)](https://notebookai.deequoique.tech/)
+[![StashSeek Chat product homepage: chat with everything you've saved](docs/assets/readme/product-home.jpg)](https://stashseek.deequoique.tech/)
 
 **EAZO Global Hackathon Project**
 
@@ -49,7 +49,7 @@ The Web library and MCP are the core entry points. If you already work in Telegr
 
 StashSeek Chat is not another link list or filing system. It closes a traceable loop from source to answer.
 
-[![StashSeek Chat's flow: save a source, ask a question, and receive an evidence-backed answer](docs/assets/readme/product-flow.jpg)](https://notebookai.deequoique.tech/#process)
+[![StashSeek Chat's flow: save a source, ask a question, and receive an evidence-backed answer](docs/assets/readme/product-flow.jpg)](https://stashseek.deequoique.tech/#process)
 
 1. **Save a video source:** save a video link from the Web library or an enabled chat entry point.
 2. **Prepare it asynchronously:** the system extracts titles, chapters, and captions in the background while you continue browsing.
@@ -70,7 +70,7 @@ The same flow also provides:
 
 A complete answer contains more than a conclusion. It shows how many caption passages supported the response, the corresponding source evidence, and timestamps that take you back to the video. Read the answer first, then verify each point without replaying the entire source.
 
-[![StashSeek Chat public demo showing an answer with three verifiable video timestamps](docs/assets/readme/product-evidence-demo.jpg)](https://notebookai.deequoique.tech/#demo)
+[![StashSeek Chat public demo showing an answer with three verifiable video timestamps](docs/assets/readme/product-evidence-demo.jpg)](https://stashseek.deequoique.tech/#demo)
 
 The image above comes from the product page's public preset demo. It does not call a model or upload data; it only demonstrates the path from question to answer to source timestamp. In normal use, the preset source is replaced by content from your own library. The current public product page is presented in Chinese.
 
@@ -86,7 +86,7 @@ MCP connects desktop agents, automation, and other MCP clients through `stdio` o
 
 ### Browser companion
 
-The browser companion is an optional Chrome/Chromium extension. After pairing and approving it in the Web account, it can read captions from supported YouTube and NTULearn/Kaltura pages and submit normalized captions to StashSeek Chat; you can then ask through a currently enabled conversation surface and return to the matching video. It is not a generic authenticated-site scraper or a media uploader, and it does not send page cookies, playback credentials, or signed caption URLs to the server. Paired devices can be listed and revoked from the Web account.
+The browser companion is an optional Chrome/Chromium extension. After pairing and approving it in the Web account, it can read captions from supported YouTube and Bilibili pages and submit normalized captions to StashSeek Chat; you can then ask through a currently enabled conversation surface and return to the matching video. It is not a generic authenticated-site scraper or a media uploader, and it does not send page cookies, playback credentials, or signed caption URLs to the server. Paired devices can be listed and revoked from the Web account.
 
 ### Telegram and WeChat
 
@@ -98,7 +98,7 @@ Telegram and WeChat are optional LangBot bridge channels, not prerequisites for 
 | --- | --- |
 | YouTube | Server-side ingestion for ordinary video URLs; it depends on readable captions and does not invent verifiable content when no caption is available. |
 | Bilibili | Server-side ingestion for ordinary video URLs, using only captions accessible without persisting an account cookie. Login-only or server-invisible captions cannot be bypassed by the connector. |
-| Browser companion | Currently adapted to YouTube and specific NTULearn/Kaltura pages; it is not support for arbitrary websites or a general audio/video uploader. |
+| Browser companion | Currently adapted to YouTube and Bilibili video pages; it is not support for arbitrary websites or a general audio/video uploader. |
 | Evidence and answers | Citations come only from evidence retrieved from the current user's library during the current run; sources and timestamps are rendered by the server. Insufficient evidence produces a bounded result. |
 | Isolation and channels | Web, MCP, Telegram, and WeChat stay within the user-space boundary; LangBot and the browser companion are optional components. |
 | Not shipped as a general feature | ASR is not a generally available ingestion path, and WeChat article ingestion is not implemented. |

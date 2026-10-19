@@ -3,6 +3,7 @@ import { type FormEvent, useState } from "react";
 import { BILIBILI_NO_CAPTIONS_HINT, workerErrorCopy } from "./copy";
 import type { PanelDeps } from "./deps";
 import { PanelLogin } from "./PanelLogin";
+import { PrivacyLink } from "./PrivacyLink";
 import { QaThread } from "./QaThread";
 import { isActiveCollect } from "./useCollect";
 import { questionBlock, usePageQa, type VideoSession } from "./usePageQa";
@@ -10,7 +11,7 @@ import { questionBlock, usePageQa, type VideoSession } from "./usePageQa";
 const MAX_QUESTION_CHARS = 4000;
 const SUGGESTIONS = ["这个视频讲了什么？", "刚才说的是什么意思？"];
 
-const PLATFORM_LABEL = { youtube: "YouTube", ntu_kaltura: "NTULearn", bilibili: "哔哩哔哩" } as const;
+const PLATFORM_LABEL = { youtube: "YouTube", bilibili: "哔哩哔哩" } as const;
 
 interface PageWorkspaceProps {
   deps: PanelDeps;
@@ -172,6 +173,7 @@ export function PageWorkspace({ deps, paired, pageQa, onPairedChange, onSessionI
 
       <footer className="sp-footer">
         <button className="text-button" type="button" onClick={() => { void deps.worker.openWorkspace(); }}>打开工作区</button>
+        <PrivacyLink deps={deps} />
       </footer>
     </div>
   );

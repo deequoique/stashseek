@@ -6,9 +6,9 @@
 
 StashSeek Chat（搜藏助手）是一个浏览器优先的对话式 Agent，专门搜索你已经收藏的视频和内容。保存来源后直接问一句，就能找到对应视频、原文依据和时间戳，而不是得到一个无法核对的总结。
 
-[在线体验产品介绍与公开演示 →](https://notebookai.deequoique.tech/)
+[在线体验产品介绍与公开演示 →](https://stashseek.deequoique.tech/)
 
-[![StashSeek Chat 产品首页：和收藏过的内容直接对话](docs/assets/readme/product-home.jpg)](https://notebookai.deequoique.tech/)
+[![StashSeek Chat 产品首页：和收藏过的内容直接对话](docs/assets/readme/product-home.jpg)](https://stashseek.deequoique.tech/)
 
 **EAZO Global Hackathon Project**
 
@@ -49,7 +49,7 @@ Web 资料库和 MCP 提供核心入口；如果你已经使用 Telegram 或微�
 
 搜藏助手的核心不是再建一个链接列表或分类系统，而是让你通过对话直接找到可追溯的来源。
 
-[![搜藏助手使用流程：保存来源、直接提问、生成带依据的回答](docs/assets/readme/product-flow.jpg)](https://notebookai.deequoique.tech/#process)
+[![搜藏助手使用流程：保存来源、直接提问、生成带依据的回答](docs/assets/readme/product-flow.jpg)](https://stashseek.deequoique.tech/#process)
 
 1. **保存视频来源：**在 Web 或浏览器插件中保存视频链接。
 2. **异步准备内容：**系统在后台提取标题、章节与字幕；你可以继续浏览。
@@ -70,7 +70,7 @@ Web 资料库和 MCP 提供核心入口；如果你已经使用 Telegram 或微�
 
 一次完整回答不只有结论，还包括这次检索使用了多少个字幕片段、对应的原文依据，以及可以跳回视频的时间点。你可以先读答案，再沿着证据逐条核对，而不必重新浏览整段视频。
 
-[![搜藏助手公开演示：回答附带三个可核对的视频时间点](docs/assets/readme/product-evidence-demo.jpg)](https://notebookai.deequoique.tech/#demo)
+[![搜藏助手公开演示：回答附带三个可核对的视频时间点](docs/assets/readme/product-evidence-demo.jpg)](https://stashseek.deequoique.tech/#demo)
 
 上图来自产品页的公开预设演示：它不会调用模型或上传数据，仅用于展示“问题 → 回答 → 原文时间点”的交互。实际使用时，示例来源会替换为你自己资料库中的内容。
 
@@ -86,7 +86,7 @@ MCP 适合接入桌面 Agent、自动化工具或其他 MCP 客户端，支持 `
 
 ### 浏览器伴侣
 
-浏览器插件是可选的 Chrome/Chromium 扩展。你在 Web 中完成配对和批准后，它可以从当前的 YouTube 或 NTULearn/Kaltura 页面读取已适配的字幕，并把规范化后的字幕提交到 StashSeek Chat；随后可以通过当前已启用的对话入口提问并找到对应视频。它不是任意登录网站的通用采集器，也不会把页面 Cookie、播放凭据或签名字幕 URL 交给服务端。
+浏览器插件是可选的 Chrome/Chromium 扩展。你在 Web 中完成配对和批准后，它可以从当前的 YouTube 或哔哩哔哩页面读取已适配的字幕，并把规范化后的字幕提交到 StashSeek Chat；随后可以通过当前已启用的对话入口提问并找到对应视频。它不是任意登录网站的通用采集器，也不会把页面 Cookie、播放凭据或签名字幕 URL 交给服务端。
 
 ### Telegram 与微信
 
@@ -98,7 +98,7 @@ Telegram 和微信通过可选的 LangBot bridge 接入，不是核心运行的�
 | --- | --- |
 | YouTube | 支持普通视频链接的服务器端导入；依赖可读取的字幕，平台没有可用字幕时不会凭空生成可核验内容。 |
 | Bilibili | 支持普通视频链接；仅使用服务器无需持久化账号 Cookie 即可读取的字幕。登录后或服务器不可见的字幕不能通过当前服务器 connector 绕过访问限制。 |
-| 浏览器伴侣 | 当前适配 YouTube 与 NTULearn/Kaltura 的特定页面，不代表支持任意网站；它读取字幕，不是通用音视频上传器。 |
+| 浏览器伴侣 | 当前适配 YouTube 与哔哩哔哩的视频页面，不代表支持任意网站；它读取字幕，不是通用音视频上传器。 |
 | 证据与回答 | 只引用当前用户资料库中本轮检索到的证据；来源和时间戳由服务端渲染。引用依据不足时返回受限结果。 |
 | 隔离与渠道 | Web、MCP、Telegram 和微信都在用户空间边界内运行；LangBot 与浏览器伴侣均为可选组件。 |
 | 尚未提供 | ASR 尚不是通用已发布能力；微信公众号文章导入也尚未实现。 |

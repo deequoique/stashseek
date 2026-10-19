@@ -85,7 +85,7 @@ notebook_run .venv/bin/python -m app.cli mcp-grant revoke <grant-id>
 
 按[使用 Web 资料库](use-web-library.md)打开“添加视频”，一次最多提交 10 个
 YouTube 或 Bilibili 普通视频链接。提交后先看到 `等待整理`，worker 完成后才会变成
-`可阅读`。服务器不能读取的受限 YouTube 或 NTULearn/Kaltura 页面可以改用
+`可阅读`。服务器不能读取的受限 YouTube 页面可以改用
 [浏览器伴侣](use-browser-companion.md)。浏览器伴侣目前不支持 Bilibili；登录后或
 URL-only 的 Bilibili 字幕应保留 `needs_extension` 状态，等待受支持的导入路径，
 不要反复重试或尝试绕过平台权限。

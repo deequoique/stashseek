@@ -215,7 +215,7 @@ def test_end_to_end_with_a_real_transcriber_and_fake_providers(tmp_path):
 
     settings = SimpleNamespace(
         asr_max_duration_seconds=14_400,
-        asr_public_base_url="https://notebookai.example.com",
+        asr_public_base_url="https://stashseek.example.com",
         asr_audio_url_secret="s" * 40,
         asr_audio_url_ttl_seconds=7_200,
         fun_asr_model="fun-asr",

@@ -7,7 +7,7 @@
 
 - [启用完整资料库](run-full-library.md)：从只读运行时切换到保存视频、后台整理和条目管理。
 - [使用 Web 资料库](use-web-library.md)：登录、保存链接、搜索、查看字幕与时间戳、归档和重试。
-- [使用浏览器伴侣](use-browser-companion.md)：在当前 YouTube 或 NTULearn/Kaltura 页面读取字幕并配对设备。
+- [使用浏览器伴侣](use-browser-companion.md)：在当前 YouTube 或哔哩哔哩页面读取字幕并配对设备。
 
 ## 连接入口
 
