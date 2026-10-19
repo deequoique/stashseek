@@ -734,3 +734,44 @@ Production YouTube was blocked from the OVH datacenter IP. Added a server-local 
 
 - Merge PR #29; rename YOUTUBE_PROXY_URL to US_VIDEO_PROXY_URL in prod env right before approving the Production gate; reinstall filter, LogLevel Notice, restart egress, Bilibili canary
 - Buy Evomi Core Residential pay-as-you-go before the trial ends (~2026-10-17)
+
+
+## Session 25: Close side-panel page Q&A and Bilibili Trellis tasks
+
+**Date**: 2026-10-19
+**Task**: Close side-panel page Q&A and Bilibili Trellis tasks
+**Branch**: `dev`
+
+### Summary
+
+The side-panel page Q&A and Bilibili code was already on dev and on main (PR #32, extension 0.2.0, merged 2026-10-17), but the Trellis records were never closed. Checked every acceptance item against code and tests, ticked those that are proven, archived the two child tasks, and left the parent open because 10-15-web-companion-build has not started. lane said they only tested the extension's subtitle summary; the other live checks were not run and moved into another task, so they are recorded as not verified.
+
+### Main Changes
+
+- Ticked prd.md acceptance items of 10-15-side-panel-page-qa and 10-17-bilibili-side-panel with test and file evidence; added 收尾记录 and a 完成情况 table to implement.md
+- Ticked the cross-child criteria in 10-15-extension-page-qa/prd.md and added a children status table
+- Archived 10-15-side-panel-page-qa and 10-17-bilibili-side-panel; kept the parent 10-15-extension-page-qa open for 10-15-web-companion-build
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c6d2044` | (see git log) |
+| `966dfd4` | (see git log) |
+| `07fe844` | (see git log) |
+| `9420cea` | (see git log) |
+| `7076283` | (see git log) |
+
+### Testing
+
+- [OK] CI workflow Extension and API contract passed on main at 9daf552 (PR #32); read-only check of test names and code, nothing re-run
+- [NOT RUN] Bilibili logged-in AI subtitles, ?p=2, 收藏第1P, NTULearn/Kaltura, first-delta timing, real-player seek, pot on two videos, log grep
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Live checks above were moved by lane into another task (not named); confirm which one carries them
+- Start 10-15-web-companion-build, or archive the parent 10-15-extension-page-qa once lane decides to drop it

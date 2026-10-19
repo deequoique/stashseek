@@ -124,3 +124,20 @@
 - Each checklist step is its own commit on the feature branch.
 - Server rollback: `PAGE_QA_ENABLED=false`.
 - R0 can stand alone, since it only relaxes a header for Bearer requests.
+
+## 完成情况 (2026-10-19)
+
+Status is checked against the code on `dev` and the PR #32 release on `main`
+(`7076283`, merged as `9daf552`). Steps 1–7 and 9 are done; step 8 is partly open.
+
+| # | Step | Status | Evidence |
+| --- | --- | --- | --- |
+| 1 | R0 Bearer without the CSRF header | done | `tests/test_conversation_extension_transport.py` (Bearer without header OK; cookie without or with a wrong header rejected; correct header OK; header optional in the schema). |
+| 2 | `transcript.py` and `bm25.py` | done | `tests/test_page_qa_transcript.py` (19 tests: 30 s / 4 s boundaries, CJK and Latin tokens, playback window, cap, determinism, `start_sec` chapters). |
+| 3 | `service.py` | done | `tests/test_page_qa_service.py` (23 tests) and `tests/test_page_qa_guard.py`: marker split across chunks, more than 8 markers, idempotent `message_id`, no cue text in rows or `caplog`. |
+| 4 | Route and wiring | done | `tests/test_page_qa_api.py` (24 tests): oversized body, unknown field, capture Bearer, bad Origin, unsupported platform, rate limit, flag off, cookie with CSRF. OpenAPI artifacts exported and checked by `pnpm check:api` in CI. |
+| 5 | Worker and page functions | done | `page-capture.test.ts` and `worker.test.ts`: `READ_PAGE`, `PLAYBACK`, `SEEK` (YouTube, Kaltura frames), `SAVE_CAPTURE`, YouTube description and chapters, `pot` read. |
+| 6 | Side panel | done | Manifest, audit and `sidepanel/manifest.test.ts`; `SidePanel.test.tsx` (login, page states, Q&A, citations); `ChatPage.test.tsx` read-only page threads; `SidePanelCollect.test.tsx`, `steps.test.ts`, `eta.test.ts`, `itemPoller.test.ts` for R8/R9. Version 0.2.0 kept in step (`manifest.test.ts`). |
+| 7 | Full gates | done | The `Extension and API contract` workflow passed on main at `9daf552`. PR #32 body: backend suite 1521 passed with 6 failures equal to the `main` baseline; extension 514 vitest; local build and audit pass. The backend suite and the local target were not re-run in this closing pass. `trellis-check` on the full diff is not recorded. |
+| 8 | Local smoke | **partly not run** | The PR #32 body lists a smoke (YouTube and Bilibili Q&A, 「收藏视频」 progress, citation seek, first delta ≈1–2 s), as a self-report that was not independently confirmed. Not run or not recorded: SPA navigation, a >2 h video, a caption-less video, save-then-repeat, the log grep, and the NTULearn/Kaltura part that was assigned to the user. lane (2026-10-19): only the extension's subtitle summary was tested, and the remaining live checks moved into another task. |
+| 9 | Phase 3 | done | Specs `browser-companion-capture.md`, `web-browser-runtime.md` and `logging-guidelines.md` were updated in `7076283`. The feature commits are on `dev` and reached `main` through PR #32. |

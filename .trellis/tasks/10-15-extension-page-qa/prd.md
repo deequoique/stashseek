@@ -50,15 +50,53 @@ Ordering: `web-companion-build` must ship the extension zip produced after
 
 ## Cross-child acceptance criteria
 
-- [ ] The production extension zip that the web download entry links is the
+Checked 2026-10-19. A box is ticked only where code or tests prove it.
+
+- [x] The production extension zip that the web download entry links is the
       build containing the side panel. Version numbers in `extension/package.json`,
       `manifest.json`, and the download URL match.
+  - `extension/manifest.json` and `extension/package.json` are `0.2.0`;
+    `extension/src/app/browserCompanion.ts` links
+    `stashseek-chat-browser-companion-production-0.2.0.zip`;
+    `sidepanel/manifest.test.ts` 「keeps the manifest, package and client
+    versions in step」 asserts all of it.
+  - `main` carries `web/public/assets/stashseek-chat-browser-companion-production-0.2.0.zip`
+    (release `7076283`, PR #32).
+  - Note: on `main` the download entry belongs to the old `web/` SPA. Serving the
+    shared UI as the web companion is child `10-15-web-companion-build`, which has
+    not started.
 - [ ] No cue text from page Q&A appears in any database row, object-store key,
-      broker message, or log line. Verified by test and by a log grep during smoke.
-- [ ] Extension production and local builds each pass their per-target permission
+      broker message, or log line. Verified by test and by a log grep during
+      smoke.
+  - The test half holds: `tests/test_page_qa_api.py`
+    `test_end_to_end_turn_is_persisted_in_history_and_leaks_no_cue_text`;
+    `tests/test_page_qa_service.py`
+    `test_cue_text_never_reaches_logs_or_any_persisted_column_except_short_excerpts`.
+    `app/page_qa/` has no ingest, storage or queue dependency.
+  - **The log grep during a live smoke was not recorded.**
+- [x] Extension production and local builds each pass their per-target permission
       audit after `sidePanel` is added.
-- [ ] Specs updated: `browser-companion-capture.md` drops the stale "popup cannot
+  - The `Extension and API contract` workflow passed on main at `9daf552`
+    (production build and audit).
+  - The local target rests on the PR #32 body, not on a CI run.
+- [x] Specs updated: `browser-companion-capture.md` drops the stale "popup cannot
       read the library or initiate chat" claim and documents the page-Q&A contract.
+  - `browser-companion-capture.md` now describes the side panel and states
+    there is no `action.default_popup`. The page-Q&A route contract is in
+    `web-browser-runtime.md`; the transcript rule is in `logging-guidelines.md`
+    (all in `7076283`).
+
+## Status of the children (2026-10-19)
+
+| Child | Status |
+| --- | --- |
+| `10-15-side-panel-page-qa` | Closed. Shipped in PR #32; live checks not run. |
+| `10-17-bilibili-side-panel` | Closed. Shipped in PR #32; live checks not run. |
+| `10-15-web-companion-build` | Not started (planning). This is why the parent stays open. |
+
+lane (2026-10-19) said they only tested the extension's subtitle summary, and
+that the remaining live checks moved into another task. They did not name that
+task.
 
 ## Out of scope
 

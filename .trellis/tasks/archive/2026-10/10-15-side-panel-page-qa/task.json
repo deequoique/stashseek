@@ -3,7 +3,7 @@
   "name": "side-panel-page-qa",
   "title": "Side panel instant Q&A over the current video",
   "description": "",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "lane",
   "assignee": "lane",
   "createdAt": "2026-10-15",
-  "completedAt": null,
+  "completedAt": "2026-10-19",
   "branch": "dev",
   "base_branch": "dev",
   "worktree_path": null,
@@ -21,6 +21,6 @@
   "children": [],
   "parent": "10-15-extension-page-qa",
   "relatedFiles": [],
-  "notes": "",
+  "notes": "Closed 2026-10-19 by lane. Code shipped in PR #32. Live checks (first-delta timing, real-player seek, pot on 2 videos, NTULearn, log grep) not run; moved to another task. See prd.md 收尾记录.",
   "meta": {}
 }

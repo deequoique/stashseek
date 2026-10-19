@@ -61,3 +61,18 @@
    - Q&A with citations, and seek;
    - a `?p=2` part;
    - 「收藏视频」 on part 1.
+
+## 完成情况 (2026-10-19)
+
+Status is checked against the code on `dev` (`c6d2044`, `966dfd4`) and the PR #32
+release on `main`. Only step 7 is open.
+
+| # | Step | Status | Evidence |
+| --- | --- | --- | --- |
+| 1 | Contract | done | `app/browser_capture.py` and `extension/src/protocol.ts` accept `bilibili`. `tests/test_bilibili_capture.py` covers accept and reject cases, page-Q&A request and route, and timestamp URLs that keep `p`. |
+| 2 | Recognition | done | `extension/src/sidepanel/pageIdentity.test.ts`: 「identifies Bilibili videos by normalized id and part…」 and 「rejects Bilibili pages that are not a video」. |
+| 3 | Adapter | done | `page-capture.test.ts` 「Bilibili caption adapter」 (21 tests): human, AI and no-subtitle cases; stale state; untrusted host; redirect outside `hdslb.com`; oversized and streamed bodies; secret-free capture (no `auth_key`); MV3 serialisation test. |
+| 4 | Player | done | `page-capture.test.ts` 「Bilibili player control」 (7 tests): bpx API first, then `<video>`/`<bwp-video>`, top frame only. |
+| 5 | Permissions | done | `extension/manifest.json` has `https://www.bilibili.com/*`; `audit-package.mjs` host list; `bilibiliPackaging.test.ts`. |
+| 6 | Gates | done | The `Extension and API contract` workflow passed on main at `9daf552` (backend contract tests, Alembic heads, OpenAPI `--check`, typecheck, lint, vitest, production build and audit). PR #32 body: backend suite 1521 passed with 6 failures, the same as the `main` baseline; extension 514 vitest; local build and audit pass. The backend suite and the local target were not re-run in this closing pass. |
+| 7 | Live smoke (user) | **not run** | Logged-in AI subtitles with Q&A and seek, `?p=2`, 「收藏视频」 on part 1. lane (2026-10-19): only the extension's subtitle summary was tested, and the remaining live checks moved into another task. |

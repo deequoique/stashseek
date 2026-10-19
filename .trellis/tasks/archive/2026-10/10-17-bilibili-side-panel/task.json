@@ -3,7 +3,7 @@
   "name": "bilibili-side-panel",
   "title": "Bilibili support in the side panel",
   "description": "",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "lane",
   "assignee": "lane",
   "createdAt": "2026-10-17",
-  "completedAt": null,
+  "completedAt": "2026-10-19",
   "branch": "feat/side-panel-page-qa",
   "base_branch": "dev",
   "worktree_path": null,
@@ -21,6 +21,6 @@
   "children": [],
   "parent": "10-15-extension-page-qa",
   "relatedFiles": [],
-  "notes": "",
+  "notes": "Closed 2026-10-19 by lane. Code shipped in PR #32 (c6d2044, 966dfd4). Logged-in live smoke not run; moved to another task. See prd.md 收尾记录.",
   "meta": {}
 }
