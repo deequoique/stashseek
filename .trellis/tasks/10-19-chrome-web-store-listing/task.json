@@ -1,0 +1,28 @@
+{
+  "id": "chrome-web-store-listing",
+  "name": "chrome-web-store-listing",
+  "title": "Chrome Web Store listing preparation",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-10-19",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "dev",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-19-privacy-policy-page"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
