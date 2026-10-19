@@ -1,0 +1,16 @@
+{"file": ".trellis/tasks/10-18-stashseek-ingest-status/research/backend-ingest.md", "reason": "Worker state/fail_reason writers, error-code origins, ASR handoff, migrations, test DB setup"}
+{"file": ".trellis/tasks/10-18-stashseek-ingest-status/research/api-and-retrieval.md", "reason": "Library DTO/routes, retry gates, retrieval ready-gate, quota, capabilities, contract generation"}
+{"file": ".trellis/tasks/10-18-stashseek-ingest-status/research/extension-ui.md", "reason": "Side-panel collect flow, library/detail pages, polling, persistence, prototype vs CSS"}
+{"file": ".trellis/spec/guides/branch-and-delegation-workflow.md", "reason": "Worktree from dev, sub-agents never commit, DATABASE_URL test-branch rule"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Single Alembic head, migration discipline, alembic check in deploy"}
+{"file": ".trellis/spec/backend/knowledge-item-management.md", "reason": "Retry admission contract being relaxed to needs_action; tenant and deleted gates"}
+{"file": ".trellis/spec/backend/asr-transcription.md", "reason": "ASR handoff, asr_* error codes, capture platforms, audio cleanup"}
+{"file": ".trellis/spec/backend/ingest-completion-queue.md", "reason": "Completion event CHECK constraints that must not change"}
+{"file": ".trellis/spec/backend/browser-companion-capture.md", "reason": "capture.v1 re-collect on existing item, platforms"}
+{"file": ".trellis/spec/backend/bilibili-connector.md", "reason": "NeedsExtension/NeedsASR fallbacks for Bilibili"}
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "OpenAPI composition and capabilities route"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Generated openapi.json/schema.d.ts, no handwritten unions"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Extension layout, deps.ts/workerApi boundaries, colocated tests"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Component composition and accessibility"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "Polling and mutation conventions"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "URL/session state ownership for library search params and storage.session"}
