@@ -35,17 +35,37 @@ during a transition.
 
 ## Decisions (user)
 
+- **Direct cutover; no old domain** (user, 2026-10-19). `notebookai` is gone,
+  so 0.2.0 installs and MCP clients on the old URL must move to the new one.
+- **Production build and zip also drop NTULearn/Kaltura** (user, 2026-10-19).
+  There is one production build. The store zip is that build with `key`
+  removed.
+
+## Done on the production host (2026-10-19, main session via SSH; backups `*.bak-<ts>`)
+
+- `/etc/caddy/Caddyfile` site `notebookai…` became `stashseek.deequoique.tech`.
+  The Let's Encrypt certificate was issued.
+- `/etc/notebook-agent/notebook-agent.env`:
+  - `ASR_PUBLIC_BASE_URL` and `WEB_TRUSTED_PROXY_HOSTS` now use the new domain.
+  - `BROWSER_COMPANION_ALLOWED_ORIGINS` now also lists
+    `chrome-extension://jeemllapbelpglmpnhjfamcnoibpeail`.
+  - The env file overrides the unit's `Environment=` lines.
+- `/etc/systemd/system/notebook-agent.service`: `WEB_PUBLIC_ORIGIN` is now
+  `https://stashseek.deequoique.tech` (plus the same allowed-origins edit).
+- Verified: capabilities 200, `/login` 200, web auth Origin check accepts the
+  new origin and rejects the old one, the store-ID preflight returns 204, and
+  a random ID returns 403.
+
+## Previous decisions
+
 - New domain `stashseek.deequoique.tech`.
 - **The store build drops the NTULearn/Kaltura host permissions** (2026-10-19).
   The zip/production build is unchanged unless decided otherwise.
 
 ## Requirements (draft)
 
-- **D1 Caddy.**
-  - Serve `stashseek.deequoique.tech`.
-  - During the transition, `notebookai.deequoique.tech` keeps proxying `/api/*`,
-    `/mcp*` and extension traffic, and 308-redirects page navigations to the
-    new host. This is pending user confirmation.
+- **D1 Caddy reference.** Update `deploy/caddy/notebook-agent.caddy` to match the host:
+  a single `stashseek.deequoique.tech` site, with no old-domain block.
 - **D2.** `WEB_PUBLIC_ORIGIN` (main) and all docs, tests and specs move to the
   new domain.
 - **D3 Extension 0.2.1.**

@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/browser-companion-capture.md", "reason": "extension build targets, permissions audit, origin binding"}
+{"file": ".trellis/spec/backend/deployment-lifecycle.md", "reason": "deploy units/Caddy reference"}
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "WEB_PUBLIC_ORIGIN, privacy route"}
+{"file": ".trellis/spec/guides/branch-and-delegation-workflow.md", "reason": "dev first, Sonnet implements"}
