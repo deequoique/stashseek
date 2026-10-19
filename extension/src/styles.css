@@ -541,8 +541,7 @@ h2 { line-height: 1.1; }
 .status-pill { display: inline-flex; align-items: center; min-height: 25px; padding: 0.25rem 0.58rem; border-radius: 999px; background: #e4ded2; color: #504b43; font-size: 0.68rem; font-weight: 900; }
 .status-pill--ready { background: #d7e4df; color: #214c42; }
 .status-pill--processing, .status-pill--queued { background: #eee3c4; color: #775d1a; }
-.status-pill--failed { background: #f0d8d0; color: #863721; }
-.status-pill--needs_action { background: #e8dfcf; color: #765931; }
+.status-pill--failed, .status-pill--needs_action { background: #f0d8d0; color: #863721; }
 .status-pill--archived { background: #dddcd8; color: #585853; }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 1rem; margin-top: 2rem; color: var(--muted); font-size: 0.85rem; }
 

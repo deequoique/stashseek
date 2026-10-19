@@ -143,6 +143,7 @@ export interface FakeEnvironment {
   streamQuestion: ReturnType<typeof vi.fn<PanelDeps["streamQuestion"]>>;
   submitBatch: ReturnType<typeof vi.fn<PanelDeps["submitBatch"]>>;
   getItem: ReturnType<typeof vi.fn<PanelDeps["getItem"]>>;
+  retryItem: ReturnType<typeof vi.fn<PanelDeps["retryItem"]>>;
   collectStore: ReturnType<typeof memoryCollectStore>;
   /** Controls `deps.now` and `deps.isVisible`. */
   clock: { now: number; visible: boolean };
@@ -159,6 +160,8 @@ export function makeEnvironment(options: {
   pages?: Record<string, PageCapture>;
   paired?: boolean;
   pageQa?: boolean;
+  /** Platforms the server says it transcribes (capabilities.transcription_platforms). */
+  transcriptionPlatforms?: Array<"youtube" | "bilibili">;
 } = {}): FakeEnvironment {
   const pages: Record<string, PageCapture> = options.pages ?? { [YT_A]: youtubePage(), [YT_B]: youtubePage("bbbbbbbbbbb") };
   let active: PanelTab | null = options.tab === undefined ? { id: 7, url: YT_A } : options.tab;
@@ -196,10 +199,14 @@ export function makeEnvironment(options: {
   });
   const submitBatch = vi.fn<PanelDeps["submitBatch"]>(async () => batchResponse());
   const getItem = vi.fn<PanelDeps["getItem"]>(async () => libraryItem());
+  const retryItem = vi.fn<PanelDeps["retryItem"]>(async () => libraryItem({ lifecycle: "queued", stage: "queued" }));
   const collectStore = memoryCollectStore();
   const clock = { now: 1_000_000, visible: true };
   const getSession = vi.fn<PanelDeps["getSession"]>(async () => ({}));
-  const getCapabilities = vi.fn<PanelDeps["getCapabilities"]>(async () => ({ page_qa: options.pageQa ?? true }));
+  const getCapabilities = vi.fn<PanelDeps["getCapabilities"]>(async () => ({
+    page_qa: options.pageQa ?? true,
+    ...(options.transcriptionPlatforms ? { transcription_platforms: options.transcriptionPlatforms } : {}),
+  }));
 
   const deps: PanelDeps = {
     worker,
@@ -209,6 +216,7 @@ export function makeEnvironment(options: {
     streamQuestion,
     submitBatch,
     getItem,
+    retryItem,
     collectStore,
     now: () => clock.now,
     isVisible: () => clock.visible,
@@ -231,6 +239,7 @@ export function makeEnvironment(options: {
     streamQuestion,
     submitBatch,
     getItem,
+    retryItem,
     collectStore,
     clock,
     getSession,

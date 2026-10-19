@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import {
   ApiError,
@@ -9,6 +10,7 @@ import {
   type LibraryQuery,
 } from "../api/client";
 import type { BatchSubmitInput, BatchSubmitResponse, Capabilities, LibraryPageResponse } from "../api/contracts";
+import { lifecycleFilterLabel } from "../ingest/ingestCopy";
 import { AddVideosDialog } from "./AddVideosDialog";
 import { collectCollectionNames } from "./collections";
 import { LibraryEmptyState, LibraryErrorState, LibraryLoadingState } from "./LibraryStates";
@@ -22,6 +24,9 @@ interface LibraryPageProps {
   loadCapabilities?: () => Promise<Capabilities>;
   submitBatch?: (input: BatchSubmitInput) => Promise<BatchSubmitResponse>;
 }
+
+/** The server rejects a longer search term. */
+const SEARCH_MAX_LENGTH = 200;
 
 function libraryErrorDescription(error: unknown): string {
   if (!(error instanceof ApiError)) return "网络连接没有完成，请确认服务可用后重新加载。";
@@ -38,9 +43,14 @@ export function LibraryPage({
 }: LibraryPageProps) {
   const queryClient = useQueryClient();
   const searchFormRef = useRef<HTMLFormElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  // `?search=` fills the search once when the page opens; `?focus=search` puts the cursor in the box.
+  const [urlParams] = useSearchParams();
+  const focusSearch = urlParams.get("focus") === "search";
+  const [initialSearch] = useState(() => (urlParams.get("search") ?? "").trim().slice(0, SEARCH_MAX_LENGTH));
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [searchDraft, setSearchDraft] = useState("");
-  const [search, setSearch] = useState("");
+  const [searchDraft, setSearchDraft] = useState(initialSearch);
+  const [search, setSearch] = useState(initialSearch);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [knownCollections, setKnownCollections] = useState<string[]>([]);
@@ -92,6 +102,9 @@ export function LibraryPage({
         : next;
     });
   }, [library.data]);
+  useEffect(() => {
+    if (focusSearch) searchInputRef.current?.focus();
+  }, [focusSearch]);
   useEffect(() => {
     if (!suggestionsOpen) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -190,6 +203,7 @@ export function LibraryPage({
         >
           <label className="sr-only" htmlFor="library-search">搜索标题、作者或保存说明</label>
           <input
+            ref={searchInputRef}
             id="library-search"
             name="search"
             type="search"
@@ -228,12 +242,12 @@ export function LibraryPage({
           <span className="sr-only">按处理状态筛选</span>
           <select name="lifecycle" value={lifecycle} onChange={(event) => changeFilter(event.target.value)}>
             <option value="">全部状态</option>
-            <option value="ready">可阅读</option>
-            <option value="queued">等待整理</option>
-            <option value="processing">正在整理</option>
-            <option value="needs_action">字幕不可用</option>
-            <option value="failed">整理失败</option>
-            <option value="archived">已归档</option>
+            <option value="ready">{lifecycleFilterLabel("ready")}</option>
+            <option value="queued">{lifecycleFilterLabel("queued")}</option>
+            <option value="processing">{lifecycleFilterLabel("processing")}</option>
+            <option value="needs_action">{lifecycleFilterLabel("needs_action")}</option>
+            <option value="failed">{lifecycleFilterLabel("failed")}</option>
+            <option value="archived">{lifecycleFilterLabel("archived")}</option>
           </select>
         </label>
         <label className="select-field">

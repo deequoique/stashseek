@@ -33,6 +33,7 @@ const readyItem: LibraryItem = {
 function renderPage(
   fetchItems: () => Promise<LibraryPageResponse>,
   capabilityOverrides: Partial<Capabilities> = {},
+  route = "/library",
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const capabilities: Capabilities = {
@@ -49,7 +50,7 @@ function renderPage(
   };
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[route]}>
         <LibraryPage
           fetchItems={fetchItems}
           loadCapabilities={vi.fn().mockResolvedValue(capabilities)}
@@ -130,6 +131,109 @@ describe("library page", () => {
     expect(within(workRegion).queryByText("整理完成并可阅读后，会自动移到上方。失败或需要处理的视频会留在这里。")).not.toBeInTheDocument();
     expect(within(workRegion).getByRole("progressbar", { name: "当前整理进度" })).toHaveAttribute("value", "65");
     expect(within(workRegion).getByText("约 65%")).toBeInTheDocument();
+  });
+
+  it("shows why unfinished videos are not searchable by content, next to their title", async () => {
+    const reason = { code: "asr_no_speech", category: "no_speech", retry_useful: false } as const;
+    const unfinished: LibraryItem = {
+      ...readyItem,
+      public_id: "failed-video",
+      title: "没有语音的视频",
+      lifecycle: "failed",
+      reason,
+      body_searchable: false,
+      available_actions: ["retry", "archive"],
+    };
+    const needsAction: LibraryItem = {
+      ...readyItem,
+      public_id: "needs-action-video",
+      title: "要登录才能读字幕",
+      lifecycle: "needs_action",
+      reason: { code: "bilibili_login_required", category: "login_required", retry_useful: false },
+      body_searchable: false,
+      available_actions: ["archive"],
+    };
+    renderPage(async () => ({ items: [readyItem, unfinished, needsAction], total: 3, page: 1, page_size: 20, is_true_first_empty: false }));
+
+    const workRegion = await screen.findByRole("region", { name: "整理队列" });
+    expect(within(workRegion).getAllByText("整理失败")).toHaveLength(2);
+    expect(within(workRegion).getByText("没有字幕，也没有识别出语音")).toBeInTheDocument();
+    expect(within(workRegion).getByText("这个视频的字幕需要登录 B站 才能读取")).toBeInTheDocument();
+    expect(within(workRegion).getAllByText("正文不可检索")).toHaveLength(2);
+    const readableRegion = screen.getByRole("region", { name: "可阅读视频" });
+    expect(within(readableRegion).getByText("可检索")).toBeInTheDocument();
+    expect(within(readableRegion).queryByText("正文不可检索")).not.toBeInTheDocument();
+  });
+
+  it("names every status filter by the pill the user sees on the cards", async () => {
+    renderPage(async () => ({ items: [readyItem], total: 1, page: 1, page_size: 20, is_true_first_empty: false }));
+
+    const filter = await screen.findByRole("combobox", { name: "按处理状态筛选" });
+    const options = within(filter).getAllByRole("option").map((option) => [option.getAttribute("value"), option.textContent]);
+    expect(options).toEqual([
+      ["", "全部状态"],
+      ["ready", "可检索"],
+      ["queued", "排队中"],
+      ["processing", "整理中"],
+      ["needs_action", "需要处理"],
+      ["failed", "整理失败"],
+      ["archived", "已归档"],
+    ]);
+    for (const old of ["可阅读", "等待整理", "正在整理", "字幕不可用"]) {
+      expect(within(filter).queryByRole("option", { name: old })).not.toBeInTheDocument();
+    }
+  });
+
+  it("sends the lifecycle behind the option that was chosen", async () => {
+    const fetchItems = vi.fn().mockResolvedValue({ items: [readyItem], total: 1, page: 1, page_size: 20, is_true_first_empty: false });
+    const user = userEvent.setup();
+    renderPage(fetchItems);
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "按处理状态筛选" }), "需要处理");
+
+    await waitFor(() => expect(fetchItems).toHaveBeenLastCalledWith(expect.objectContaining({ lifecycle: "needs_action" })));
+  });
+
+  it("fills the search from the address and searches it once on opening", async () => {
+    const fetchItems = vi.fn().mockResolvedValue({ items: [readyItem], total: 1, page: 1, page_size: 20, is_true_first_empty: false });
+    renderPage(fetchItems, {}, "/library?search=%E8%AE%BF%E8%B0%88");
+
+    const searchbox = await screen.findByRole("searchbox", { name: "搜索标题、作者或保存说明" });
+    expect(searchbox).toHaveValue("访谈");
+    expect(fetchItems).toHaveBeenCalledTimes(1);
+    expect(fetchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "访谈" }));
+    expect(searchbox).not.toHaveFocus();
+  });
+
+  it("puts the cursor in the search box for focus=search, without searching anything", async () => {
+    const fetchItems = vi.fn().mockResolvedValue({ items: [readyItem], total: 1, page: 1, page_size: 20, is_true_first_empty: false });
+    renderPage(fetchItems, {}, "/library?focus=search");
+
+    const searchbox = await screen.findByRole("searchbox", { name: "搜索标题、作者或保存说明" });
+    await waitFor(() => expect(searchbox).toHaveFocus());
+    expect(searchbox).toHaveValue("");
+    expect(fetchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "" }));
+  });
+
+  it("does the same for both parameters together, and ignores a focus value it does not know", async () => {
+    const fetchItems = vi.fn().mockResolvedValue({ items: [readyItem], total: 1, page: 1, page_size: 20, is_true_first_empty: false });
+    const { unmount } = renderPage(fetchItems, {}, "/library?focus=search&search=Eric");
+    const searchbox = await screen.findByRole("searchbox", { name: "搜索标题、作者或保存说明" });
+    await waitFor(() => expect(searchbox).toHaveFocus());
+    expect(searchbox).toHaveValue("Eric");
+    unmount();
+
+    renderPage(fetchItems, {}, "/library?focus=filters");
+    const plain = await screen.findByRole("searchbox", { name: "搜索标题、作者或保存说明" });
+    expect(plain).not.toHaveFocus();
+  });
+
+  it("keeps a search term longer than the server accepts within its limit", async () => {
+    const fetchItems = vi.fn().mockResolvedValue({ items: [readyItem], total: 1, page: 1, page_size: 20, is_true_first_empty: false });
+    renderPage(fetchItems, {}, `/library?search=${"a".repeat(300)}`);
+
+    await screen.findByRole("searchbox", { name: "搜索标题、作者或保存说明" });
+    expect(fetchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "a".repeat(200) }));
   });
 
   it("shows the server-owned read-only state instead of opening the add flow", async () => {

@@ -29,6 +29,9 @@ export type BatchSubmitResponse = Schemas["BatchSaveResponse"];
 export type Chapter = Schemas["ChapterResponse"];
 export type LibraryItem = Schemas["LibraryItemResponse"];
 export type LibraryLifecycle = LibraryItem["lifecycle"];
+export type IngestStage = Schemas["IngestStageResponse"];
+export type IngestReason = Schemas["IngestReasonResponse"];
+export type IngestReasonCategory = IngestReason["category"];
 export type LibraryPageResponse = Schemas["LibraryPageResponse"];
 export type LibraryItemSummary = Pick<
   LibraryItem,
@@ -43,6 +46,9 @@ export type LibraryItemSummary = Pick<
   | "url"
   | "error_code"
   | "available_actions"
+  | "stages"
+  | "reason"
+  | "body_searchable"
 >;
 
 export type TranscriptBlock = Schemas["TranscriptBlockResponse"];

@@ -1,0 +1,44 @@
+/* Ingest status screens shared by the side panel (about 420px wide) and the workspace.
+   Palette and buttons come from ../styles.css; imported after it by both entries. */
+
+.ingest-progress, .ingest-unfinished { display: grid; gap: 0.6rem; min-width: 0; max-width: 32rem; }
+/* On the detail page the unfinished screen is a notice above the video, not a panel. */
+.detail-layout > .ingest-unfinished { margin-bottom: 1.6rem; padding: 1.1rem 1.2rem; border: 1px solid var(--line); border-radius: 1.2rem 1.2rem 1.2rem 0.35rem; background: rgba(255, 255, 255, 0.5); }
+.ingest-progress .eyebrow { margin: 0; font-size: 0.64rem; }
+.ingest-progress h2, .ingest-unfinished h2 { margin: 0; font-size: 1.1rem; line-height: 1.3; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.ingest-muted { margin: 0; color: var(--muted); font-size: 0.82rem; line-height: 1.6; }
+
+.ingest-steps { display: grid; margin: 0.1rem 0 0; padding: 0; border-top: 1px solid var(--line); list-style: none; }
+.ingest-step { display: grid; grid-template-columns: 1.4rem minmax(0, 1fr); align-items: start; gap: 0.5rem; padding: 0.65rem 0; border-bottom: 1px solid var(--line); color: var(--ink); font-size: 0.88rem; line-height: 1.5; }
+.ingest-step__mark { color: var(--muted); font-size: 1.05rem; font-weight: 900; line-height: 1.4; text-align: center; }
+.ingest-step > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.ingest-step.is-done .ingest-step__mark { color: var(--green); }
+.ingest-step.is-running { font-weight: 800; }
+/* The dotted circle is thin in most fonts; the stroke keeps it readable. */
+.ingest-step.is-running .ingest-step__mark { color: var(--accent-dark); -webkit-text-stroke: 0.6px currentColor; animation: ingest-pulse 1.1s ease-in-out infinite alternate; }
+.ingest-step.is-pending { color: var(--muted); }
+.ingest-step.is-pending .ingest-step__mark { font-size: 0.85rem; line-height: 1.7; }
+.ingest-step.is-failed { color: var(--accent-dark); }
+.ingest-step.is-failed .ingest-step__mark { color: var(--accent); }
+.ingest-step__note { display: block; margin-top: 0.15rem; color: var(--muted); font-size: 0.72rem; font-weight: 400; font-variant-numeric: tabular-nums; }
+
+.ingest-status { margin: 0; padding: 0.65rem 0.8rem; border-radius: 0.6rem 0.6rem 0.6rem 0.15rem; font-size: 0.84rem; line-height: 1.55; }
+.ingest-status--ready { background: rgba(49, 94, 83, 0.1); color: var(--green); font-weight: 800; }
+.ingest-status--error { border-left: 3px solid var(--accent); background: rgba(187, 75, 47, 0.09); color: var(--accent-dark); font-weight: 800; }
+
+.ingest-card { padding: 0.75rem 0.9rem; border: 1px solid var(--line); border-radius: 0.9rem 0.9rem 0.9rem 0.25rem; background: rgba(255, 255, 255, 0.46); }
+.ingest-card__title { margin: 0 0 0.15rem; color: var(--ink); font-size: 0.95rem; font-weight: 850; line-height: 1.4; overflow-wrap: anywhere; }
+.ingest-error { margin: 0; }
+
+.ingest-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.25rem; }
+.ingest-actions .button { flex: 1 1 8rem; max-width: 14rem; padding-inline: 0.8rem; text-align: center; }
+
+.card-reason { margin: 0.75rem 0 0; color: var(--accent-dark); font-size: 0.82rem; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; }
+.card-badge { margin: 0.5rem 0 0; }
+.status-pill + .ingest-badge { margin-left: 0.4rem; }
+.ingest-badge { display: inline-flex; align-items: center; min-height: 25px; padding: 0.2rem 0.55rem; border: 1px dashed var(--accent); border-radius: 999px; color: var(--accent-dark); font-size: 0.68rem; font-weight: 850; line-height: 1.3; }
+
+@keyframes ingest-pulse { from { opacity: 0.4; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .ingest-step.is-running .ingest-step__mark { animation: none; }
+}

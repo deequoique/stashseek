@@ -6,7 +6,7 @@ import type { CollectEntry } from "./collectModel";
 import { askFailure, errorCode } from "./copy";
 import type { PanelDeps, PanelTab } from "./deps";
 import { captureIdentityKey, identifyPage, type PageIdentity } from "./pageIdentity";
-import { useCollect } from "./useCollect";
+import { isActiveCollect, useCollect } from "./useCollect";
 
 export type ReadStatus = "idle" | "reading" | "ready" | "error";
 
@@ -60,6 +60,13 @@ export interface PageQaController {
   reread(): void;
   /** 「收藏视频」: save the current video to the library by the best available path. */
   collect(): void;
+  /** 「重新整理」 on a finished 「收藏视频」 block whose item did not finish. */
+  retryCollect(entryId: string): void;
+  /**
+   * 「重新收藏」: read the page again, then collect. The earlier read may predate a login that
+   * makes captions readable, so it is not reused.
+   */
+  recollect(): void;
   openCitation(citation: ConversationCitation): Promise<void>;
 }
 
@@ -246,7 +253,7 @@ export function usePageQa(deps: PanelDeps, onSessionInvalid: () => void, pairing
       return active?.url && identifyPage(active.url)?.key === value.key ? active.url : null;
     },
   });
-  const { collect: runCollect, resume: resumeCollect, stopPolling: stopCollectPolling } = collector;
+  const { collect: runCollect, retry: runRetryCollect, resume: resumeCollect, stopPolling: stopCollectPolling } = collector;
 
   const handleTab = useCallback((next: PanelTab | null) => {
     tabRef.current = next;
@@ -361,6 +368,15 @@ export function usePageQa(deps: PanelDeps, onSessionInvalid: () => void, pairing
   }, [scheduleRead]);
 
   const collect = useCallback(() => { void runCollect(); }, [runCollect]);
+  const retryCollect = useCallback((entryId: string) => { void runRetryCollect(entryId); }, [runRetryCollect]);
+
+  const recollect = useCallback(() => {
+    const current = sessionRef.current;
+    if (!current || current.thread.some(isActiveCollect)) return;
+    // An idle session without a page makes the collect read the page again and wait for it.
+    patchSession(current.conversationId, (value) => ({ ...value, readStatus: "idle", page: null, readError: null }));
+    void runCollect();
+  }, [patchSession, runCollect]);
 
   const openCitation = useCallback(async (citation: ConversationCitation) => {
     const current = sessionRef.current;
@@ -385,5 +401,5 @@ export function usePageQa(deps: PanelDeps, onSessionInvalid: () => void, pairing
   }, []);
 
   const visible = tab && identifyPage(tab.url) ? session : null;
-  return { tab, session: visible, notice, ask, retry, stop, reread, collect, openCitation };
+  return { tab, session: visible, notice, ask, retry, stop, reread, collect, retryCollect, recollect, openCitation };
 }

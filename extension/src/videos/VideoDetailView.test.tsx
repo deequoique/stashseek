@@ -288,6 +288,236 @@ describe("video detail", () => {
     expect(updateWhySaved).toHaveBeenCalledWith("新的保存说明 #产品调研 #AI_入门");
   });
 
+  describe("an item whose body is not searchable", () => {
+    const NO_SPEECH = { code: "asr_no_speech", category: "no_speech", retry_useful: false } as const;
+    const LOGIN_REQUIRED = { code: "bilibili_login_required", category: "login_required", retry_useful: false } as const;
+    const failed: LibraryItem = {
+      ...item,
+      lifecycle: "failed",
+      error_code: "asr_no_speech",
+      reason: NO_SPEECH,
+      stages: [{ key: "body", status: "failed", reason: NO_SPEECH }],
+      body_searchable: false,
+      available_actions: ["retry", "archive", "edit_why_saved", "open_source"],
+    };
+
+    function renderFailed(overrides: Partial<LibraryItem> = {}, props: Partial<Parameters<typeof VideoDetailView>[0]> = {}) {
+      const handlers = { onRetry: vi.fn(), onSearchTitles: vi.fn() };
+      render(
+        <VideoDetailView
+          item={{ ...failed, ...overrides }}
+          transcriptPages={[]}
+          onLoadMore={vi.fn()}
+          onArchive={vi.fn()}
+          onRestore={vi.fn()}
+          onUpdateWhySaved={vi.fn()}
+          {...handlers}
+          {...props}
+        />,
+      );
+      return handlers;
+    }
+
+    it("puts the unfinished screen at the top, with the real reason and a mark on the status", () => {
+      renderFailed();
+
+      const screenTop = screen.getByRole("region", { name: "收藏还在，整理没有完成" });
+      expect(within(screenTop).getByText("如何把信息变成理解")).toBeInTheDocument();
+      expect(within(screenTop).getByText("YouTube · 链接已保存")).toBeInTheDocument();
+      expect(within(screenTop).getByRole("status")).toHaveTextContent("没有字幕，也没有识别出语音，正文暂不可检索。");
+      expect(within(screenTop).getByText("再试一次大概率还是同样的结果。")).toBeInTheDocument();
+      expect(screen.getByText("整理失败")).toBeInTheDocument();
+      expect(screen.getByText("正文不可检索，可按标题 / 备注查找")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "在 YouTube 查看" })).toHaveAttribute("href", item.url);
+      expect(screen.getByText("整理知识管理方法")).toBeInTheDocument();
+    });
+
+    it("retries from the screen's main button, the one button of that name", async () => {
+      const user = userEvent.setup();
+      const handlers = renderFailed();
+
+      await user.click(screen.getByRole("button", { name: "重新整理" }));
+
+      expect(handlers.onRetry).toHaveBeenCalledOnce();
+    });
+
+    it("searches titles and notes from 「仅查标题 / 备注」, and leaves the button out when it cannot", async () => {
+      const user = userEvent.setup();
+      const handlers = renderFailed();
+      await user.click(screen.getByRole("button", { name: "仅查标题 / 备注" }));
+      expect(handlers.onSearchTitles).toHaveBeenCalledOnce();
+    });
+
+    it("has no search button without a way to search", () => {
+      renderFailed({}, { onSearchTitles: undefined });
+      expect(screen.queryByRole("button", { name: "仅查标题 / 备注" })).not.toBeInTheDocument();
+    });
+
+    it("disables the main button while an action is in flight", () => {
+      renderFailed({}, { actionPending: true });
+      expect(screen.getByRole("button", { name: "重新整理" })).toBeDisabled();
+    });
+
+    it("sends a login-required Bilibili item back to the video page instead of offering a retry", () => {
+      renderFailed({
+        lifecycle: "needs_action",
+        platform: "bilibili",
+        url: "https://www.bilibili.com/video/BV1xx411c7mD",
+        error_code: null,
+        reason: LOGIN_REQUIRED,
+        stages: [{ key: "body", status: "failed", reason: LOGIN_REQUIRED }],
+        available_actions: ["archive", "edit_why_saved", "open_source"],
+      });
+
+      const screenTop = screen.getByRole("region", { name: "收藏还在，整理没有完成" });
+      expect(within(screenTop).getByText("Bilibili · 链接已保存")).toBeInTheDocument();
+      expect(within(screenTop).getByRole("status")).toHaveTextContent("这个视频的字幕需要登录 B站 才能读取，正文暂不可检索。");
+      expect(within(screenTop).getByText("请先登录 B站，再在视频页重新收藏。")).toBeInTheDocument();
+      expect(within(screenTop).getByRole("link", { name: "打开视频页" })).toHaveAttribute("href", "https://www.bilibili.com/video/BV1xx411c7mD");
+      expect(screen.queryByRole("button", { name: "重新整理" })).not.toBeInTheDocument();
+      expect(screen.queryByText("再试一次大概率还是同样的结果。")).not.toBeInTheDocument();
+    });
+
+    it("shows an item that needs action the same way, with a retry", async () => {
+      const user = userEvent.setup();
+      const handlers = renderFailed({
+        lifecycle: "needs_action",
+        error_code: null,
+        reason: { code: "asr_disabled", category: "no_transcription", retry_useful: true },
+        stages: [{ key: "body", status: "failed", reason: { code: "asr_disabled", category: "no_transcription", retry_useful: true } }],
+      });
+
+      expect(screen.getByRole("status")).toHaveTextContent("没有字幕，暂时无法语音转写，正文暂不可检索。");
+      await user.click(screen.getByRole("button", { name: "重新整理" }));
+      expect(handlers.onRetry).toHaveBeenCalledOnce();
+    });
+
+    it("offers no retry when the server lists none", () => {
+      renderFailed({ available_actions: ["archive", "edit_why_saved", "open_source"] });
+
+      expect(screen.getByRole("region", { name: "收藏还在，整理没有完成" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "重新整理" })).not.toBeInTheDocument();
+    });
+
+    it("explains a server that sends no reason with a generic one", () => {
+      const legacy: LibraryItem = { ...failed, error_code: "ingestion_failed" };
+      delete legacy.reason;
+      delete legacy.stages;
+      delete legacy.body_searchable;
+      render(
+        <VideoDetailView item={legacy} transcriptPages={[]} onLoadMore={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} onRetry={vi.fn()} onUpdateWhySaved={vi.fn()} />,
+      );
+
+      expect(screen.getByRole("status")).toHaveTextContent("整理时出错了，正文暂不可检索。");
+      expect(screen.getByText("正文不可检索，可按标题 / 备注查找")).toBeInTheDocument();
+    });
+
+    it("tells a refusal for lack of quota from any other failure, inside the unfinished screen", () => {
+      const { unmount } = render(
+        <VideoDetailView item={failed} transcriptPages={[]} actionError actionQuotaExceeded onLoadMore={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} onRetry={vi.fn()} onUpdateWhySaved={vi.fn()} />,
+      );
+      expect(screen.getByRole("alert")).toHaveTextContent("处理额度不足，请稍后再试。");
+      expect(within(screen.getByRole("region", { name: "收藏还在，整理没有完成" })).getByRole("alert")).toBeInTheDocument();
+      unmount();
+
+      render(
+        <VideoDetailView item={failed} transcriptPages={[]} actionError onLoadMore={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} onRetry={vi.fn()} onUpdateWhySaved={vi.fn()} />,
+      );
+      expect(screen.getByRole("alert")).toHaveTextContent("操作未完成，请稍后重试。");
+    });
+
+    it("tells a refusal for lack of quota from any other failure, in the hero of an item that is fine", () => {
+      render(
+        <VideoDetailView item={item} transcriptPages={[]} actionError actionQuotaExceeded onLoadMore={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} onRetry={vi.fn()} onUpdateWhySaved={vi.fn()} />,
+      );
+      expect(screen.getByRole("alert", { name: "视频操作失败" })).toHaveTextContent("处理额度不足，请稍后再试。");
+    });
+
+    it("never shows the rate-limit copy the server could not produce", () => {
+      for (const code of ["youtube_rate_limited", "bilibili_rate_limited"]) {
+        const { unmount } = render(
+          <VideoDetailView item={{ ...failed, error_code: code }} transcriptPages={[]} onLoadMore={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} onRetry={vi.fn()} onUpdateWhySaved={vi.fn()} />,
+        );
+        expect(screen.queryByText(/服务器暂时无法访问/)).not.toBeInTheDocument();
+        expect(screen.queryByRole("link", { name: "浏览器伴侣" })).not.toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it("does not show the unfinished screen or the mark for a searchable item, or one still being prepared", () => {
+      const { rerender } = render(
+        <VideoDetailView item={{ ...item, body_searchable: true }} transcriptPages={[]} onLoadMore={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} onRetry={vi.fn()} onUpdateWhySaved={vi.fn()} />,
+      );
+      expect(screen.queryByRole("region", { name: "收藏还在，整理没有完成" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/正文不可检索/)).not.toBeInTheDocument();
+      expect(screen.getByText("可检索")).toBeInTheDocument();
+
+      rerender(
+        <VideoDetailView
+          item={{ ...item, lifecycle: "processing", body_searchable: false, stages: [{ key: "body", status: "running", detail: "transcribing" }], available_actions: ["archive"] }}
+          transcriptPages={[]}
+          onLoadMore={vi.fn()}
+          onArchive={vi.fn()}
+          onRestore={vi.fn()}
+          onRetry={vi.fn()}
+          onUpdateWhySaved={vi.fn()}
+        />,
+      );
+      expect(screen.getByText("整理中")).toBeInTheDocument();
+      expect(screen.queryByText(/正文不可检索/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "收藏还在，整理没有完成" })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("stages after the body", () => {
+    const withStages = (...later: Array<{ key: string; status: "pending" | "running" | "done" | "failed" | "skipped" }>): LibraryItem => ({
+      ...item,
+      body_searchable: true,
+      stages: [{ key: "body", status: "done" }, ...later],
+    });
+    function renderItem(value: LibraryItem) {
+      render(
+        <VideoDetailView item={value} transcriptPages={[]} onLoadMore={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} onRetry={vi.fn()} onUpdateWhySaved={vi.fn()} />,
+      );
+    }
+
+    it("shows no region until the server lists a stage", () => {
+      renderItem(withStages());
+      expect(screen.queryByRole("heading", { name: "分类与主题" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "内容要点" })).not.toBeInTheDocument();
+    });
+
+    it("keeps a partly successful item searchable, with the placeholder of each stage that failed", () => {
+      renderItem(withStages({ key: "classify", status: "failed" }, { key: "summary", status: "failed" }));
+
+      expect(screen.getByText("可检索")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "分类与主题" })).toBeInTheDocument();
+      expect(screen.getByText("未分类")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "内容要点" })).toBeInTheDocument();
+      expect(screen.getByText("暂无内容要点")).toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "收藏还在，整理没有完成" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/正文不可检索/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "重新整理" })).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "在 YouTube 查看" })).toBeInTheDocument();
+    });
+
+    it("says a stage that has not finished is in progress, and a movie stage shows its placeholder", () => {
+      renderItem(withStages({ key: "classify", status: "running" }, { key: "summary", status: "pending" }, { key: "movie", status: "failed" }));
+
+      expect(screen.getAllByText("整理中…")).toHaveLength(2);
+      expect(screen.getByRole("heading", { name: "电影识别" })).toBeInTheDocument();
+      expect(screen.getByText("未识别")).toBeInTheDocument();
+    });
+
+    it("leaves out skipped stages and stages it does not know", () => {
+      renderItem(withStages({ key: "classify", status: "skipped" }, { key: "translation", status: "failed" }));
+
+      expect(screen.queryByRole("heading", { name: "分类与主题" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/translation/)).not.toBeInTheDocument();
+      expect(screen.queryByText("未分类")).not.toBeInTheDocument();
+    });
+  });
+
   it("maps language codes and cover placeholders to user-facing copy", () => {
     const { rerender } = render(
       <VideoDetailView

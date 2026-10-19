@@ -13,62 +13,53 @@ const FALLBACK_COPY: Record<FallbackReason, string> = {
   capture_failed: "字幕提交没有成功，改用链接导入",
 };
 
-/** Server-side reasons an import fails, keyed by the item's safe error code. */
-const FAILURE_REASON: Record<string, string> = {
-  queue_unavailable: "处理队列暂时不可用",
-  ingestion_failed: "处理过程出错",
-  transient_fetch_failed: "获取视频内容时遇到临时错误",
-  item_missing: "这个条目已不存在",
-  missing_dispatch: "处理任务没有启动",
-  transcript_unavailable: "没有可用的字幕文本",
-  transcript_invalid: "字幕内容无法解析",
-  ingest_too_large: "视频或字幕太长，超出处理上限",
-  asr_too_long: "视频太长，无法转写",
-  asr_audio_unavailable: "无法获取视频音频",
-  asr_audio_too_large: "音频太大，无法转写",
-  asr_provider_failed: "语音转写服务出错",
-  asr_no_speech: "没有检测到语音",
-  asr_not_configured: "服务器没有开启语音转写",
-  youtube_rate_limited: "服务器暂时无法访问 YouTube",
-  bilibili_rate_limited: "服务器暂时无法访问 Bilibili",
-};
+/** Said instead of the no-captions line when the server transcribes the video's platform. */
+const NO_CAPTIONS_TRANSCRIBED_COPY = "页面没有字幕，收藏后会自动语音转写";
 
-const NEEDS_ACTION_REASON = "没有可用字幕，需要语音转写或从浏览器读取字幕";
-
-interface Slot {
-  id: string;
-  text: string;
-  stages: readonly WorkingStage[];
+/** Why the URL import was used; `willTranscribe` is true when the server transcribes this video's platform. */
+export function fallbackCopy(reason: FallbackReason, willTranscribe: boolean): string {
+  return reason === "no_captions" && willTranscribe ? NO_CAPTIONS_TRANSCRIBED_COPY : FALLBACK_COPY[reason];
 }
 
-/** The working steps this entry passes through, in order. Transcription appears only once it is reported. */
-function workingSlots(entry: CollectEntry): Slot[] {
-  const slots: Slot[] = [
-    entry.path === "url"
-      ? { id: "fetch", text: "获取视频信息与字幕", stages: ["queued", "fetching"] }
-      : { id: "queue", text: "排队等待处理", stages: ["queued", "fetching"] },
-  ];
-  if (entry.sawTranscribing) slots.push({ id: "transcribe", text: "语音转写中", stages: ["transcribing"] });
-  slots.push(
-    { id: "chunk", text: "切分段落", stages: ["chunking"] },
-    { id: "embed", text: "生成检索向量", stages: ["embedding"] },
-  );
-  return slots;
+/** What the 「收藏视频」 block shows for an entry. */
+export type CollectBody =
+  /** The step list: reading, submitting, and the ends that have no item to show. */
+  | "steps"
+  /** The ingest progress card of an item being followed, or one that finished and is searchable. */
+  | "progress"
+  /** The unfinished card of an item whose body is not searchable. */
+  | "unfinished";
+
+export function collectBody(entry: CollectEntry): CollectBody {
+  if (entry.phase === "tracking") return "progress";
+  switch (entry.outcome) {
+    case "ready":
+    case "already_exists":
+      return "progress";
+    case "timeout":
+      return entry.itemPublicId && entry.stages.length > 0 ? "progress" : "steps";
+    case "needs_action":
+    case "failed":
+      return entry.reason ? "unfinished" : "steps";
+    default:
+      return "steps";
+  }
 }
 
-function slotIndex(slots: Slot[], stage: WorkingStage | null): number {
-  if (stage === null) return 0;
-  const index = slots.findIndex((slot) => slot.stages.includes(stage));
-  return index === -1 ? 0 : index;
-}
-
+/** The failure line of an ended entry that has no server reason. Only a vanished item gets here. */
 function failureText(entry: CollectEntry): string {
-  const reason = entry.errorCode ? FAILURE_REASON[entry.errorCode] ?? "处理出错" : "处理出错";
-  return `未能完成：${reason}${entry.retryable ? "，可以在工作区重试" : ""}`;
+  return `未能完成：${entry.errorCode === "item_missing" ? "这个条目已不存在" : "处理出错"}`;
 }
 
-/** The 「收藏视频」 block as a step list, from the click to the end state. */
-export function collectSteps(entry: CollectEntry): TimelineStep[] {
+/** The small line above the card: how the video reached the server. Null when there is nothing to say. */
+export function collectNote(entry: CollectEntry, willTranscribe = false): string | null {
+  if (entry.path === "capture") return `已读取页面字幕（${entry.segments ?? 0} 段）`;
+  if (entry.path === "url" && entry.fallback) return fallbackCopy(entry.fallback, willTranscribe);
+  return null;
+}
+
+/** The 「收藏视频」 block as a step list, up to the point where the item takes over. */
+export function collectSteps(entry: CollectEntry, willTranscribe = false): TimelineStep[] {
   const steps: TimelineStep[] = [];
   const push = (id: string, text: string, outcome: TimelineStep["outcome"]) => { steps.push({ id, text, outcome }); };
 
@@ -77,7 +68,7 @@ export function collectSteps(entry: CollectEntry): TimelineStep[] {
     return steps;
   }
   if (entry.path === "capture") push("read", `已读取页面字幕（${entry.segments ?? 0} 段）`, "completed");
-  else if (entry.fallback) push("read", FALLBACK_COPY[entry.fallback], "skipped");
+  else if (entry.fallback) push("read", fallbackCopy(entry.fallback, willTranscribe), "skipped");
 
   if (entry.phase === "submitting") {
     push("submit", "正在提交", "running");
@@ -91,49 +82,8 @@ export function collectSteps(entry: CollectEntry): TimelineStep[] {
   if (outcome === "quota_exceeded" || outcome === "unsupported_url" || outcome === "unsupported_part" || outcome === "submit_failed") return steps;
 
   push("submit", "已提交", "completed");
-  if (outcome === "submitted") return steps;
-
-  const slots = workingSlots(entry);
-  const reached = slotIndex(slots, entry.workingStage);
-  const completeThrough = (count: number) => {
-    slots.slice(0, count).forEach((slot) => push(slot.id, slot.text, "completed"));
-  };
-
-  if (entry.phase === "tracking") {
-    const current = slotIndex(slots, entry.workingStage);
-    completeThrough(current);
-    const slot = slots[current] as Slot;
-    push(slot.id, slot.text, "running");
-    return steps;
-  }
-
-  switch (outcome) {
-    case "ready":
-    case "already_exists":
-      if (entry.workingStage !== null) completeThrough(slots.length);
-      push("done", outcome === "ready" ? "完成，可以在资料库里搜索和提问" : "已在资料库中", "completed");
-      break;
-    case "needs_action":
-      if (entry.workingStage !== null) completeThrough(reached + 1);
-      push("end", `需要处理：${NEEDS_ACTION_REASON}`, "failed");
-      break;
-    case "failed":
-      if (entry.workingStage !== null) completeThrough(reached);
-      push("end", failureText(entry), "failed");
-      break;
-    case "archived":
-      if (entry.workingStage !== null) completeThrough(reached + 1);
-      push("end", "这个视频已被归档", "skipped");
-      break;
-    case "timeout": {
-      completeThrough(reached);
-      const slot = slots[reached] as Slot;
-      push(slot.id, slot.text, "skipped");
-      break;
-    }
-    default:
-      break;
-  }
+  if (outcome === "archived") push("end", "这个视频已被归档", "skipped");
+  else if (outcome === "failed" || outcome === "needs_action") push("end", failureText(entry), "failed");
   return steps;
 }
 
@@ -141,6 +91,7 @@ export function collectSteps(entry: CollectEntry): TimelineStep[] {
 export function collectSummary(entry: CollectEntry, steps: TimelineStep[]): string {
   const running = steps.find((step) => step.outcome === "running");
   if (running) return `${ACTION_NAME} · ${running.text}`;
+  if (entry.phase === "tracking") return `${ACTION_NAME} · 已提交`;
   switch (entry.outcome) {
     case "ready": return `${ACTION_NAME} · 已完成`;
     case "already_exists": return `${ACTION_NAME} · 已在资料库中`;
@@ -168,7 +119,8 @@ export function collectProgress(entry: CollectEntry, now: number): string | null
       captionless: entry.captionless,
       sawTranscribing: entry.sawTranscribing,
     }));
-    if (eta) parts.push(eta);
+    // A ready body leaves only later stages, whose duration the estimate does not cover.
+    if (eta && entry.stage !== "ready") parts.push(eta);
     if (entry.retrying) parts.push("连接不稳定，正在重试");
   }
   return parts.join(" · ");
@@ -195,8 +147,6 @@ export function collectWorkspacePath(entry: CollectEntry): string | null {
   switch (entry.outcome) {
     case "ready":
     case "already_exists":
-    case "needs_action":
-    case "failed":
     case "archived":
     case "submitted":
     case "timeout":

@@ -8,9 +8,11 @@ import {
   validateCollectionName,
   WHY_SAVED_MAX_LENGTH,
 } from "../library/collections";
-import { lifecycleCopy } from "../library/lifecycle";
+import { type IngestPrimaryAction, IngestUnfinished, UnsearchableBadge } from "../ingest/IngestUnfinished";
+import { ACTION_LABEL, lifecycleLabel, QUOTA_RETRY_COPY, RETRY_FAILED_COPY } from "../ingest/ingestCopy";
+import { BODY_KEY, isBodyUnsearchable, reasonOf, visibleStages } from "../ingest/ingestModel";
 import { formatDuration } from "../library/VideoCard";
-import { RouteLink } from "../app/RouteTransition";
+import { StageRegion } from "./StageRegion";
 
 interface VideoDetailViewProps {
   item: LibraryItem;
@@ -22,8 +24,12 @@ interface VideoDetailViewProps {
   onRestore: () => void;
   onRetry: () => void;
   onUpdateWhySaved: (value: string | null) => Promise<void> | void;
+  /** 「仅查标题 / 备注」: open the library search. The button is left out when not given. */
+  onSearchTitles?: () => void;
   actionPending?: boolean;
   actionError?: boolean;
+  /** The failed action was refused for lack of processing quota (HTTP 429). */
+  actionQuotaExceeded?: boolean;
   transcriptPending?: boolean;
   transcriptInitialPending?: boolean;
   transcriptError?: boolean;
@@ -78,8 +84,10 @@ export function VideoDetailView({
   onRestore,
   onRetry,
   onUpdateWhySaved,
+  onSearchTitles,
   actionPending = false,
   actionError = false,
+  actionQuotaExceeded = false,
   transcriptPending = false,
   transcriptInitialPending = false,
   transcriptError = false,
@@ -102,6 +110,18 @@ export function VideoDetailView({
     (total, name) => total + name.length + 1,
     Math.max(0, collections.length - 1),
   );
+  const actionMessage = actionError ? (actionQuotaExceeded ? QUOTA_RETRY_COPY : RETRY_FAILED_COPY) : null;
+  const unfinishedReason = reasonOf(item);
+  const unsearchable = isBodyUnsearchable(item);
+  const laterStages = visibleStages(item).filter((stage) => stage.key !== BODY_KEY);
+  // The server cannot re-run login-only Bilibili subtitles, so the user goes back to the video page.
+  const primary: IngestPrimaryAction | null = !unfinishedReason
+    ? null
+    : unfinishedReason.category === "login_required"
+      ? { kind: "link", label: ACTION_LABEL.openVideo, href: item.url }
+      : actions.has("retry")
+        ? { kind: "button", label: ACTION_LABEL.retry, onClick: onRetry, pending: actionPending }
+        : null;
   const reasonLimit = Math.max(
     0,
     WHY_SAVED_MAX_LENGTH - collectionSuffixLength - (collections.length > 0 ? 1 : 0),
@@ -146,12 +166,23 @@ export function VideoDetailView({
 
   return (
     <article className="detail-layout">
+      {unfinishedReason ? (
+        <IngestUnfinished
+          title={item.title}
+          platformName={platformLabel}
+          reason={unfinishedReason}
+          primary={primary}
+          onSearchTitles={onSearchTitles}
+          error={actionMessage}
+        />
+      ) : null}
       <header className="detail-hero">
         <div className="detail-cover">
           {item.cover_url ? <img src={item.cover_url} alt="" width={960} height={540} fetchPriority="high" /> : <div className="cover-placeholder cover-placeholder--large" aria-hidden="true"><span>暂无封面</span></div>}
         </div>
         <div className="detail-heading">
-          <span className={`status-pill status-pill--${item.lifecycle}`}>{lifecycleCopy[item.lifecycle].label}</span>
+          <span className={`status-pill status-pill--${item.lifecycle}`}>{lifecycleLabel(item.lifecycle)}</span>
+          {unsearchable ? <UnsearchableBadge detailed /> : null}
           <h1 className="detail-title" data-title-density={titleDensity(title)}>{title}</h1>
           <p className="detail-meta">
             {item.author ? <span>{item.author}</span> : null}
@@ -160,13 +191,10 @@ export function VideoDetailView({
           </p>
           <div className="detail-actions" aria-label="视频操作">
             <a className="button button--primary" href={item.url} target="_blank" rel="noreferrer">在 {platformLabel} 查看</a>
-            {actions.has("retry") ? <button className="button button--quiet" disabled={actionPending} onClick={onRetry}>重新整理</button> : null}
             {actions.has("archive") ? <button className="button button--ghost" disabled={actionPending} onClick={onArchive}>归档</button> : null}
             {actions.has("restore") ? <button className="button button--quiet" disabled={actionPending} onClick={onRestore}>恢复到资料库</button> : null}
           </div>
-          {actionError ? <p className="inline-error" role="alert" aria-label="视频操作失败">操作未完成，请稍后重试。</p> : null}
-          {item.error_code === "youtube_rate_limited" ? <p className="inline-error">服务器暂时无法访问 YouTube。你可以打开原视频，使用 <RouteLink to="/account/browser-companion">浏览器伴侣</RouteLink> 从当前浏览器保存字幕。</p> : null}
-          {item.error_code === "bilibili_rate_limited" ? <p className="inline-error">服务器暂时无法访问 Bilibili，请稍后重新整理。</p> : null}
+          {actionMessage && !unfinishedReason ? <p className="inline-error" role="alert" aria-label="视频操作失败">{actionMessage}</p> : null}
         </div>
       </header>
 
@@ -239,6 +267,8 @@ export function VideoDetailView({
           <p className="description-copy">{item.description}</p>
         </section>
       ) : null}
+
+      {laterStages.map((stage) => <StageRegion key={stage.key} stage={stage} />)}
 
       {item.summary?.trim() ? (
         <section className="detail-section" aria-labelledby="summary-title">

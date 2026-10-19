@@ -18,12 +18,18 @@ interface PageWorkspaceProps {
   paired: boolean;
   /** The server offers page Q&A; without it the panel only saves. */
   pageQa: boolean;
+  /** Platforms whose videos the server transcribes when they have no captions; empty when it does not. */
+  transcriptionPlatforms: readonly string[];
   onPairedChange: (paired: boolean) => void;
   onSessionInvalid: () => void;
   onLogout: () => void;
 }
 
-function captionLine(session: VideoSession): { tone: "loading" | "ready" | "action" | "error"; text: string } {
+const NO_CAPTIONS_ANSWER_COPY = "该视频没有字幕，提问将仅基于标题和简介回答";
+/** Points at 「收藏视频」 without promising the panel can answer from the transcript: it still reads browser captions only. */
+const NO_CAPTIONS_TRANSCRIBE_COPY = `${NO_CAPTIONS_ANSWER_COPY}。收藏后会自动语音转写，转写完成后可以按内容搜索。`;
+
+function captionLine(session: VideoSession, willTranscribe: boolean): { tone: "loading" | "ready" | "action" | "error"; text: string } {
   if (session.readStatus === "error") return { tone: "error", text: workerErrorCopy(session.readError ?? "request_failed") };
   const { page } = session;
   if (!page) return { tone: "loading", text: "正在读取字幕…" };
@@ -34,10 +40,10 @@ function captionLine(session: VideoSession): { tone: "loading" | "ready" | "acti
   }
   return block
     ? { tone: "action", text: block }
-    : { tone: "action", text: "该视频没有字幕，提问将仅基于标题和简介回答" };
+    : { tone: "action", text: willTranscribe ? NO_CAPTIONS_TRANSCRIBE_COPY : NO_CAPTIONS_ANSWER_COPY };
 }
 
-export function PageWorkspace({ deps, paired, pageQa, onPairedChange, onSessionInvalid, onLogout }: PageWorkspaceProps) {
+export function PageWorkspace({ deps, paired, pageQa, transcriptionPlatforms, onPairedChange, onSessionInvalid, onLogout }: PageWorkspaceProps) {
   const controller = usePageQa(deps, onSessionInvalid, { paired, onGrantRejected: () => onPairedChange(false) });
   const { tab, session } = controller;
   const [draft, setDraft] = useState("");
@@ -57,7 +63,8 @@ export function PageWorkspace({ deps, paired, pageQa, onPairedChange, onSessionI
   const ready = session?.readStatus === "ready";
   const block = session?.page ? questionBlock(session.page) : null;
   const asking = session?.asking === true;
-  const caption = session ? captionLine(session) : null;
+  const willTranscribe = session !== null && transcriptionPlatforms.includes(session.platform);
+  const caption = session ? captionLine(session, willTranscribe) : null;
   const collecting = session?.thread.some(isActiveCollect) === true;
 
   return (
@@ -134,9 +141,12 @@ export function PageWorkspace({ deps, paired, pageQa, onPairedChange, onSessionI
               thread={session.thread}
               now={deps.now}
               clockTickMs={deps.clockTickMs}
+              willTranscribe={willTranscribe}
               onOpenCitation={(citation) => { void controller.openCitation(citation); }}
               onRetry={controller.retry}
               onOpenWorkspace={openWorkspaceRoute}
+              onRetryCollect={controller.retryCollect}
+              onRecollect={controller.recollect}
             />
             {controller.notice ? <p className="sp-hint" role="status">{controller.notice}</p> : null}
             {pageQa ? null : <p className="sp-hint">当前服务未开放视频问答，你仍然可以收藏视频。</p>}

@@ -1,8 +1,10 @@
 import type { LibraryItem } from "../api/contracts";
 import { RouteLink } from "../app/RouteTransition";
+import { UnsearchableBadge } from "../ingest/IngestUnfinished";
+import { lifecycleLabel, reasonPhrase } from "../ingest/ingestCopy";
+import { isBodyUnsearchable, reasonOf } from "../ingest/ingestModel";
 import { CollectionTags } from "./CollectionTags";
 import { parseWhySaved } from "./collections";
-import { lifecycleCopy } from "./lifecycle";
 
 export function formatDuration(seconds: number | null): string | null {
   if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return null;
@@ -20,6 +22,8 @@ export function VideoCard({ item }: { item: LibraryItem }) {
   const title = item.title?.trim() || "视频信息尚未准备好";
   const savedContext = parseWhySaved(item.why_saved);
   const canEditSavedContext = item.available_actions.includes("edit_why_saved");
+  const reason = reasonOf(item);
+  const unsearchable = isBodyUnsearchable(item);
   return (
     <article className={`video-card${canEditSavedContext ? " video-card--editable" : ""}`} data-lifecycle={item.lifecycle}>
       <RouteLink className="video-card__link" to={`/videos/${item.public_id}`} aria-label={`${title}，查看详情`}>
@@ -29,14 +33,16 @@ export function VideoCard({ item }: { item: LibraryItem }) {
         </div>
         <div className="video-card__body">
           <div className="video-card__topline">
-            <span className={`status-pill status-pill--${item.lifecycle}`}>{lifecycleCopy[item.lifecycle].label}</span>
+            <span className={`status-pill status-pill--${item.lifecycle}`}>{lifecycleLabel(item.lifecycle)}</span>
             <time dateTime={item.saved_at}>{new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(new Date(item.saved_at))}</time>
           </div>
           <h2>{title}</h2>
           {item.author ? <p className="video-card__author">{item.author}</p> : null}
           <CollectionTags names={savedContext.collections} />
           {savedContext.reason ? <blockquote>{savedContext.reason}</blockquote> : null}
-          {item.lifecycle === "failed" ? <p className="card-hint">打开详情后可重新整理</p> : null}
+          {reason ? <p className="card-reason">{reasonPhrase(reason)}</p> : null}
+          {unsearchable ? <p className="card-badge"><UnsearchableBadge /></p> : null}
+          {item.available_actions.includes("retry") ? <p className="card-hint">打开详情后可重新整理</p> : null}
         </div>
       </RouteLink>
       {canEditSavedContext ? (
