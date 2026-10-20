@@ -321,6 +321,38 @@ def test_cli_cannot_rebind_external_email_anchor(system, monkeypatch):
     assert system.email.resolve_session(login.raw_session_token, now=NOW).tenant == login.session.tenant
 
 
+def test_unlink_ends_provider_sessions_and_keeps_the_email_anchor(system):
+    started, _ = _pending(system, "subject-unlink")
+    provider_login = _bind(system, started, "unlink@example.test", _challenge(system, started, "unlink@example.test"))
+    scope = provider_login.session.tenant
+    # An ordinary email login for the same user, which must survive the unlink.
+    system.email.request_challenge("unlink@example.test", "ordinary", now=NOW)
+    email_login = system.email.verify("unlink@example.test", system.sender.messages[-1].code, now=NOW)
+    assert email_login.session.tenant == scope
+    with system.factory() as db:
+        identity_id = db.scalar(select(ExternalLoginIdentity.id))
+        assert db.scalar(select(func.count()).select_from(WebSession).where(
+            WebSession.external_login_identity_id == identity_id)) == 1
+    assert system.email.resolve_session(provider_login.raw_session_token, now=NOW).login_channel == "microsoft"
+
+    # The provider session holds a RESTRICT foreign key to the identity row, so
+    # the unlink has to remove it in the same transaction as the identity.
+    system.service.unlink(scope, "microsoft")
+
+    with system.factory() as db:
+        assert db.scalar(select(func.count()).select_from(ExternalLoginIdentity)) == 0
+        assert db.scalar(select(func.count()).select_from(WebSession).where(
+            WebSession.external_login_identity_id.is_not(None))) == 0
+        assert db.scalar(select(func.count()).select_from(WebSession)) == 1
+        assert db.scalar(select(func.count()).select_from(ChannelIdentity)) == 1
+    with pytest.raises(InvalidSession):
+        system.email.resolve_session(provider_login.raw_session_token, now=NOW)
+    assert system.email.resolve_session(email_login.raw_session_token, now=NOW).tenant == scope
+    assert system.service.linked_providers(scope) == ()
+    with pytest.raises(ExternalLoginError):
+        system.service.unlink(scope, "microsoft")
+
+
 def test_additive_auth_migration_roundtrip_preserves_legacy_rows():
     url = os.environ.get("STASHSEEK_TEST_DATABASE_URL")
     if not url:

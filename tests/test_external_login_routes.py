@@ -484,6 +484,11 @@ def test_linked_identities_are_listed_and_unlinked_behind_a_session(runtime):
     )
     assert unlinked.status_code == 204
     assert rt.client.get(PREFIX + "/identities").json() == {"providers": []}
+    again = rt.client.delete(
+        PREFIX + "/identities/microsoft", headers={"X-CSRF-Token": "csrf-token"},
+    )
+    assert again.status_code == 404
+    assert again.json()["code"] == "not_found"
 
 
 def test_linked_identities_require_an_authenticated_session(runtime):

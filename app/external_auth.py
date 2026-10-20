@@ -41,6 +41,7 @@ ERROR_CODES = frozenset({
     "flow_invalid", "flow_expired", "flow_used", "flow_csrf_invalid", "provider_unavailable",
     "provider_failed", "provider_denied", "session_present", "session_changed", "binding_conflict",
     "verification_failed", "invalid_email", "login_rate_limited", "email_delivery_unavailable", "request_failed",
+    "not_found",
 })
 _FLOW_LIFETIME = timedelta(minutes=10)
 _MAX_MATERIAL = 32_768
@@ -253,7 +254,14 @@ class ExternalLoginService:
             return tuple(sorted({row for row in rows if row in PROVIDERS}))
 
     def unlink(self, scope, provider: str) -> None:
-        """Remove one provider binding; the email identity remains the anchor."""
+        """Remove one provider binding and end every session issued through it.
+
+        Provider sessions reference the identity row (``ON DELETE RESTRICT``)
+        and must not outlive it: unlink is the recovery path for a binding that
+        was obtained by someone else, so the rows are deleted together in one
+        transaction. The email identity remains the anchor, and ordinary email
+        sessions for the same user are untouched.
+        """
 
         if provider not in PROVIDERS:
             raise ExternalLoginError("provider_unavailable")
@@ -262,9 +270,12 @@ class ExternalLoginService:
                 ExternalLoginIdentity.app_user_id == scope.app_user_id,
                 ExternalLoginIdentity.provider == provider,
                 ExternalLoginIdentity.disabled_at.is_(None),
-            ))
+            ).with_for_update())
             if identity is None:
                 raise ExternalLoginError("not_found")
+            # Provider sessions are never held in the Redis session cache (see
+            # RedisSessionCache.put), so deleting the rows revokes them at once.
+            db.execute(delete(WebSession).where(WebSession.external_login_identity_id == identity.id))
             db.delete(identity)
             db.commit()
 
