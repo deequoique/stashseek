@@ -13,6 +13,8 @@ import {
   cancelExternalLogin,
   getExternalLoginPending,
   getSession,
+  requestEmailChallenge,
+  verifyEmailChallenge,
   probeLoginSession,
   requestExternalLoginCode,
   verifyExternalLogin,
@@ -72,6 +74,23 @@ describe("same-origin API client", () => {
     document.cookie = "__Host-kb_external_csrf=; Path=/; Secure; Max-Age=0";
     await requestExternalLoginCode("reader@example.test");
     expect(new Headers(fetchMock.mock.calls[4][1]?.headers).has("X-CSRF-Token")).toBe(false);
+  });
+
+  it("uses the cookie session endpoints outside chrome-extension", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "accepted" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ authenticated: true, login_channel: "email", expires_at: "2030-01-01T00:00:00Z" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ authenticated: true, login_channel: "email", expires_at: "2030-01-01T00:00:00Z" }), { status: 200 }));
+
+    await requestEmailChallenge("reader@example.test");
+    await verifyEmailChallenge("reader@example.test", "123456");
+    await getSession();
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      "/api/v1/auth/challenges",
+      "/api/v1/auth/verify",
+      "/api/v1/auth/session",
+    ]);
   });
 
   it("handles anonymous login probes locally while protected Session invalidation stays global", async () => {
