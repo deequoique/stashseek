@@ -1,7 +1,11 @@
 import { useState } from "react";
 
 import { BrandLogo } from "../app/BrandLogo";
-import { BROWSER_COMPANION_DOWNLOAD_URL } from "../app/browserCompanion";
+import {
+  BROWSER_COMPANION_DOWNLOAD_URL,
+  BROWSER_COMPANION_STORE_URL,
+  isExtensionContext,
+} from "../app/browserCompanion";
 import { RouteLink } from "../app/RouteTransition";
 
 type DemoId = "product" | "ai" | "practice";
@@ -215,27 +219,27 @@ const audiences: Array<{ icon: AudienceIconName; title: string; copy: string }> 
 const processSteps = [
   {
     index: "01",
-    title: "提交并归档视频来源",
-    copy: "通过已启用的聊天入口或 Web 资料库保存 YouTube 链接，并补充保存理由或预期用途，便于后续识别与筛选。",
-    output: "视频来源 + 保存说明",
+    title: "安装插件并登录",
+    copy: "从 Chrome 应用商店添加搜藏助手，点击工具栏图标打开侧边栏，用邮箱验证码登录；这个浏览器会同时完成配对。",
+    output: "Chrome 插件 + 邮箱登录",
   },
   {
     index: "02",
-    title: "异步解析并建立索引",
-    copy: "系统在后台提取视频标题、章节与字幕，将长内容切分为可检索片段，并保留片段与原视频之间的对应关系。",
-    output: "字幕与章节 → 内容索引",
+    title: "边看视频边提问",
+    copy: "打开 YouTube 或哔哩哔哩视频，侧边栏在页面内读取字幕，可以直接就当前视频提问；回答附带时间点，点击即可跳到播放器对应位置。",
+    output: "当前视频 → 带时间点的回答",
   },
   {
     index: "03",
-    title: "在个人资料库中检索",
-    copy: "用户可以直接用自然语言描述问题；系统只在当前账户的资料库范围内定位相关片段，并组织回答所需的上下文。",
-    output: "自然语言问题 → 相关原文",
+    title: "一键保存到资料库",
+    copy: "觉得值得留下，就点“保存到资料库”。系统在后台整理标题、章节和字幕，切分成可检索的片段并保留与原视频的对应关系。",
+    output: "字幕 → 私人资料库索引",
   },
   {
     index: "04",
-    title: "生成带来源依据的回答",
-    copy: "回答基于检索到的原文片段生成，并附带视频标题、引用摘录和可跳转时间点，方便回到完整语境核对。",
-    output: "回答依据 + 原视频时间点",
+    title: "跨收藏检索与回源",
+    copy: "之后用自然语言提问，系统只在你自己的资料库里定位相关片段，回答附带视频标题、原文摘录和可跳转的时间点。",
+    output: "问题 → 答案 + 原视频时间点",
   },
 ];
 
@@ -243,6 +247,14 @@ function ArrowIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24">
       <path d="M5 12h13M13 6l6 6-6 6" />
+    </svg>
+  );
+}
+
+function ExtensionIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <path d="M4 7h3a1 1 0 0 0 1 -1v-1a2 2 0 0 1 4 0v1a1 1 0 0 0 1 1h3a1 1 0 0 1 1 1v3a1 1 0 0 0 1 1h1a2 2 0 0 1 0 4h-1a1 1 0 0 0 -1 1v3a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1v-1a2 2 0 0 0 -4 0v1a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1h1a2 2 0 0 0 0 -4h-1a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1" />
     </svg>
   );
 }
@@ -264,6 +276,7 @@ export function ShowcasePage() {
   const activeDemo = demoScenes.find((scene) => scene.id === activeDemoId) ?? demoScenes[0];
   const activeSummary = activeDemo.previewSummary[summaryLanguage];
   const summaryDuration = activeDemo.summaryDurationSeconds[summaryLanguage];
+  const inExtension = isExtensionContext();
   function selectDemo(id: DemoId) {
     setActiveDemoId(id);
     setHasRun(false);
@@ -284,8 +297,16 @@ export function ShowcasePage() {
           <a href="#demo">试用场景</a>
         </nav>
         <div className="showcase-nav__actions">
-          <a className="showcase-nav__companion" download href={BROWSER_COMPANION_DOWNLOAD_URL}>下载浏览器插件</a>
-          <RouteLink className="showcase-nav__cta" to="/login">进入资料库 <ArrowIcon /></RouteLink>
+          {inExtension ? (
+            <RouteLink className="showcase-nav__cta" to="/login">进入资料库 <ArrowIcon /></RouteLink>
+          ) : (
+            <>
+              <RouteLink className="showcase-nav__login" to="/login">登录</RouteLink>
+              <a className="showcase-nav__install" href={BROWSER_COMPANION_STORE_URL} target="_blank" rel="noreferrer">
+                <ExtensionIcon />添加到 Chrome
+              </a>
+            </>
+          )}
         </div>
       </header>
 
@@ -293,15 +314,26 @@ export function ShowcasePage() {
         <section className="showcase-hero" aria-labelledby="showcase-title">
           <div className="showcase-hero__grid" aria-hidden="true" />
           <div className="showcase-hero__copy">
-            <p className="showcase-kicker"><span>搜藏助手 · 收藏内容对话</span><span>2026 / HACKATHON</span></p>
+            <p className="showcase-kicker"><span>搜藏助手 · 收藏内容对话</span><span>CHROME 插件 / 已上架</span></p>
             <h1 id="showcase-title">让收藏过的内容，<em>直接回答你。</em></h1>
             <p className="showcase-hero__lead">
-              不用分类或整理，直接问一句，就能找到收藏过的视频和原文时间点。
+              安装 Chrome 插件，在 YouTube 或哔哩哔哩视频旁直接提问：答案附带原文时间点，点一下就跳回对应位置。看完一键存进私人资料库，以后一句话就能找回。
             </p>
             <div className="showcase-hero__actions">
-              <a className="showcase-button showcase-button--signal" href="#demo">先试一个真实场景 <ArrowIcon /></a>
-              <a className="showcase-button showcase-button--line" href="#process">查看工作方式</a>
+              {inExtension ? (
+                <RouteLink className="showcase-button showcase-button--signal" to="/login">进入资料库 <ArrowIcon /></RouteLink>
+              ) : (
+                <a className="showcase-button showcase-button--signal" href={BROWSER_COMPANION_STORE_URL} target="_blank" rel="noreferrer">
+                  <ExtensionIcon />添加到 Chrome <ArrowIcon />
+                </a>
+              )}
+              <a className="showcase-button showcase-button--line" href="#demo">先试一个真实场景</a>
             </div>
+            {inExtension ? null : (
+              <p className="showcase-hero__install-meta">
+                支持 Chrome 114 及以上版本 · 无法访问 Chrome 应用商店？<a download href={BROWSER_COMPANION_DOWNLOAD_URL}>下载离线安装包</a>
+              </p>
+            )}
           </div>
 
           <div className="showcase-hero__instrument" aria-label="从视频到可追溯答案的处理路径">
@@ -338,8 +370,8 @@ export function ShowcasePage() {
               ))}
             </div>
             <div className="instrument-readout">
-              <p><span>你收藏</span><strong>一段 YouTube 视频</strong></p>
-              <p><span>系统整理</span><strong>字幕与重点内容</strong></p>
+              <p><span>你打开</span><strong>YouTube 或 B 站视频</strong></p>
+              <p><span>插件读取</span><strong>当前视频字幕</strong></p>
               <p><span>你获得</span><strong>答案 / 原文 / 时间点</strong></p>
             </div>
           </div>
@@ -418,8 +450,8 @@ export function ShowcasePage() {
           </div>
           <div className="showcase-process__heading">
             <p className="showcase-overline">视频知识处理流程</p>
-            <h2 id="process-title">从视频归档，<br />到可追溯的回答。</h2>
-            <p>视频链接提交后，系统会在后台提取标题、章节和字幕，建立可检索的内容索引；处理期间不影响继续聊天或浏览资料库。</p>
+            <h2 id="process-title">从装上插件，<br />到可追溯的回答。</h2>
+            <p>插件负责视频页上的字幕读取、即时问答和保存；保存后的内容在后台建立索引，处理期间不影响继续观看或提问。</p>
           </div>
           <ol className="showcase-process__list">
             {processSteps.map((step) => (
@@ -571,8 +603,17 @@ export function ShowcasePage() {
         <section className="showcase-cta" aria-labelledby="showcase-cta-title">
           <p className="showcase-overline">YOUR KNOWLEDGE / YOUR EVIDENCE</p>
           <h2 id="showcase-cta-title">答案与原文，<br />一步之遥</h2>
-          <RouteLink className="showcase-button showcase-button--dark" to="/login">进入私人资料库 <ArrowIcon /></RouteLink>
-          <p className="showcase-cta__note">Web 当前负责登录、资料库管理和字幕阅读；带来源问答发生在已启用的聊天或 MCP 入口 · 可用入口以部署配置为准</p>
+          {inExtension ? (
+            <RouteLink className="showcase-button showcase-button--dark" to="/login">进入私人资料库 <ArrowIcon /></RouteLink>
+          ) : (
+            <>
+              <a className="showcase-button showcase-button--dark" href={BROWSER_COMPANION_STORE_URL} target="_blank" rel="noreferrer">
+                <ExtensionIcon />添加到 Chrome <ArrowIcon />
+              </a>
+              <RouteLink className="showcase-cta__login" to="/login">已经安装？登录私人资料库 →</RouteLink>
+            </>
+          )}
+          <p className="showcase-cta__note">插件负责视频页问答、字幕读取与保存；资料库管理和跨视频提问在私人资料库中完成 · 可用入口以部署配置为准</p>
         </section>
       </main>
 

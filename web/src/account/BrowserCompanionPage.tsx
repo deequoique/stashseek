@@ -8,7 +8,7 @@ import {
   listBrowserCompanionDevices,
   revokeBrowserCompanionDevice,
 } from "../api/client";
-import { BROWSER_COMPANION_DOWNLOAD_URL } from "../app/browserCompanion";
+import { BROWSER_COMPANION_DOWNLOAD_URL, BROWSER_COMPANION_STORE_URL } from "../app/browserCompanion";
 
 const PAIRING_ID_RE = /^[a-f0-9]{32}$/;
 
@@ -44,9 +44,9 @@ export function BrowserCompanionPage() {
   return (
     <section className="account-link-page companion-page" aria-labelledby="companion-title">
       <header className="account-link-page__heading">
-        <p className="eyebrow">可选获取方式</p>
+        <p className="eyebrow">Chrome 插件</p>
         <h1 id="companion-title">浏览器伴侣</h1>
-        <p>插件使用你浏览器里已经打开的页面读取字幕，也能在服务器访问受限时使用。原有的 YouTube 保存方式不会被替换。</p>
+        <p>在 YouTube 和哔哩哔哩视频旁直接提问、保存字幕。插件读取你浏览器里已经打开的页面，服务器访问受限时同样可用。</p>
       </header>
 
       {pairingId ? (
@@ -69,9 +69,12 @@ export function BrowserCompanionPage() {
       ) : (
         <section className="account-link-card companion-pairing" aria-labelledby="companion-install-title">
           <p className="step-number" aria-hidden="true">01</p>
-          <h2 id="companion-install-title">按需安装和使用</h2>
-          <p>下载并在 Chrome 中加载插件，再从插件侧边栏发起配对。你也可以随时在浏览器里禁用或卸载插件。</p>
-          <a className="button button--primary button--wide" download href={BROWSER_COMPANION_DOWNLOAD_URL}>下载浏览器伴侣</a>
+          <h2 id="companion-install-title">从 Chrome 应用商店安装</h2>
+          <p>添加后点击工具栏里的搜藏助手图标打开侧边栏，用邮箱验证码登录即可完成连接。你也可以随时在浏览器里停用或卸载插件。</p>
+          <a className="button button--primary button--wide" href={BROWSER_COMPANION_STORE_URL} target="_blank" rel="noreferrer">前往 Chrome 应用商店</a>
+          <p className="companion-offline">
+            无法访问应用商店？<a download href={BROWSER_COMPANION_DOWNLOAD_URL}>下载离线安装包</a>，在 chrome://extensions 开启开发者模式后加载。
+          </p>
         </section>
       )}
 
