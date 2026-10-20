@@ -22,6 +22,7 @@ from app.agent.runtime import (
     build_composer,
 )
 from app.agent.actions import ActionOutcome
+from app.agent.answer_pipeline import COMPOSER_INSTRUCTIONS, _render_composer_evidence
 from app.agent.services import EmbeddingUnavailable, ItemDetails, RetrievalUnavailable
 from app.agent.types import AgentAnswer, AgentRequest, AnswerDraft, AnswerSection, Citation
 from app.agent.streaming import public_step_code
@@ -1962,6 +1963,90 @@ def test_multi_source_output_groups_top_five_videos_and_keeps_distant_timestamps
     assert "https://example.test/one?t=900" in rendered
     assert "Video six" not in rendered
     assert "chapter" not in rendered.lower()
+
+
+def _title_citation(**overrides) -> Citation:
+    values = dict(
+        item_id=9,
+        segment_id=90,
+        title="电脑价格",
+        excerpt="电脑价格\n  等等党 内存 显卡",
+        url="https://example.test/video",
+        kind="title",
+    )
+    values.update(overrides)
+    return Citation(**values)
+
+
+def test_title_row_is_labelled_in_composer_evidence_without_a_time():
+    text_row = Citation(
+        item_id=1, segment_id=11, title="Video one", excerpt="spoken words",
+        url="https://example.test/one?t=10", start_sec=10,
+    )
+
+    rendered = _render_composer_evidence(
+        [text_row, _title_citation()], excerpt_chars=1200
+    )
+    lines = rendered.splitlines()
+
+    assert lines[0] == "可用证据（仅可引用以下 ID）："
+    assert lines[1] == "ID 11，视频《Video one》，时间 10 秒：spoken words"
+    assert lines[2] == "ID 90，视频《电脑价格》的标题与简介：电脑价格 等等党 内存 显卡"
+    assert "时间" not in lines[2]
+
+
+def test_title_row_excerpt_respects_the_composer_excerpt_cap():
+    rendered = _render_composer_evidence(
+        [_title_citation(excerpt="标题\n" + "简" * 50)], excerpt_chars=10
+    )
+
+    assert rendered.splitlines()[1] == "ID 90，视频《电脑价格》的标题与简介：标题 简简简简简简简"
+
+
+def test_composer_instructions_tell_the_model_titles_are_not_spoken_facts():
+    assert "标题与简介" in COMPOSER_INSTRUCTIONS
+    assert "具体事实以正文片段为准" in COMPOSER_INSTRUCTIONS
+
+
+def test_title_row_source_line_is_labelled_and_keeps_the_item_link():
+    text_row = Citation(
+        item_id=1, segment_id=11, title="Video one", excerpt="spoken   words",
+        url="https://example.test/one?t=10", start_sec=10,
+    )
+    long_title = _title_citation(
+        segment_id=91, item_id=2, title="Long", url="https://example.test/long",
+        excerpt="标题\n" + "简" * 300,
+    )
+
+    rendered = _append_sources(
+        "answer [S11] [S90]", [text_row, _title_citation(), long_title]
+    )
+
+    assert "  - [S11] https://example.test/one?t=10 — spoken words" in rendered
+    assert (
+        "  - [S90] https://example.test/video — 标题与简介：电脑价格 等等党 内存 显卡"
+        in rendered
+    )
+    long_line = next(line for line in rendered.splitlines() if "[S91]" in line)
+    assert long_line.startswith("  - [S91] https://example.test/long — 标题与简介：标题 ")
+    assert long_line.endswith("…")
+    # The shared 180-character cap (177 characters plus an ellipsis) applies
+    # to the excerpt itself, not to the label.
+    assert len(long_line.removeprefix("  - [S91] https://example.test/long — 标题与简介：")) == 178
+
+
+def test_title_citation_serialization_carries_kind_and_default_does_not():
+    title = _title_citation()
+    plain = Citation(
+        item_id=1, segment_id=11, title="Video one", excerpt="spoken words",
+        url="https://example.test/one", start_sec=1,
+    )
+
+    assert title.model_dump()["kind"] == "title"
+    assert title.model_dump()["start_sec"] is None
+    assert title.model_dump(mode="json")["kind"] == "title"
+    assert "kind" not in plain.model_dump()
+    assert Citation.model_validate(title.model_dump()) == title
 
 
 @pytest.mark.asyncio

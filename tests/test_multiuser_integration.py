@@ -53,6 +53,7 @@ from app.channels.service import ChannelService
 from app.channels.types import ChannelEnvelope
 from app.config import Settings
 from app.db import get_engine, get_session_factory
+from app.ingest.reindex import reindex
 from app.ingest.submission import IngestSubmissionService
 from app.models import (
     AppUser,
@@ -64,7 +65,8 @@ from app.models import (
     PendingChannelAction,
     Segment,
 )
-from app.retrieval.search import vector_search
+from app.retrieval.fusion import FusionConfig
+from app.retrieval.search import bm25_search, vector_search
 
 
 class FakeEmbeddingProvider:
@@ -1184,7 +1186,21 @@ def test_every_read_service_is_tenant_scoped(db_factory):
     assert {value.segment_id for value in vector_hits} == {segment_a.id}
 
 
-def test_pgvector_search_diversifies_top_five_items_without_cross_tenant_hydration(db_factory):
+@pytest.mark.parametrize(
+    ("fusion", "expected_items", "crowded_hits"),
+    [
+        # Legacy raw mode: five-video window, spare slots refilled from them.
+        (FusionConfig(method="raw"), 5, lambda count: count >= 2),
+        # Default RRF: the first pass takes at most per_item_cap (3) hits of
+        # the crowded video; the five other videos give one hit each, and the
+        # two missing slots are then filled by ranking (so five in total).
+        (FusionConfig(), 6, lambda count: count == 5),
+    ],
+    ids=["raw", "rrf"],
+)
+def test_pgvector_search_diversifies_items_without_cross_tenant_hydration(
+    db_factory, fusion, expected_items, crowded_hits
+):
     with db_factory() as db:
         tenant_a = resolve_or_register(db, envelope(user=uuid4().hex))
         tenant_b = resolve_or_register(db, envelope(user=uuid4().hex))
@@ -1219,16 +1235,101 @@ def test_pgvector_search_diversifies_top_five_items_without_cross_tenant_hydrati
         tenant_a,
         db_factory,
         embedder=FakeEmbeddingProvider(),
+        fusion=fusion,
     )
     citations = service.search_segments("no lexical match", limit=10)
 
     item_ids = {citation.item_id for citation in citations}
-    assert len(item_ids) == 5
+    assert len(item_ids) == expected_items
     assert crowded_item.id in item_ids
     assert tenant_b_segment.id not in {citation.segment_id for citation in citations}
-    # A selected video keeps its distant locations after every selected video
-    # has first received a representative candidate.
-    assert len([citation for citation in citations if citation.item_id == crowded_item.id]) >= 2
+    # A selected video keeps its distant locations (raw: after every selected
+    # video has received a representative; rrf: the soft per-video cap spreads
+    # the first pass, and the short window is then filled by ranking).
+    assert crowded_hits(
+        len([citation for citation in citations if citation.item_id == crowded_item.id])
+    )
+
+
+def test_reindex_makes_chinese_items_and_titles_searchable_for_one_tenant(db_factory):
+    """Real PostgreSQL: bigram ``fts`` backfill, title row, and retrieval/exclusion."""
+
+    with db_factory() as db:
+        tenant_a = resolve_or_register(db, envelope(user=uuid4().hex))
+        tenant_b = resolve_or_register(db, envelope(user=uuid4().hex))
+        item_a, segment_a = _add_item(db, tenant_a.app_user_id, "什么时候买内存 电脑价格")
+        item_a.title = "等等党的电脑清单"
+        item_a.description = "显卡 DDR5 价格"
+        item_b, segment_b = _add_item(db, tenant_b.app_user_id, "什么时候买内存 电脑价格")
+        db.commit()
+    scope = tenant_a.app_user_id
+
+    # Legacy shape (``fts IS NULL``, no title row): the lexical path is blind.
+    with db_factory() as db:
+        assert bm25_search(db, "电脑价格", user_id=scope) == []
+
+    dry = reindex(user_id=scope, dry_run=True, session_factory=db_factory)
+    assert (dry.zh_segments_updated, dry.title_rows_inserted, dry.failed_item_ids) == (1, 1, ())
+    with db_factory() as db:
+        assert db.get(Segment, segment_a.id).fts is None
+
+    result = reindex(
+        user_id=scope, session_factory=db_factory, embedder=FakeEmbeddingProvider()
+    )
+    assert (result.zh_segments_updated, result.title_rows_inserted) == (1, 1)
+    assert (result.title_rows_updated, result.title_rows_skipped) == (0, 0)
+    assert result.failed_item_ids == ()
+    # Idempotent: a second run has nothing left to do.
+    again = reindex(
+        user_id=scope, session_factory=db_factory, embedder=FakeEmbeddingProvider()
+    )
+    assert (again.zh_segments_updated, again.title_rows_inserted) == (0, 0)
+    assert again.title_rows_skipped == 1
+
+    with db_factory() as db:
+        title_rows = db.scalars(
+            select(Segment).where(Segment.item_id == item_a.id, Segment.seq == -1)
+        ).all()
+        assert [row.boundary_kind for row in title_rows] == ["title"]
+        title_row = title_rows[0]
+        assert title_row.text == "等等党的电脑清单\n显卡 DDR5 价格"
+        assert title_row.fts is not None
+        # The other tenant is out of the reindex scope.
+        assert db.get(Segment, segment_b.id).fts is None
+        assert (
+            db.scalar(
+                select(func.count()).select_from(Segment).where(
+                    Segment.item_id == item_b.id, Segment.seq == -1
+                )
+            )
+            == 0
+        )
+
+        # Body segment and title row both match a Chinese topic query; the
+        # other tenant's identical segment never does.
+        hits = bm25_search(db, "电脑相关的视频", user_id=scope)
+        assert {hit.segment_id for hit in hits} == {segment_a.id, title_row.id}
+        # A title-only term reaches the item through the title row alone.
+        assert [hit.segment_id for hit in bm25_search(db, "显卡", user_id=scope)] == [
+            title_row.id
+        ]
+        assert bm25_search(db, "电脑价格", user_id=tenant_b.app_user_id) == []
+
+    service = KnowledgeServices(tenant_a, db_factory, embedder=FakeEmbeddingProvider())
+    citations = {value.segment_id: value for value in service.search_segments("显卡")}
+    title_citation = citations[title_row.id]
+    assert title_citation.kind == "title"
+    assert title_citation.start_sec is None
+    assert title_citation.url == item_a.url
+    assert citations[segment_a.id].kind == "segment"
+    # A title row is neither a neighbor anchor nor an open-at target.
+    with pytest.raises(KnowledgeNotFound):
+        service.get_neighbors(title_row.id)
+    with pytest.raises(KnowledgeNotFound):
+        service.open_at(title_row.id)
+    assert [value.segment_id for value in service.get_neighbors(segment_a.id)] == [
+        segment_a.id
+    ]
 
 
 @pytest.mark.asyncio

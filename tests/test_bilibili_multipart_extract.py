@@ -466,7 +466,9 @@ def test_worker_identical_caption_bytes_in_two_parts_have_distinct_artifacts(wor
         maps = SimpleNamespace(get_parts=lambda _bvid: part_map)
         store = SimpleNamespace(put=lambda key, *_args: keys.append(key))
         assert process_item(item.id, connector=connector, public_client=maps, object_store=store, embedder=embedder, session_factory=lambda: db) == "ready"
-        assert db.added[0].start_sec == 0 and db.added[0].text == "same caption"
+        body = [row for row in db.added if row.seq != -1]
+        assert body[0].start_sec == 0 and body[0].text == "same caption"
+        assert [row.boundary_kind for row in db.added if row.seq == -1] == ["title"]
     assert len(set(keys)) == 2 and "_cid101/" in keys[0] and "_cid202/" in keys[1]
 
 
@@ -477,7 +479,9 @@ def test_generic_provider_time_urls_keep_validated_part_and_drop_tracking():
 
 def test_exact_cid_scope_uses_trusted_item_provenance_instead_of_url_ordinal():
     item = worker_item()
-    segment = SimpleNamespace(id=81, text="same caption", start_sec=2, anchor=None)
+    segment = SimpleNamespace(
+        id=81, text="same caption", start_sec=2, anchor=None, boundary_kind="semantic"
+    )
     source = _citation(item, segment)
     assert _citation_matches_scope(source, (("bilibili", f"{BV}_cid202"),))
     assert not _citation_matches_scope(source, (("bilibili", f"{BV}_cid101"),))

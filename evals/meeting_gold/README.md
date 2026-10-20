@@ -163,12 +163,20 @@ What this does, end to end, on the Neon **test** branch only:
 3. For each case, in scope B (tenant-wide) and scope A (`item_id`-scoped),
    fetches production-sized candidate pools (lexical AND, lexical OR, dense)
    and evaluates the full settings matrix: lexical-only, dense-only,
-   raw-score merge (production), RRF, and min-max fusion, each with
-   diversification on/off.
-4. Asserts production equivalence (R2): the raw-score-merge/AND/diversify-on
-   setting must exactly match `KnowledgeServices.search_segments`, per case
-   and scope. Asserts scope-A diversify on/off invariance. The command exits
-   non-zero if either assertion fails anywhere.
+   raw-score merge (the pre-RRF production setting), RRF, and min-max fusion,
+   each with diversification on/off, plus RRF with the capped per-video window
+   (`rrf-AND-cap3` / `rrf-OR-cap3`, the production default since the
+   cn-recall-fusion change). Fusion and the window come from
+   `app/retrieval/fusion.py`, the same code `search_segments` runs.
+4. Asserts production equivalence (R2), per case and scope: the
+   raw-score-merge/AND/diversify-on setting must exactly match
+   `KnowledgeServices.search_segments` under `FusionConfig(method="raw")`, and
+   `rrf-AND-cap3` must exactly match it under the default `FusionConfig()`.
+   Asserts scope-A diversify on/off invariance, and that a capped window
+   equals the uncapped ranking in scope A (the soft cap fills a short window
+   by ranking, so a single-video search is never shortened). The command exits
+   non-zero if any assertion fails anywhere. Paired statistics are always against the
+   raw-score-merge/AND/diversify-on setting in the same scope.
 5. Computes Hit/Recall/MRR/nDCG@k (full chunk containment of gold sentences),
    the exact chunking ceiling, an ANN vs exact-dense diagnostic (R7), and
    paired statistics (exact McNemar, Wilson, bootstrap) against the
@@ -184,6 +192,12 @@ What this does, end to end, on the Neon **test** branch only:
    `summary_by_group.md`/`.csv` (production setting by query kind and
    domain), `summary_ppt.md` (scope x query kind tables), `per_case.jsonl`,
    and `run_manifest.json` to the output directory.
+
+Ingest adds one `boundary_kind == "title"` row per item (title plus
+description). The study library keeps it out of the segment/cue mapping and the
+reuse check and counts it separately (`title_rows` per meeting in
+`library.json`, "Title rows indexed" in `setup.md`); a library ingested before
+title rows existed reports 0 and is reused as is.
 
 No provider calls happen beyond query/ingest embedding — `rq1` never calls an
 LLM. Every database session used by the study opens a read-only transaction.

@@ -51,6 +51,58 @@ def test_encode_decode_preserves_legacy_text_and_tagged_media_shape():
     assert validated_text_citations(encoded) == [Citation(**text)]
 
 
+def test_default_text_citation_keeps_the_untagged_legacy_dump_shape():
+    citation = Citation(
+        item_id=7,
+        segment_id=11,
+        title="Text source",
+        excerpt="text evidence",
+        url="https://example.test/text",
+        start_sec=2.0,
+    )
+
+    assert citation.kind == "segment"
+    assert "kind" not in citation.model_dump()
+    assert "kind" not in citation.model_dump(mode="json")
+    assert Citation.model_validate(citation.model_dump()) == citation
+
+
+def test_title_citation_is_tagged_and_survives_the_text_codec_round_trip():
+    title = Citation(
+        item_id=7,
+        segment_id=12,
+        title="Video",
+        excerpt="Video\nIntro",
+        url="https://example.test/video",
+        kind="title",
+    )
+    row = title.model_dump(mode="json")
+
+    assert row["kind"] == "title"
+    assert row["start_sec"] is None
+    encoded = encode_sources(text_source_payloads([row]), [_media()])
+    assert encoded[0]["kind"] == "title"
+    assert decode_sources(encoded).text == (row,)
+    assert validated_text_citations(encoded) == [title]
+    assert validated_text_citations(encoded)[0].kind == "title"
+
+
+def test_unknown_kind_tags_are_still_not_reread_as_text():
+    rows = [
+        {
+            "kind": "other",
+            "item_id": 7,
+            "segment_id": 11,
+            "title": "T",
+            "excerpt": "e",
+            "url": "https://example.test/x",
+        }
+    ]
+
+    assert decode_sources(rows).text == ()
+    assert text_source_payloads(rows) == []
+
+
 def test_malformed_media_is_dropped_without_becoming_text_or_api_source():
     malformed = [
         {"kind": "media", "evidence_id": "M1", "media_id": "media-1", "item_id": 0},

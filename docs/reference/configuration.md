@@ -121,6 +121,12 @@ resolver 的当前应用 composition root 因而只支持 WeMM 文本调用，�
 | `AGENT_TOOL_CALLS_LIMIT` | `10` | tool call 总上限 |
 | `AGENT_OUTPUT_TOKEN_LIMIT` | `3000` | stage 输出 token 上限（检索阶段开启思考时峰值约 2000，见 10-07-retrieval-agent-budget） |
 | `AGENT_COMPOSER_MAX_TOKENS` | `1000` | evidence-backed answer Composer 每次尝试的 provider cap |
+| `RETRIEVAL_FUSION` | `rrf` | `search_segments` 两路结果的融合方式：`rrf` 按名次融合；`raw` 为旧的原始分数混排加 5 视频窗口（回滚开关） |
+| `RETRIEVAL_RRF_K` | `60` | RRF 的 k（1–1000） |
+| `RETRIEVAL_LEXICAL_WEIGHT` | `1.0` | 词法路在 RRF 里的权重（0–10；0 等于关闭该路，两路不能同时为 0） |
+| `RETRIEVAL_VECTOR_WEIGHT` | `1.0` | 向量路在 RRF 里的权重（0–10） |
+| `RETRIEVAL_CANDIDATE_POOL_LIMIT` | `50` | 每路取多少条候选再融合（10–200） |
+| `RETRIEVAL_PER_ITEM_CAP` | `3` | 候选窗口第一段里同一视频最多几条（1–10）；不足 10 条时按名次补满 |
 | `AGENT_STREAMING_ENABLED` | `true` | Web SSE 是否可用；关闭后使用 JSON 兼容路径 |
 | `CONTEXT_MAX_TURNS` | `8` | 对话上下文 turn 数上限 |
 | `CONTEXT_TOKEN_BUDGET` | `6000` | 对话历史 token budget |

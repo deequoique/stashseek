@@ -563,7 +563,10 @@ def test_asr_transcript_is_stored_as_capture_v1_and_item_becomes_ready(monkeypat
     assert content_type == "application/json"
     parsed = parse_canonical_transcript(body, source="asr_whisper", language="en")
     assert [cue.text for cue in parsed.cues] == [SPOKEN]
-    assert [type(row) for row in db.added] == [Segment]
+    # One body segment plus the item's title row.
+    assert [type(row) for row in db.added] == [Segment, Segment]
+    assert sorted(row.seq for row in db.added) == [-1, 0]
+    assert [row.boundary_kind for row in db.added if row.seq == -1] == ["title"]
     # The temporary audio object never outlives the transcription.
     assert audio_store.deleted == audio_store.puts and len(audio_store.puts) == 1
 
@@ -1170,11 +1173,19 @@ def test_asr_flow_end_to_end_creates_exactly_one_ready_event(pg_factory, worker_
     assert raw_store.puts[0][0] == item.raw_object_key
     assert raw_store.puts[0][2] == "application/json"
     with pg_factory() as db:
-        segments = list(db.scalars(select(Segment).where(Segment.item_id == item_id)))
+        rows = list(
+            db.scalars(
+                select(Segment).where(Segment.item_id == item_id).order_by(Segment.seq)
+            )
+        )
         dims = db.scalar(
             text("select vector_dims(embedding) from segment where item_id = :i limit 1"),
             {"i": item_id},
         )
+    # Exactly one title row (seq -1) precedes the body segments.
+    title_rows = [row for row in rows if row.seq == -1]
+    segments = [row for row in rows if row.seq != -1]
+    assert len(title_rows) == 1 and title_rows[0].boundary_kind == "title"
     assert len(segments) >= 1
     assert dims == 1536
     assert SPOKEN in segments[0].text
@@ -1732,11 +1743,18 @@ def test_capture_origin_youtube_without_captions_runs_asr_to_one_ready_event(
     # Capture-style chapters were replaced by the platform metadata.
     assert item.chapters == meta_chapters
     with factory() as db:
-        segments = list(db.scalars(select(Segment).where(Segment.item_id == item_id)))
+        rows = list(
+            db.scalars(
+                select(Segment).where(Segment.item_id == item_id).order_by(Segment.seq)
+            )
+        )
         dims = db.scalar(
             text("select vector_dims(embedding) from segment where item_id = :i limit 1"),
             {"i": item_id},
         )
+    title_rows = [row for row in rows if row.seq == -1]
+    segments = [row for row in rows if row.seq != -1]
+    assert len(title_rows) == 1 and title_rows[0].boundary_kind == "title"
     assert len(segments) >= 1 and dims == 1536
     assert SPOKEN in segments[0].text
     assert segments[0].boundary_kind == ("chapter" if meta_chapters else "hard_cut")

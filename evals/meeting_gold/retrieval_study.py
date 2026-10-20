@@ -3,9 +3,13 @@
 Pure computation (settings enumeration, fusion, metrics, ceiling) never
 imports ``app.*`` at module scope, so this module can be imported and its
 fusion/metrics/ceiling logic unit tested without a database or the Neon test
-branch. Only the handful of functions that actually touch the database or a
-retrieval backend import ``app.*`` lazily, inside the function body, and only
-after the caller has run ``production_path.prepare_test_environment()``.
+branch. The single exception is ``app.retrieval.fusion``: it is pure (no
+database, no settings), and it is the one implementation of RRF fusion and the
+per-video window that the production ``search_segments`` also uses, so the
+study imports it instead of keeping a second copy. Only the handful of
+functions that actually touch the database or a retrieval backend import
+``app.*`` lazily, inside the function body, and only after the caller has run
+``production_path.prepare_test_environment()``.
 """
 
 from __future__ import annotations
@@ -20,13 +24,24 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.retrieval.fusion import RRF_K, FusionConfig, fuse_raw, fuse_rrf, select_window
+
 from . import production_path
 from .artifacts import validate_selection
 from .scoring import _validate_case
 
 SEARCH_RESULT_LIMIT = 10
-POOL_LIMIT = 50
-RRF_K = 60
+# The candidate pool per backend must equal the production pool size, or the
+# R2 equivalence check against ``KnowledgeServices.search_segments`` is
+# meaningless (``search_segments`` uses min(pool limit, max(20, limit * 5)),
+# which is the pool limit itself for the public limit of 10).
+POOL_LIMIT = FusionConfig().candidate_pool_limit
+# Per-video cap of the new online setting (``rrf-<variant>-cap<N>``). Kept as
+# an explicit number rather than read from ``FusionConfig``: the equivalence
+# check compares this setting with ``search_segments`` under the *default*
+# ``FusionConfig()``, so a drift between the two fails loudly.
+ONLINE_PER_ITEM_CAP = 3
+RRF_WEIGHTS = (1.0, 1.0)
 MINMAX_ALPHA = 0.5
 METRIC_KS = (1, 3, 5, 10)
 SCOPES = ("A", "B")
@@ -115,13 +130,19 @@ class SettingSpec:
     lexical_variant: str | None  # "AND" | "OR" | None
     diversify: bool
     scope: str  # "A" | "B"
+    # Per-video cap of the window (production ``per_item_cap``). A capped
+    # setting replaces the diversify window, so it is always ``diversify=False``.
+    per_item_cap: int | None = None
 
     @property
     def setting_id(self) -> str:
         parts = [self.method]
         if self.lexical_variant:
             parts.append(self.lexical_variant)
-        parts.append("div-on" if self.diversify else "div-off")
+        if self.per_item_cap is not None:
+            parts.append(f"cap{self.per_item_cap}")
+        else:
+            parts.append("div-on" if self.diversify else "div-off")
         parts.append(f"scope-{self.scope}")
         return "-".join(parts)
 
@@ -134,6 +155,16 @@ class SettingSpec:
             and self.scope == "B"
         )
 
+    @property
+    def is_online_candidate(self) -> bool:
+        """The new online setting: RRF, lexical AND, capped per-video window."""
+
+        return (
+            self.method == "rrf"
+            and self.lexical_variant == "AND"
+            and self.per_item_cap == ONLINE_PER_ITEM_CAP
+        )
+
 
 def enumerate_settings() -> tuple[SettingSpec, ...]:
     specs: list[SettingSpec] = []
@@ -141,6 +172,16 @@ def enumerate_settings() -> tuple[SettingSpec, ...]:
         for diversify in (True, False):
             for scope in SCOPES:
                 specs.append(SettingSpec(method, variant, diversify, scope))
+    # RRF with the capped per-video window instead of the five-video diversify
+    # window; ``rrf/AND/cap3`` is the production default after the
+    # cn-recall-fusion change.
+    for variant in ("AND", "OR"):
+        for scope in SCOPES:
+            specs.append(
+                SettingSpec(
+                    "rrf", variant, False, scope, per_item_cap=ONLINE_PER_ITEM_CAP
+                )
+            )
     return tuple(specs)
 
 
@@ -154,25 +195,6 @@ def fuse_single(hits: Sequence[RankedHit]) -> list[RankedHit]:
         if current is None or hit.score > current.score:
             best[hit.segment_id] = hit
     return list(best.values())
-
-
-def fuse_raw(primary: Sequence[RankedHit], dense: Sequence[RankedHit]) -> list[RankedHit]:
-    """Concatenate lexical + dense hits, keeping the max score (production)."""
-
-    return fuse_single([*primary, *dense])
-
-
-def fuse_rrf(
-    primary: Sequence[RankedHit], dense: Sequence[RankedHit], *, k: int = RRF_K
-) -> list[RankedHit]:
-    scores: dict[int, float] = defaultdict(float)
-    reps: dict[int, RankedHit] = {}
-    for ranked in (primary, dense):
-        ordered = sorted(fuse_single(ranked), key=lambda hit: hit.score, reverse=True)
-        for rank, hit in enumerate(ordered, start=1):
-            scores[hit.segment_id] += 1.0 / (k + rank)
-            reps.setdefault(hit.segment_id, hit)
-    return [dataclasses.replace(reps[sid], score=score) for sid, score in scores.items()]
 
 
 def _min_max_normalize(hits: Sequence[RankedHit]) -> dict[int, float]:
@@ -215,19 +237,34 @@ def fuse_for_method(
     if method == "dense":
         return fuse_single(dense)
     if method == "raw":
-        return fuse_raw(lexical, dense)
+        return fuse_raw([lexical, dense])
     if method == "rrf":
-        return fuse_rrf(lexical, dense)
+        return fuse_rrf([lexical, dense], k=RRF_K, weights=RRF_WEIGHTS)
     if method == "minmax":
         return fuse_minmax(lexical, dense)
     raise StudyError(f"unknown_method:{method}")
 
 
 def rank_setting(
-    fused: Sequence[RankedHit], *, diversify: bool, limit: int = SEARCH_RESULT_LIMIT
+    fused: Sequence[RankedHit],
+    *,
+    diversify: bool,
+    limit: int = SEARCH_RESULT_LIMIT,
+    per_item_cap: int | None = None,
 ) -> list[RankedHit]:
-    """Apply production diversification, or a plain score sort, to a fused list."""
+    """Apply a window to a fused list.
 
+    ``per_item_cap`` selects the production capped window (``select_window``
+    over the list ordered ``(score desc, segment_id asc)``, the order
+    ``fuse_rrf`` returns); otherwise ``diversify`` applies the legacy
+    five-video diversification and ``False`` is a plain score sort.
+    """
+
+    if per_item_cap is not None:
+        if diversify:
+            raise StudyError("per_item_cap_requires_diversify_off")
+        ordered = sorted(fused, key=lambda hit: (-hit.score, hit.segment_id))
+        return select_window(ordered, limit=limit, per_item_cap=per_item_cap)
     if diversify:
         from app.agent.services import _diversify_hits
 
@@ -603,7 +640,7 @@ def rank_for_setting(pools: CandidatePools, spec: SettingSpec) -> list[RankedHit
         dense=pools.dense,
         lexical_variant=spec.lexical_variant,
     )
-    return rank_setting(fused, diversify=spec.diversify)
+    return rank_setting(fused, diversify=spec.diversify, per_item_cap=spec.per_item_cap)
 
 
 def r2_equivalence_check(
@@ -614,14 +651,39 @@ def r2_equivalence_check(
     query: str,
     item_id: int | None,
     expected_ranked: Sequence[RankedHit],
+    fusion: FusionConfig | None = None,
 ) -> tuple[bool, list[int], list[int]]:
+    """Compare a study ranking with ``KnowledgeServices.search_segments``.
+
+    ``fusion`` is passed straight to the service (``None`` means the default
+    ``FusionConfig()``); the legacy baseline therefore passes
+    ``FusionConfig(method="raw")``.
+    """
+
     from app.agent.services import KnowledgeServices
 
-    services = KnowledgeServices(tenant, ro_factory, embedder=cached_embedder)
+    services = KnowledgeServices(
+        tenant, ro_factory, embedder=cached_embedder, fusion=fusion
+    )
     citations = services.search_segments(query, limit=SEARCH_RESULT_LIMIT, item_id=item_id)
     actual_ids = [citation.segment_id for citation in citations]
     expected_ids = [hit.segment_id for hit in expected_ranked]
     return actual_ids == expected_ids, expected_ids, actual_ids
+
+
+def _equivalence_fusion(spec: SettingSpec) -> FusionConfig | None:
+    """The ``search_segments`` config a setting must reproduce, if it has one."""
+
+    if (
+        spec.method == "raw"
+        and spec.lexical_variant == "AND"
+        and spec.diversify
+        and spec.per_item_cap is None
+    ):
+        return FusionConfig(method="raw")
+    if spec.is_online_candidate:
+        return FusionConfig()
+    return None
 
 
 def _walk_plan_node_types(node: Mapping[str, Any]) -> list[str]:
@@ -1087,6 +1149,7 @@ def run_rq1(
 
             div_on: dict[tuple[str, str | None], list[int]] = {}
             div_off: dict[tuple[str, str | None], list[int]] = {}
+            capped_ids_by_key: dict[tuple[str, str | None], list[int]] = {}
             for spec in (s for s in specs if s.scope == scope):
                 ranked = rank_for_setting(pools, spec)
                 ranked_ids = [hit.segment_id for hit in ranked]
@@ -1096,7 +1159,12 @@ def run_rq1(
                     "scores": ranked_scores,
                 }
                 key = (spec.method, spec.lexical_variant)
-                (div_on if spec.diversify else div_off)[key] = ranked_ids
+                if spec.per_item_cap is None:
+                    (div_on if spec.diversify else div_off)[key] = ranked_ids
+                else:
+                    # Kept apart from diversify on/off: the soft per-video cap
+                    # has its own scope-A invariance (below).
+                    capped_ids_by_key[key] = ranked_ids
 
                 if eligible:
                     computed = compute_metrics(
@@ -1123,7 +1191,11 @@ def run_rq1(
                     )
                 case_record["settings"][spec.setting_id] = setting_entry
 
-                if spec.method == "raw" and spec.lexical_variant == "AND" and spec.diversify:
+                # R2: the legacy baseline must equal ``search_segments`` under
+                # the ``raw`` rollback config, and the new online setting must
+                # equal it under the default (RRF + per-video cap) config.
+                equivalence_fusion = _equivalence_fusion(spec)
+                if equivalence_fusion is not None:
                     equal, expected_ids, actual_ids = r2_equivalence_check(
                         ro_factory,
                         tenant=tenant,
@@ -1131,12 +1203,14 @@ def run_rq1(
                         query=query,
                         item_id=scope_item_id,
                         expected_ranked=ranked,
+                        fusion=equivalence_fusion,
                     )
                     if not equal:
                         r2_failures.append(
                             {
                                 "case_id": case_id,
                                 "scope": scope,
+                                "setting_id": spec.setting_id,
                                 "expected": expected_ids,
                                 "actual": actual_ids,
                             }
@@ -1152,6 +1226,22 @@ def run_rq1(
                                 "method": key[0],
                                 "lexical_variant": key[1],
                                 "diversify_on": on_ids,
+                                "diversify_off": off_ids,
+                            }
+                        )
+                # The cap only spreads results over videos and fills a short
+                # window by ranking, so with one video (scope A) a capped
+                # window must equal the uncapped ranking.
+                for key, capped_ids in capped_ids_by_key.items():
+                    off_ids = div_off.get(key)
+                    if capped_ids != off_ids:
+                        invariance_failures.append(
+                            {
+                                "case_id": case_id,
+                                "method": key[0],
+                                "lexical_variant": key[1],
+                                "per_item_cap": ONLINE_PER_ITEM_CAP,
+                                "capped": capped_ids,
                                 "diversify_off": off_ids,
                             }
                         )
@@ -1207,7 +1297,9 @@ __all__ = [
     "CachedEmbedder",
     "CandidatePools",
     "CeilingResult",
+    "FusionConfig",
     "HELD_OUT_COLLISION_REASON",
+    "ONLINE_PER_ITEM_CAP",
     "QUERY_KINDS",
     "RQ1_CASE_IDS",
     "RankedHit",

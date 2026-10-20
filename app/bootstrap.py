@@ -94,7 +94,12 @@ def build_knowledge_agent(
     )
 
     def service_factory(request):
-        return KnowledgeServices(request.tenant, factory, embedder=embedder)
+        return KnowledgeServices(
+            request.tenant,
+            factory,
+            embedder=embedder,
+            fusion=settings.retrieval_fusion_config(),
+        )
 
     action_services = AgentActionServices(
         submission=build_ingest_submission_service(

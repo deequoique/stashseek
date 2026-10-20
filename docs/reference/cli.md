@@ -72,6 +72,23 @@ launcher 的 `stop` 只向当前 reservation 记录中的 supervisor 发信号�
 `item=<id> <状态>`），不含 URL；有发布失败时以状态 `2` 退出，对应条目保持
 `needs_asr`，可直接重跑。该命令不检查租户的每日配额，转写费用由运维自行把控。
 
+### 中文全文索引与标题行补齐
+
+```text
+.venv/bin/python -m app.cli reindex [--user-id ID] [--dry-run] [--zh-fts] [--title-rows]
+```
+
+给入库时间早于中文分词索引和标题行的条目补数据。两个开关都不给时两项都做；只给其中一个就只做那一项。
+`--zh-fts` 为 `ready`、未删除、未归档的中文条目里 `fts` 为空的正文片段补写双字分词 `fts`，
+纯 SQL，不调用向量 API。`--title-rows` 为同一范围内的条目补写或刷新标题行（标题加简介前 400
+字符，带向量和 `fts`）：缺失的插入，文本与当前标题简介不一致的更新，一致的跳过；标题或简介
+修改后再运行一次即可更新。`--user-id` 只处理一个租户；`--dry-run` 只统计，不写库、不调用向量 API。
+
+输出只有计数和失败条目的内部 item ID（`zh_segments_updated=… title_rows_inserted=…
+title_rows_updated=… title_rows_skipped=… failed=… dry_run=…` 与 `item=<id> failed`），不含
+标题或文本；有失败条目时以状态 `2` 退出，直接重跑即可补齐。该命令按条目提交，标题行向量化约每条
+一次 embedding 调用。
+
 ### 用户与 identity 管理
 
 ```text

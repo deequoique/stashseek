@@ -47,6 +47,7 @@ from app.agent.response import (
     ResponseEnvelope,
     UNSUPPORTED_EVIDENCE_TEXT,
     UnsupportedResponseSection,
+    render_source_line,
 )
 from app.agent.types import (
     AgentRequest,
@@ -116,6 +117,8 @@ COMPOSER_INSTRUCTIONS = f"""
 证据编号只能放在 section 的 citation_ids 字段，服务器会追加精确 [S<segment_id>] 标记；
 不要在文本中改写、链接化、放入代码或替代这些标记。
 回答只选择与问题相关的视频；每个选中的视频至少引用一个 segment 或媒体证据。
+标注为“标题与简介”的证据只说明这条视频是什么、与问题是否相关，具体事实以正文片段为准，
+不要把标题或简介当作视频里说过的话。
 {_COMPOSER_SCHEMA_GUIDANCE}
 """.strip()
 
@@ -596,6 +599,14 @@ def _render_composer_evidence(
     rows: list[str] = []
     for citation in citations:
         excerpt = " ".join(citation.excerpt.split())[:excerpt_chars]
+        if citation.kind == "title":
+            # The title-and-description row has no transcript time and its
+            # text is not a spoken quote; label it so the model cannot cite
+            # it as something said in the video.
+            rows.append(
+                f"ID {citation.segment_id}，视频《{citation.title}》的标题与简介：{excerpt}"
+            )
+            continue
         timestamp = (
             f"，时间 {int(citation.start_sec)} 秒"
             if citation.start_sec is not None
@@ -701,12 +712,7 @@ def _append_sources(text: str, citations: list[Citation]) -> str:
         title = group[0].title
         lines.append(f"- {title}")
         for citation in group:
-            excerpt = " ".join(citation.excerpt.split())
-            if len(excerpt) > 180:
-                excerpt = f"{excerpt[:177]}…"
-            lines.append(
-                f"  - [S{citation.segment_id}] {citation.url} — {excerpt}"
-            )
+            lines.append(render_source_line(citation))
     return "\n".join(lines)
 
 

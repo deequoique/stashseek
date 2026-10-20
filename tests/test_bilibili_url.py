@@ -415,7 +415,7 @@ def test_bilibili_timestamp_link_drops_tracking_query():
 
 
 def test_retrieval_hit_uses_bilibili_source_instead_of_youtube_fallback():
-    segment = SimpleNamespace(id=3, text="evidence", start_sec=42)
+    segment = SimpleNamespace(id=3, text="evidence", start_sec=42, boundary_kind="gap")
     item = SimpleNamespace(
         id=2,
         title="Bilibili source",

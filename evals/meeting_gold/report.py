@@ -28,7 +28,11 @@ def _library_word_stats(manifest: Mapping[str, Any]) -> dict[str, Any]:
     words: list[int] = []
     segment_count = 0
     boundary_kinds: dict[str, int] = {}
+    title_rows = 0
     for meeting in manifest["meetings"].values():
+        # Title rows are indexed but are not transcript segments; a library
+        # ingested before they existed has none (``title_rows`` absent).
+        title_rows += meeting.get("title_rows", 0)
         for segment in meeting["segments"]:
             words.append(segment["words"])
             segment_count += 1
@@ -49,6 +53,7 @@ def _library_word_stats(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "p10_words": pct(0.10),
         "p90_words": pct(0.90),
         "boundary_kinds": dict(sorted(boundary_kinds.items())),
+        "title_rows": title_rows,
     }
 
 
@@ -106,12 +111,30 @@ def _macro_mean(case_records: Sequence[dict[str, Any]], key: str) -> float | Non
     return statistics.fmean(values)
 
 
+def _is_scope_a_div_off(setting: Mapping[str, Any]) -> bool:
+    """A scope-A diversify-off row that is redundant with its diversify-on twin.
+
+    A capped window (``per_item_cap``) is not redundant: the cap trims the
+    single item's own results, so its scope-A row is reported.
+    """
+
+    return (
+        setting["scope"] == "A"
+        and not setting["diversify"]
+        and setting.get("per_item_cap") is None
+    )
+
+
 def _setting_label(setting: Mapping[str, Any]) -> str:
     method = setting["method"]
     variant = setting.get("lexical_variant")
-    diversify = "div-on" if setting["diversify"] else "div-off"
+    cap = setting.get("per_item_cap")
+    if cap is not None:
+        window = f"cap{cap}"
+    else:
+        window = "div-on" if setting["diversify"] else "div-off"
     label = method if not variant else f"{method}-{variant}"
-    return f"{label} ({diversify})"
+    return f"{label} ({window})"
 
 
 # --------------------------------------------------------------------- setup
@@ -134,6 +157,8 @@ def render_setup_md(result: Mapping[str, Any], *, dataset_hash: str) -> str:
         f"(median {index_stats['median_words']} words/segment, "
         f"p10 {index_stats['p10_words']}, p90 {index_stats['p90_words']})",
         f"- Boundary kinds: {index_stats['boundary_kinds']}",
+        f"- Title rows indexed (not transcript segments, not counted above): "
+        f"{index_stats['title_rows']}",
         f"- Cases: {n_eligible} eligible (`ces` policy, `citation_scorable`) + "
         f"{n_ineligible} ineligible (excluded from macro averages)",
     ]
@@ -314,7 +339,7 @@ def render_ablation(result: Mapping[str, Any], *, heading_suffix: str = "") -> t
     rows: list[dict[str, Any]] = []
     for setting in result["settings"]:
         setting_id = setting["setting_id"]
-        if setting["scope"] == "A" and not setting["diversify"]:
+        if _is_scope_a_div_off(setting):
             # Asserted identical to diversify-on in scope A; one column only.
             continue
         metrics = result["aggregates"].get(setting_id, {})
@@ -425,7 +450,7 @@ def top_settings_by_recall5(
     scored = []
     for setting in result["settings"]:
         setting_id = setting["setting_id"]
-        if setting_id in scope_baseline_ids or (setting["scope"] == "A" and not setting["diversify"]):
+        if setting_id in scope_baseline_ids or _is_scope_a_div_off(setting):
             continue
         if scope is not None and setting["scope"] != scope:
             continue
@@ -469,6 +494,7 @@ def render_attribution(result: Mapping[str, Any]) -> tuple[str, str]:
     one_factor = [
         ("AND -> OR", "raw-OR-div-on-scope-B"),
         ("raw -> RRF", "rrf-AND-div-on-scope-B"),
+        ("raw -> RRF + cap3", "rrf-AND-cap3-scope-B"),
         ("raw -> min-max", "minmax-AND-div-on-scope-B"),
         ("diversify on -> off", "raw-AND-div-off-scope-B"),
     ]

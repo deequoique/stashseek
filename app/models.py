@@ -1169,7 +1169,7 @@ class Segment(Base):
     fts: Mapped[str | None] = mapped_column(TSVECTOR)
     boundary_kind: Mapped[str] = mapped_column(
         Text, nullable=False
-    )  # chapter|gap|punct|semantic|hard_cut
+    )  # chapter|gap|punct|semantic|hard_cut|title (title row, seq -1)
 
     __table_args__ = (
         CheckConstraint(

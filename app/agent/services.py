@@ -15,11 +15,14 @@ from app.browser_capture import timestamp_url
 from app.channels.types import TenantContext
 from app.diagnostics import RequestDiagnostics
 from app.ingest.embed import EmbeddingError, EmbeddingProvider
+from app.ingest.title_row import TITLE_ROW_KIND
 from app.models import ContentItem, Segment
+from app.retrieval.fusion import FusionConfig, fuse_raw, fuse_rrf, select_window
 from app.retrieval.search import Hit, bm25_search, vector_search
 
 
-SEARCH_CANDIDATE_POOL_LIMIT = 50
+# The candidate pool size is ``FusionConfig.candidate_pool_limit``; the
+# five-video window below only applies when ``FusionConfig.method == "raw"``.
 MAX_SOURCE_ITEMS = 5
 
 
@@ -63,6 +66,20 @@ def _url(item: ContentItem, segment: Segment | None = None) -> str:
 
 
 def _citation(item: ContentItem, segment: Segment, *, score: float | None = None) -> Citation:
+    if segment.boundary_kind == TITLE_ROW_KIND:
+        # The title row stores ``start_sec = 0`` only to satisfy the location
+        # check; it has no transcript time, so never build a timestamp link.
+        citation = Citation(
+            item_id=item.id,
+            segment_id=segment.id,
+            title=_title(item),
+            excerpt=segment.text,
+            url=item.url,
+            start_sec=None,
+            kind="title",
+        )
+        citation._retrieval_score = score
+        return citation
     citation = Citation(
         item_id=item.id,
         segment_id=segment.id,
@@ -119,10 +136,12 @@ class KnowledgeServices:
         embedder: EmbeddingProvider | None = None,
         max_results: int = SEARCH_RESULT_LIMIT,
         reference_scope: Iterable[tuple[str, str]] | None = None,
+        fusion: FusionConfig | None = None,
     ) -> None:
         self._tenant = tenant
         self._session_factory = session_factory
         self._embedder = embedder
+        self._fusion = fusion if fusion is not None else FusionConfig()
         self._max_results = max(1, min(max_results, SEARCH_RESULT_LIMIT))
         self._diagnostics: RequestDiagnostics | None = None
         # ``None`` is the only unrestricted sentinel.  An explicitly supplied
@@ -205,7 +224,14 @@ class KnowledgeServices:
         limit: int = SEARCH_RESULT_LIMIT,
         item_id: int | None = None,
     ) -> list[Citation]:
-        """Hybrid lexical/vector search, merged without exposing tenant arguments."""
+        """Hybrid lexical/vector search, fused without exposing tenant arguments.
+
+        The default ``rrf`` method fuses the two rankings by rank and builds
+        the window with a soft per-video cap (the cap spreads results over
+        videos; a short window is filled by ranking, so a search narrowed to
+        one video still returns ``limit`` hits); ``raw`` is the legacy
+        raw-score merge with the five-video window.
+        """
 
         query = query.strip()
         if not query:
@@ -219,51 +245,47 @@ class KnowledgeServices:
                 return []
         limit = max(1, min(limit, self._max_results))
         candidate_limit = min(
-            SEARCH_CANDIDATE_POOL_LIMIT,
+            self._fusion.candidate_pool_limit,
             max(20, limit * 5),
         )
         vector = self._embed_query(query)
         self._event("retrieval_started")
         try:
             with self._session_factory() as db:
-                if item_id is None:
-                    hits = bm25_search(
-                        db,
-                        query,
-                        user_id=self._tenant.app_user_id,
-                        k=candidate_limit,
-                        **self._search_scope_kwargs(),
-                    )
-                    hits.extend(
-                        vector_search(
-                            db,
-                            vector,
-                            user_id=self._tenant.app_user_id,
-                            k=candidate_limit,
-                            **self._search_scope_kwargs(),
-                        )
+                scope_kwargs = self._search_scope_kwargs()
+                if item_id is not None:
+                    scope_kwargs["item_id"] = item_id
+                lexical = bm25_search(
+                    db,
+                    query,
+                    user_id=self._tenant.app_user_id,
+                    k=candidate_limit,
+                    **scope_kwargs,
+                )
+                semantic = vector_search(
+                    db,
+                    vector,
+                    user_id=self._tenant.app_user_id,
+                    k=candidate_limit,
+                    **scope_kwargs,
+                )
+                if self._fusion.method == "rrf":
+                    selected_hits = select_window(
+                        fuse_rrf(
+                            [lexical, semantic],
+                            k=self._fusion.rrf_k,
+                            weights=[
+                                self._fusion.lexical_weight,
+                                self._fusion.vector_weight,
+                            ],
+                        ),
+                        limit=limit,
+                        per_item_cap=self._fusion.per_item_cap,
                     )
                 else:
-                    scope_kwargs = self._search_scope_kwargs()
-                    scope_kwargs["item_id"] = item_id
-                    hits = bm25_search(
-                        db,
-                        query,
-                        user_id=self._tenant.app_user_id,
-                        k=candidate_limit,
-                        **scope_kwargs,
+                    selected_hits = _diversify_hits(
+                        fuse_raw([lexical, semantic]), limit=limit
                     )
-                    hits.extend(
-                        vector_search(
-                            db,
-                            vector,
-                            user_id=self._tenant.app_user_id,
-                            k=candidate_limit,
-                            **scope_kwargs,
-                        )
-                    )
-
-                selected_hits = _diversify_hits(hits, limit=limit)
                 segment_ids = [hit.segment_id for hit in selected_hits]
                 if not segment_ids:
                     self._event("retrieval_completed", error_code="no_evidence")
@@ -281,18 +303,10 @@ class KnowledgeServices:
                         *self._reference_predicates(),
                     )
                 ).all()
+                scores = {hit.segment_id: hit.score for hit in selected_hits}
                 by_id = {
                     segment.id: _citation(
-                        item,
-                        segment,
-                        score=max(
-                            (
-                                hit.score
-                                for hit in hits
-                                if hit.segment_id == segment.id
-                            ),
-                            default=None,
-                        ),
+                        item, segment, score=scores.get(segment.id)
                     )
                     for segment, item in rows
                 }
@@ -350,6 +364,7 @@ class KnowledgeServices:
                 .join(ContentItem, Segment.item_id == ContentItem.id)
                 .where(
                     Segment.id == segment_id,
+                    Segment.boundary_kind != TITLE_ROW_KIND,
                     ContentItem.user_id == self._tenant.app_user_id,
                     ContentItem.deleted_at.is_(None),
                     ContentItem.archived_at.is_(None),
@@ -365,6 +380,7 @@ class KnowledgeServices:
                 .join(ContentItem, Segment.item_id == ContentItem.id)
                 .where(
                     Segment.item_id == item.id,
+                    Segment.boundary_kind != TITLE_ROW_KIND,
                     ContentItem.user_id == self._tenant.app_user_id,
                     ContentItem.deleted_at.is_(None),
                     ContentItem.archived_at.is_(None),
@@ -416,6 +432,7 @@ class KnowledgeServices:
                 .join(ContentItem, Segment.item_id == ContentItem.id)
                 .where(
                     Segment.id == segment_id,
+                    Segment.boundary_kind != TITLE_ROW_KIND,
                     ContentItem.user_id == self._tenant.app_user_id,
                     ContentItem.deleted_at.is_(None),
                     ContentItem.archived_at.is_(None),

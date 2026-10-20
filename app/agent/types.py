@@ -49,6 +49,14 @@ class Citation(BaseModel):
     excerpt: str
     url: str
     start_sec: float | None = None
+    # ``title`` marks the per-item title-and-description row: it has no
+    # transcript time, and its excerpt is the title text, not a spoken quote.
+    # The default is omitted from serialized output so persisted and public
+    # text sources keep their untagged legacy shape (the persisted-source codec
+    # treats any other ``kind`` tag as non-text); only ``title`` is written.
+    kind: Literal["segment", "title"] = Field(
+        default="segment", exclude_if=lambda value: value == "segment"
+    )
     _retrieval_score: float | None = PrivateAttr(default=None)
     # Set only by tenant-scoped database hydration, never public/model payloads.
     # A mutable source URL/P ordinal cannot prove exact CID item identity.

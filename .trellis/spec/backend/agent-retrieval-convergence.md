@@ -97,11 +97,37 @@ remain server-owned.
 NORMAL_RETRIEVAL_CALLS_LIMIT = 5
 NORMAL_SEARCH_CALLS_LIMIT = 2
 NORMAL_EXPANSION_CALLS_LIMIT = 3
-MAX_SOURCE_ITEMS = 5
+MAX_SOURCE_ITEMS = 5                  # Composer selection / sources cap; raw-mode window only
 SEARCH_RESULT_LIMIT = 10
-SEARCH_CANDIDATE_POOL_LIMIT = 50
 COMPRESSED_EVIDENCE_LIMIT = 8
 COMPOSER_EVIDENCE_EXCERPT_CHARS = 1200  # fits one upper-bound (200-word) segment; see ingestion-chunking-embedding.md
+
+# app/retrieval/fusion.py (pure; generic over anything with segment_id/item_id/score)
+@dataclass(frozen=True)
+class FusionConfig:
+    method: Literal["rrf", "raw"] = "rrf"
+    rrf_k: int = 60
+    lexical_weight: float = 1.0
+    vector_weight: float = 1.0
+    candidate_pool_limit: int = 50
+    per_item_cap: int = 3
+
+def fuse_rrf(lists: Sequence[Sequence[Hit]], *, k: int = 60, weights: Sequence[float]) -> list[Hit]
+def fuse_raw(lists: Sequence[Sequence[Hit]]) -> list[Hit]
+def select_window(fused: Sequence[Hit], *, limit: int, per_item_cap: int) -> list[Hit]
+
+# app/config.py — RETRIEVAL_FUSION (rrf|raw), RETRIEVAL_RRF_K (1–1000),
+# RETRIEVAL_LEXICAL_WEIGHT / RETRIEVAL_VECTOR_WEIGHT (0–10, not both 0),
+# RETRIEVAL_CANDIDATE_POOL_LIMIT (10–200), RETRIEVAL_PER_ITEM_CAP (1–10)
+def Settings.retrieval_fusion_config(self) -> FusionConfig
+
+# app/agent/services.py
+KnowledgeServices(tenant, session_factory, *, embedder=None, max_results=SEARCH_RESULT_LIMIT,
+                  reference_scope=None, fusion: FusionConfig | None = None)
+
+# app/agent/types.py
+class Citation(BaseModel):
+    kind: Literal["segment", "title"] = "segment"   # default omitted from model_dump(); only "title" is ever written
 
 class AgentDeps:
     citations: dict[int, Citation]       # keyed by segment_id, insertion order
@@ -167,12 +193,45 @@ for each answer-agent attempt. It must be positive and must not exceed
   inventory/management reads) are unaffected and keep returning the primary
   model's natural text.
 - `search_segments` is public-limit bounded to 10. It obtains a bounded
-  over-fetch pool (`min(50, max(20, limit * 5))`) from each hybrid retrieval
-  backend, removes exact duplicate segment IDs using the best score, ranks
-  item groups by their best hit, chooses at most five items, emits one best
-  representative for each, then fills remaining slots by score with distinct
-  segments from those selected items. All database hydration remains tenant
-  scoped.
+  over-fetch pool (`min(candidate_pool_limit, max(20, limit * 5))`) from each
+  retrieval backend, keeps the lexical and vector lists separate, and fuses
+  them by **rank**, never by raw score (`ts_rank_cd`, trigram similarity and
+  cosine are not on one scale; a lexical hit at 0.009 can never beat a cosine
+  of 0.5 in a raw merge). With the default `method="rrf"` each list is
+  deduplicated by segment ID (best raw score), the hit at rank `r` contributes
+  `weight / (k + r)`, contributions are summed per segment, the result is
+  ordered `(score desc, segment_id asc)`, and `select_window` builds the
+  window in two passes: first the fused order with at most `per_item_cap`
+  hits per video, then, if fewer than `limit` were taken, the remaining hits
+  in fused order regardless of the cap. The cap therefore only reserves
+  diversity; it never shrinks the window, and an `item_id`-scoped search
+  (one video in the pool) degenerates to plain rank truncation. There is no
+  five-video cap on the candidate window any more; `MAX_SOURCE_ITEMS` still
+  bounds the Composer's final selection and the rendered sources.
+  `method="raw"` is the rollback switch and the evaluation baseline:
+  `fuse_raw` (best raw score per segment) followed by `_diversify_hits` (five
+  videos, one representative each, then fill), exactly what the RQ1 study
+  computes. `Citation._retrieval_score` carries the fused score. All database
+  hydration remains tenant scoped and takes the score from the selected hit.
+- The Chinese lexical path does not use pg_trgm any more: Chinese segments
+  store `fts = to_tsvector('simple', <CJK bigrams + ASCII words>)` and a
+  query containing CJK is tokenized the same way and matched with
+  `websearch_to_tsquery('simple', 'a OR b OR …')`, ranked by `ts_rank_cd`
+  (see `ingestion-chunking-embedding.md`, scenario "title row and Chinese
+  fts"). The English path (`websearch_to_tsquery('english')`, all terms
+  required) is unchanged. A query with no token returns `[]` from the lexical
+  path and the vector path still runs.
+- Every ready item has one **title row** (`seq = -1`,
+  `boundary_kind = "title"`, text = title + description excerpt) with its own
+  embedding and `fts`; it joins both retrieval paths like a body segment. When
+  hydrated it becomes `Citation(kind="title", start_sec=None, url=item.url,
+  excerpt=<title text>)`: the Composer sees `视频《T》的标题与简介：…` instead
+  of a timestamp, the sources block renders `标题与简介：…`, and the browser
+  shows the item link without a time. `get_neighbors` and `open_at` exclude
+  title rows (`Segment.boundary_kind != "title"`), so a title row is never a
+  neighbor anchor or an "open at" target. The persisted-source codec treats
+  `kind in {"segment", "title"}` as text rows; any other tag is still
+  non-text.
 - A social/capability answer may finish without retrieval. Once a knowledge search succeeds, empty results remain distinct from transient read failure. Clean final empty search state produces server-owned `not_found/no_evidence`; non-empty evidence always enters the structured Composer. Exhausted read recovery returns `read_unavailable`, while a composable inventory read may still return bounded canonical partial read text.
 - Primary-agent usage-limit or timeout failures with trusted citations enter
   the bounded answer Agent. Without citations they use phase-accurate
@@ -300,9 +359,17 @@ for each answer-agent attempt. It must be positive and must not exceed
   in one response; both execute sequentially under the 2-search budget, a
   third would get `budget_exhausted`, and the structured Composer uses only
   the cached source IDs.
-- Good: one video dominates raw segment scores but bounded over-fetch exposes
-  five relevant item groups. The answer shows one top-level row per video and
-  preserves two distant links for the selected first video.
+- Good: one video dominates raw segment scores, but rank fusion plus the
+  per-video cap of 3 keeps at least four videos in the ten-slot window, and a
+  lexical-only hit with a raw score of 0.009 still enters by rank. The answer
+  shows one top-level row per video and preserves distant links for the
+  selected first video.
+- Good: the question only matches a video's title ("什么时候买内存"): the
+  title row is retrieved, cited as `kind="title"`, rendered as 标题与简介 with
+  an untimed link, and never offered as a neighbor anchor.
+- Base: `RETRIEVAL_FUSION=raw` restores the legacy merge and five-video window
+  without a code change; the RQ1 study's production-equivalence check runs
+  against both configurations.
 - Base: one search provides sufficient evidence. The Composer returns a
   valid cited answer, and canonical history contains only the normalized
   question and final answer.
@@ -343,7 +410,24 @@ for each answer-agent attempt. It must be positive and must not exceed
   unchanged, while model-authored URLs/source headings remain rejected.
 - Cover hybrid duplicate collapse, one-item crowding, six-item selection,
   distant same-item segments, public limit clamping, bounded candidate pool,
-  and PostgreSQL tenant predicates during hydration.
+  and PostgreSQL tenant predicates during hydration — the legacy window
+  assertions under `FusionConfig(method="raw")`, the rank-fusion assertions
+  under the default config (`tests/test_knowledge_services.py`; the real
+  pgvector test in `tests/test_multiuser_integration.py` is parametrized
+  raw/rrf).
+- Cover the fusion module directly (`tests/test_retrieval_fusion.py`): a
+  segment present in both lists accumulates rank contributions, an empty or
+  zero-weight list is skipped, `k` changes scale but not order, ties break on
+  `segment_id`, and `select_window` honours `per_item_cap` and `limit`.
+- Cover the Chinese tokenizer and query SQL (`tests/test_zh_tokens.py`,
+  `tests/test_bm25_search_zh.py`): bigrams, ASCII words, particle bigrams
+  skipped, the 64-token query cap, and compiled SQL that uses
+  `websearch_to_tsquery('simple', …)` + `ts_rank_cd` with no `similarity`,
+  `ILIKE` or `lang LIKE`; the English branch SQL is unchanged.
+- Cover settings validation (`tests/test_retrieval_config.py`) and title rows:
+  citation projection (`kind`, no `start_sec`, item URL), exclusion from
+  `get_neighbors`/`open_at`, Composer and sources rendering, and the
+  persisted-source codec round trip.
 - Cover segment-citation normalization directly: no-op under the cap,
   in-section duplicate removal, a cross-section duplicate kept and counted
   once, round-robin clamping that leaves every grounded section with at least
@@ -389,6 +473,24 @@ if deps.reserve_retrieval(run_step=ctx.run_step, kind=kind) is not EXECUTE:
 # the outer recovery stage allows at most three total attempts.
 answer = await composer.run(question, deps=ComposerDeps(allowed_citations))
 ```
+
+#### Wrong (fusion)
+
+```python
+hits = bm25_search(...) + vector_search(...)          # 0.009 next to 0.52
+selected = sorted(hits, key=lambda h: h.score)[-10:]  # lexical never surfaces
+by_item = first_five_items(selected)                  # sixth video dropped
+```
+
+#### Correct (fusion)
+
+```python
+fused = fuse_rrf([lexical, vector], k=cfg.rrf_k, weights=[cfg.lexical_weight, cfg.vector_weight])
+selected = select_window(fused, limit=limit, per_item_cap=cfg.per_item_cap)
+```
+
+Raw scores from different backends are never compared; videos are not capped
+in the candidate window, only in the Composer's final selection.
 
 ## Scenario: Video URL context and optional item narrowing
 

@@ -337,7 +337,7 @@ def ingest_meeting(
 ) -> dict[str, Any]:
     """Ingest one meeting as a YouTube json3 caption track under ``user_id``."""
 
-    from sqlalchemy import select
+    from sqlalchemy import func, select
 
     from app.ingest.tasks import build_worker_embedder, create_item, process_item
     from app.models import Segment
@@ -368,10 +368,22 @@ def ingest_meeting(
     spans = sentence_cue_spans(cue_sids)
 
     with factory() as db:
+        # The title row (``boundary_kind == "title"``, seq -1) holds the item
+        # title and description, not transcript text: it has no cue range to
+        # map, so it is counted separately and kept out of the segment list.
         rows = (
-            db.execute(select(Segment).where(Segment.item_id == item_id).order_by(Segment.seq))
+            db.execute(
+                select(Segment)
+                .where(Segment.item_id == item_id, Segment.boundary_kind != "title")
+                .order_by(Segment.seq)
+            )
             .scalars()
             .all()
+        )
+        title_rows = db.scalar(
+            select(func.count())
+            .select_from(Segment)
+            .where(Segment.item_id == item_id, Segment.boundary_kind == "title")
         )
         segments: list[dict[str, Any]] = []
         for row in rows:
@@ -404,6 +416,7 @@ def ingest_meeting(
         "title": connector.title,
         "cues": len(cues),
         "segments": segments,
+        "title_rows": int(title_rows or 0),
         "segment_text_hash": text_hash,
         "boundary_kinds": dict(sorted(kinds.items())),
         "median_words": words[len(words) // 2] if words else 0,
@@ -460,10 +473,15 @@ def _meeting_still_valid(info: Mapping[str, Any], factory: Callable[[], Any]) ->
             item = db.get(ContentItem, info["item_id"])
             if item is None or item.state != "ready":
                 return False
+            # Transcript segments only: the title row is not part of the
+            # manifest's segment list or text hash (see ``ingest_meeting``).
             rows = (
                 db.execute(
                     select(Segment.text)
-                    .where(Segment.item_id == info["item_id"])
+                    .where(
+                        Segment.item_id == info["item_id"],
+                        Segment.boundary_kind != "title",
+                    )
                     .order_by(Segment.seq)
                 )
                 .scalars()

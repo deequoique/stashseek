@@ -43,6 +43,7 @@ from app.db import get_session_factory
 from app.diagnostics import configure_runtime_logging
 from app.ingest.chunker import chunk
 from app.ingest.embed import EmbeddingProvider, ZhipuEmbedder
+from app.ingest.title_row import build_title_row, title_row_text
 from app.ingest.validate import IngestLimitExceeded, guard_ingest_limits, guard_transcript
 from app.models import (
     AppUser,
@@ -63,6 +64,7 @@ from app.ingest.notifications import (
     IngestNotificationPoller,
     mark_repair_due_best_effort,
 )
+from app.retrieval.zh_tokens import zh_tsvector
 from app.tls import configure_trusted_ca
 
 
@@ -674,10 +676,13 @@ def process_item(
         )
         if len(chunks) > settings.ingest_max_segments_per_item:
             raise IngestLimitExceeded()
-        vectors = semantic([part.text for part in chunks])
-        if len(vectors) != len(chunks):
+        # The title row (title + description excerpt) is embedded in the same
+        # batch as the body chunks, and counts against the same budget.
+        title_text = title_row_text(item)
+        vectors = semantic([title_text, *[part.text for part in chunks]])
+        if len(vectors) != len(chunks) + 1:
             raise ValueError(
-                f"embedding count mismatch: expected {len(chunks)}, got {len(vectors)}"
+                f"embedding count mismatch: expected {len(chunks) + 1}, got {len(vectors)}"
             )
         db.refresh(item)
         if pin is not None and not _lock_part_item(db, item, pin, user_id=item_user_id, dispatch_id=dispatch_id, dispatch_task_id=dispatch_task_id):
@@ -689,8 +694,10 @@ def process_item(
             return "deleted"
         db.execute(delete(Segment).where(Segment.item_id == item.id))
         item.state = "embedding"
-        for seq, (part, vector) in enumerate(zip(chunks, vectors, strict=True)):
-            fts = func.to_tsvector("english", part.text) if not result.lang.startswith("zh") else None
+        db.add(build_title_row(item, text=title_text, embedding=vectors[0]))
+        is_zh = result.lang.startswith("zh")
+        for seq, (part, vector) in enumerate(zip(chunks, vectors[1:], strict=True)):
+            fts = zh_tsvector(part.text) if is_zh else func.to_tsvector("english", part.text)
             db.add(Segment(item_id=item.id, seq=seq, start_sec=part.start_sec, end_sec=part.end_sec, text=part.text, embedding=vector, fts=fts, boundary_kind=part.boundary_kind))
         item.state = "ready"
         item.fail_reason = None

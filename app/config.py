@@ -18,6 +18,8 @@ from urllib.parse import urlparse, urlsplit
 
 from dotenv import dotenv_values, load_dotenv
 
+from app.retrieval.fusion import FusionConfig
+
 # Renamed keys need source-aware precedence: process canonical, process legacy,
 # .env canonical, .env legacy. python-dotenv normally flattens process and .env
 # into os.environ, so retain renamed .env values separately and remove only the
@@ -537,6 +539,28 @@ class Settings:
     agent_streaming_enabled: bool = field(
         default_factory=lambda: _env_bool("AGENT_STREAMING_ENABLED", True)
     )
+
+    # --- Retrieval fusion (search_segments candidate ranking) ---
+    # ``rrf`` fuses the lexical and vector rankings by rank; ``raw`` restores
+    # the pre-RRF raw-score merge and five-video window as a rollback switch.
+    retrieval_fusion: str = field(
+        default_factory=lambda: (_env("RETRIEVAL_FUSION", "rrf") or "rrf").strip()
+    )
+    retrieval_rrf_k: int = field(
+        default_factory=lambda: _env_int("RETRIEVAL_RRF_K", 60)
+    )
+    retrieval_lexical_weight: float = field(
+        default_factory=lambda: _env_float("RETRIEVAL_LEXICAL_WEIGHT", 1.0)
+    )
+    retrieval_vector_weight: float = field(
+        default_factory=lambda: _env_float("RETRIEVAL_VECTOR_WEIGHT", 1.0)
+    )
+    retrieval_candidate_pool_limit: int = field(
+        default_factory=lambda: _env_int("RETRIEVAL_CANDIDATE_POOL_LIMIT", 50)
+    )
+    retrieval_per_item_cap: int = field(
+        default_factory=lambda: _env_int("RETRIEVAL_PER_ITEM_CAP", 3)
+    )
     trash_retention_days: int = field(
         default_factory=lambda: _env_int(
             "TRASH_RETENTION_DAYS", DEFAULT_TRASH_RETENTION_DAYS
@@ -851,6 +875,41 @@ class Settings:
         default_factory=lambda: _env("WEB_TRUSTED_PROXY_HOSTS", "") or ""
     )
 
+    def _validate_retrieval(self) -> None:
+        if self.retrieval_fusion not in {"rrf", "raw"}:
+            raise ValueError("RETRIEVAL_FUSION must be rrf or raw")
+        if not 1 <= self.retrieval_rrf_k <= 1000:
+            raise ValueError("RETRIEVAL_RRF_K must be between 1 and 1000")
+        for name, weight in (
+            ("RETRIEVAL_LEXICAL_WEIGHT", self.retrieval_lexical_weight),
+            ("RETRIEVAL_VECTOR_WEIGHT", self.retrieval_vector_weight),
+        ):
+            if not math.isfinite(weight) or not 0 <= weight <= 10:
+                raise ValueError(f"{name} must be between 0 and 10")
+        if self.retrieval_lexical_weight == 0 and self.retrieval_vector_weight == 0:
+            raise ValueError(
+                "RETRIEVAL_LEXICAL_WEIGHT and RETRIEVAL_VECTOR_WEIGHT must not "
+                "both be 0"
+            )
+        if not 10 <= self.retrieval_candidate_pool_limit <= 200:
+            raise ValueError(
+                "RETRIEVAL_CANDIDATE_POOL_LIMIT must be between 10 and 200"
+            )
+        if not 1 <= self.retrieval_per_item_cap <= 10:
+            raise ValueError("RETRIEVAL_PER_ITEM_CAP must be between 1 and 10")
+
+    def retrieval_fusion_config(self) -> FusionConfig:
+        """Project the validated retrieval settings into a ``FusionConfig``."""
+
+        return FusionConfig(
+            method=self.retrieval_fusion,  # type: ignore[arg-type]
+            rrf_k=self.retrieval_rrf_k,
+            lexical_weight=self.retrieval_lexical_weight,
+            vector_weight=self.retrieval_vector_weight,
+            candidate_pool_limit=self.retrieval_candidate_pool_limit,
+            per_item_cap=self.retrieval_per_item_cap,
+        )
+
     def _validate_wemm(self) -> None:
         if not isinstance(self.wemm_model, str) or not self.wemm_model.strip():
             raise ValueError("WEMM_MODEL must not be empty")
@@ -1080,6 +1139,7 @@ class Settings:
         self.validate_external_login()
         if self.agent_composer_max_tokens <= 0:
             raise ValueError("AGENT_COMPOSER_MAX_TOKENS must be positive")
+        self._validate_retrieval()
         if self.trash_retention_days <= 0:
             raise ValueError("TRASH_RETENTION_DAYS must be positive")
         if not _PLAUSIBLE_EMAIL.fullmatch(self.privacy_contact_email):

@@ -246,3 +246,131 @@ for attempt in range(_MAX_EMBED_ATTEMPTS):
             raise EmbeddingError("embedding request failed") from exc
         self._sleep(self._retry_delay_seconds(attempt))
 ```
+
+## Scenario: title row and Chinese fts
+
+### 1. Scope / Trigger
+
+Apply this contract whenever you touch the segment insert in `process_item`,
+add a writer of `segment` rows, enumerate an item's segments by `seq`, or
+change how Chinese text is indexed. Origin: task `10-20-cn-recall-fusion`
+(2026-10-20). Two gaps motivated it: titles and descriptions were not
+retrievable at all, and Chinese segments had `fts = NULL` with a pg_trgm
+lexical path that only matched whole-query substrings.
+
+### 2. Signatures
+
+```python
+# app/ingest/title_row.py
+TITLE_ROW_SEQ = -1
+TITLE_ROW_KIND = "title"
+TITLE_ROW_DESCRIPTION_CHARS = 400
+def title_row_text(item) -> str                       # title (or platform_id) + "\n" + description[:400]
+def title_row_fts(text: str, lang: str | None)        # zh* -> zh_tsvector; else to_tsvector('english'), || zh_tsvector when the text has CJK
+def build_title_row(item, *, text: str, embedding: list[float]) -> Segment
+#   Segment(item_id, seq=-1, start_sec=0, end_sec=0, text, embedding, fts, boundary_kind="title")
+
+# app/retrieval/zh_tokens.py
+QUERY_TOKEN_LIMIT = 64
+def cjk_tokens(text: str, *, max_tokens: int | None = None) -> list[str]
+def zh_tsvector(text: str)      # func.to_tsvector("simple", " ".join(cjk_tokens(text)))   -- no cap
+def zh_tsquery(query: str)      # func.websearch_to_tsquery("simple", " OR ".join(tokens)) or None
+
+# app/ingest/reindex.py
+@dataclass(frozen=True)
+class ReindexResult:
+    zh_segments_updated: int; title_rows_inserted: int; title_rows_updated: int
+    title_rows_skipped: int; failed_item_ids: tuple[int, ...]; dry_run: bool
+def reindex(*, user_id: int | None = None, dry_run: bool = False, zh_fts: bool = True,
+            title_rows: bool = True, embedder=None, session_factory=None) -> ReindexResult
+
+# CLI
+python -m app.cli reindex [--user-id N] [--dry-run] [--zh-fts] [--title-rows]   # exit 2 on any failed item
+```
+
+### 3. Contracts
+
+- **One title row per ready item.** `process_item` embeds
+  `[title_text, *chunk_texts]` in one batch (title text counts against the
+  same embedding budget), deletes the old segments, inserts the title row
+  first and then the body chunks. The body-segment limit
+  (`ingest_max_segments_per_item`) counts body chunks only. The row satisfies
+  `loc_ck` with `start_sec = 0`; that zero is a placeholder, never a time:
+  retrieval projects the row to `Citation(kind="title", start_sec=None)`.
+- **Body enumeration excludes title rows.** Anything that walks an item's
+  segments by `seq` (neighbors, open-at, evaluation cue mapping, transcript
+  views) must filter `boundary_kind != "title"` or `seq >= 0`.
+- **Chinese fts.** For `lang` starting with `zh`, body segments and the title
+  row store `to_tsvector('simple', <tokens>)` where tokens are CJK character
+  bigrams (a one-character run stays a unigram), ASCII words lower-cased,
+  bigrams containing a sentence particle (的 了 吗 呢 吧 啊 呀) dropped,
+  deduplicated in first-seen order. Documents are never capped; queries are
+  capped at 64 tokens. Other languages keep `to_tsvector('english', text)`
+  for body segments; a non-Chinese item's title row additionally
+  concatenates the bigram vector (`english || simple`) when the title text
+  contains CJK, so a Chinese title over English captions stays lexically
+  searchable in Chinese. No new PostgreSQL extension is required (Neon
+  offers no zhparser/pg_jieba).
+- **Backfill is an operator command, not a migration.** `app.cli reindex`
+  fills `fts` for Chinese segments where it is NULL (SQL only, no embedding
+  call) and inserts or refreshes title rows (one embedding call per item,
+  only when missing or when the text changed). It is idempotent, scoped to
+  ready/undeleted/unarchived/unpurged items, optionally one tenant, commits
+  per item, records per-item failures and continues. Output is counts and
+  item IDs only. Dry run never builds the embedder and never writes.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| item has no title | title row text is the `platform_id` |
+| description longer than 400 chars | truncated to 400 chars in the title row |
+| embedding batch returns `len(chunks)` vectors instead of `len(chunks) + 1` | `ValueError` (count mismatch), item not marked ready |
+| reindex embedding or DB failure for one item | that item rolled back and listed in `failed_item_ids`; others continue; CLI exits 2 |
+| reindex `--dry-run` | counts only; no embedder construction, no writes |
+| Chinese query tokenizes to nothing | lexical path returns `[]`; vector path unaffected |
+| single CJK character query | matches only one-character runs (bigram index); vector path carries it |
+
+### 5. Good/Base/Bad Cases
+
+- Good: a Bilibili item with English captions but a Chinese title is found by
+  a Chinese question through its title row.
+- Base: an English item gets a title row with `english` fts and its body
+  segments exactly as before, one extra embedding per item.
+- Bad: enumerate `Segment` by `seq` without excluding `title`, cite the title
+  row with a `t=0` timestamp, cap `zh_tsvector` at 64 tokens (only the start
+  of a segment would be indexed), or run the backfill inside an Alembic
+  migration (no embedding provider there).
+
+### 6. Tests Required
+
+- `tests/test_tasks.py`: exactly one title row (`seq -1`, kind `title`,
+  `start_sec 0`); batch starts with the title text and has `chunks + 1`
+  entries; zh items use `simple` for body and title row, en items `english`;
+  the segment limit ignores the title row; title falls back to `platform_id`.
+- `tests/test_asr_ingest_flow.py` and `tests/test_bilibili_multipart_extract.py`:
+  body assertions skip title rows.
+- `tests/test_reindex_cli.py`: dry run writes nothing; only missing or stale
+  title rows are embedded; `--user-id` filter; zh fts backfill makes no
+  embedding call; one failing item does not stop the others and exits 2.
+- `tests/test_zh_tokens.py`: bigrams, unigram run, ASCII lower-casing,
+  particle bigrams skipped, dedup, cap, empty/punctuation-only input.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+fts = func.to_tsvector("english", part.text) if not lang.startswith("zh") else None
+neighbors = select(Segment).where(Segment.item_id == item.id, Segment.seq.between(lo, hi))
+```
+
+#### Correct
+
+```python
+fts = zh_tsvector(part.text) if lang.startswith("zh") else func.to_tsvector("english", part.text)
+db.add(build_title_row(item, text=title_text, embedding=vectors[0]))
+neighbors = select(Segment).where(
+    Segment.item_id == item.id, Segment.boundary_kind != "title", Segment.seq.between(lo, hi)
+)
+```

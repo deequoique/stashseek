@@ -7,6 +7,12 @@ from dataclasses import dataclass
 from typing import Any
 
 
+# Text citations may carry their own ``kind`` tag (the title-and-description
+# row is ``title``); every other tag is a non-text row and is never reread as
+# text. ``segment`` is the default and is normally not written at all.
+_TEXT_SOURCE_KINDS = frozenset({"segment", "title"})
+
+
 @dataclass(frozen=True)
 class DecodedSources:
     text: tuple[dict[str, Any], ...] = ()
@@ -29,7 +35,7 @@ def decode_sources(value: object) -> DecodedSources:
                 media.append(citation)
             continue
         # Tagged rows are never silently reinterpreted as legacy text.
-        if "kind" in row:
+        if "kind" in row and row["kind"] not in _TEXT_SOURCE_KINDS:
             continue
         if _looks_like_media(row):
             continue
@@ -38,7 +44,7 @@ def decode_sources(value: object) -> DecodedSources:
 
 
 def text_source_payloads(value: object) -> list[dict[str, Any]]:
-    """Return only untagged legacy text rows for context/API projections."""
+    """Return only text rows (untagged legacy rows and ``title`` rows)."""
 
     return list(decode_sources(value).text)
 

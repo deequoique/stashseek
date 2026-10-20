@@ -18,7 +18,7 @@ import pytest
 from evals.meeting_gold import production_path, report
 from evals.meeting_gold import retrieval_study as rs
 from evals.meeting_gold.core import Case, MeetingCorpus, Sentence, stable_sentence_id
-from evals.meeting_gold.retrieval_study import CandidatePools, RankedHit
+from evals.meeting_gold.retrieval_study import CandidatePools, FusionConfig, RankedHit
 
 _DATASET_HASH = "d" * 64
 _SCORABLE = {"ces": "citation_scorable", "ces_pes": "citation_scorable"}
@@ -331,6 +331,198 @@ def test_baseline_metrics_are_unchanged_by_the_new_bookkeeping(
     assert specific["cross_scope_comparison"]["recall@5"]["n"] == 1
 
 
+# ------------------------------------------- R2 equivalence orchestration
+def _record_equivalence(
+    monkeypatch: pytest.MonkeyPatch, *, fail_for: FusionConfig | None = None
+) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+
+    def fake(
+        ro_factory: Any,
+        *,
+        tenant: Any,
+        cached_embedder: Any,
+        query: str,
+        item_id: int | None,
+        expected_ranked: Any,
+        fusion: FusionConfig | None = None,
+    ) -> tuple[bool, list[int], list[int]]:
+        expected = [hit.segment_id for hit in expected_ranked]
+        calls.append(
+            {"query": query, "item_id": item_id, "fusion": fusion, "expected": expected}
+        )
+        if fail_for is not None and fusion == fail_for:
+            return False, expected, [*expected, -1]
+        return True, expected, expected
+
+    monkeypatch.setattr(rs, "r2_equivalence_check", fake)
+    return calls
+
+
+def test_run_checks_the_legacy_baseline_and_the_online_setting_in_both_scopes(
+    fake_study: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = _record_equivalence(monkeypatch)
+
+    result = _run(tmp_path)
+
+    # 4 cases x 2 scopes x (legacy raw baseline + new online setting).
+    assert len(calls) == 4 * 2 * 2
+    raw = [call for call in calls if call["fusion"] == FusionConfig(method="raw")]
+    online = [call for call in calls if call["fusion"] == FusionConfig()]
+    assert len(raw) == len(online) == 4 * 2
+    assert result["r2_failures"] == []
+
+    # Each check is handed the ranking of exactly the setting it validates.
+    by_case = {record["case_id"]: record for record in result["per_case"]}
+    for case_id in CASE_IDS:
+        query = f"query {case_id.split(':')[1]} {case_id.split(':')[2]} {case_id.split(':')[3]}"
+        for scope, item_scoped in (("A", True), ("B", False)):
+            settings = by_case[case_id]["settings"]
+            matching = [
+                call
+                for call in calls
+                if call["query"] == query and (call["item_id"] is not None) == item_scoped
+            ]
+            expected_by_fusion = {
+                call["fusion"]: call["expected"] for call in matching
+            }
+            assert (
+                expected_by_fusion[FusionConfig(method="raw")]
+                == settings[f"raw-AND-div-on-scope-{scope}"]["segment_ids"]
+            )
+            assert (
+                expected_by_fusion[FusionConfig()]
+                == settings[f"rrf-AND-cap3-scope-{scope}"]["segment_ids"]
+            )
+
+
+def test_online_setting_mismatch_is_reported_with_its_setting_id(
+    fake_study: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _record_equivalence(monkeypatch, fail_for=FusionConfig())
+
+    result = _run(tmp_path)
+
+    failures = result["r2_failures"]
+    assert len(failures) == 4 * 2
+    assert {failure["setting_id"] for failure in failures} == {
+        "rrf-AND-cap3-scope-A",
+        "rrf-AND-cap3-scope-B",
+    }
+    assert all(failure["actual"][-1] == -1 for failure in failures)
+    # The scope-A diversify invariance is a separate, untouched assertion.
+    assert result["scope_a_invariance_failures"] == []
+
+
+def test_legacy_baseline_mismatch_is_reported_with_its_setting_id(
+    fake_study: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _record_equivalence(monkeypatch, fail_for=FusionConfig(method="raw"))
+
+    result = _run(tmp_path)
+
+    assert {failure["setting_id"] for failure in result["r2_failures"]} == {
+        "raw-AND-div-on-scope-A",
+        "raw-AND-div-on-scope-B",
+    }
+
+
+def test_rq1_command_exits_nonzero_when_the_online_equivalence_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from evals.meeting_gold import __main__ as cli
+
+    ok_result: dict[str, Any] = {
+        "r2_failures": [],
+        "scope_a_invariance_failures": [],
+        "eligible_case_ids": [],
+        "excluded_case_ids": [],
+    }
+    failing = ok_result | {
+        "r2_failures": [{"case_id": "c", "scope": "B", "setting_id": "rrf-AND-cap3-scope-B"}]
+    }
+    monkeypatch.setattr(cli, "load_artifact_bundle", lambda path: {"dataset_hash": "h"})
+    monkeypatch.setattr(cli, "resolve_rq1_cases", lambda *a, **k: (("c",), {}))
+    monkeypatch.setattr(cli, "_prepared_settings", lambda: object())
+    monkeypatch.setattr(report, "write_reports", lambda *a, **k: None)
+
+    for result, expected in ((ok_result, 0), (failing, 2)):
+        monkeypatch.setattr(rs, "run_rq1", lambda *a, _r=result, **k: _r)
+        assert cli.main(["rq1", "--output", str(tmp_path)]) == expected
+
+
+def test_capped_window_equals_the_uncapped_ranking_in_scope_a(
+    fake_study: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Six segments of one meeting: diversify on/off agree (one item), and the
+    # soft cap fills the short window by ranking, so it agrees as well.
+    many = _pools(
+        [RankedHit(index, 101, 0.9 - index / 100) for index in range(1, 7)],
+        [RankedHit(index, 101, 3.0 - index / 10) for index in range(1, 7)],
+        [RankedHit(index, 101, 3.0 - index / 10) for index in range(1, 7)],
+    )
+    monkeypatch.setattr(
+        rs,
+        "fetch_candidate_pools",
+        lambda ro_factory, query, vector, *, user_id, item_id, pool_limit=50: many,
+    )
+
+    result = _run(tmp_path)
+
+    assert result["scope_a_invariance_failures"] == []
+    case_a = next(r for r in result["per_case"] if r["case_id"] == CASE_A)
+    capped = case_a["settings"]["rrf-AND-cap3-scope-A"]["segment_ids"]
+    uncapped = case_a["settings"]["rrf-AND-div-off-scope-A"]["segment_ids"]
+    assert len(capped) == len(uncapped) == 6
+    assert capped == uncapped
+
+
+def test_a_capped_window_that_differs_from_uncapped_in_scope_a_is_reported(
+    fake_study: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    many = _pools(
+        [RankedHit(index, 101, 0.9 - index / 100) for index in range(1, 7)],
+        [RankedHit(index, 101, 3.0 - index / 10) for index in range(1, 7)],
+        [RankedHit(index, 101, 3.0 - index / 10) for index in range(1, 7)],
+    )
+    monkeypatch.setattr(
+        rs,
+        "fetch_candidate_pools",
+        lambda ro_factory, query, vector, *, user_id, item_id, pool_limit=50: many,
+    )
+    original = rs.rank_for_setting
+
+    def truncating(pools: Any, spec: Any) -> list[RankedHit]:
+        ranked = original(pools, spec)
+        # Model the earlier hard cap: a capped single-video list stops at 3.
+        return ranked[:3] if spec.per_item_cap is not None and spec.scope == "A" else ranked
+
+    monkeypatch.setattr(rs, "rank_for_setting", truncating)
+
+    result = _run(tmp_path)
+
+    failures = result["scope_a_invariance_failures"]
+    assert failures
+    assert all(failure["per_item_cap"] == 3 for failure in failures)
+    assert {failure["lexical_variant"] for failure in failures} == {"AND", "OR"}
+    assert all(len(failure["capped"]) == 3 for failure in failures)
+    assert all(len(failure["diversify_off"]) == 6 for failure in failures)
+
+
+def test_capped_settings_are_paired_with_the_scope_baseline(
+    fake_study: dict[str, Any], tmp_path: Path
+) -> None:
+    result = _run(tmp_path)
+
+    for setting_id in ("rrf-AND-cap3-scope-B", "rrf-AND-cap3-scope-A"):
+        assert result["aggregates"][setting_id]["recall@5"]["n"] == 2
+        comparison = result["comparisons"][setting_id]
+        assert comparison["hit@5"]["mcnemar"]["p_value"] is not None
+        assert "bootstrap" in comparison["recall@5"]
+        assert comparison["recall@5"]["win_loss_tie"]
+
+
 # ------------------------------------------------------------------ reports
 def _write(result: dict[str, Any], tmp_path: Path) -> Path:
     report.write_reports(result, _bundle(), tmp_path, dataset_hash=_DATASET_HASH)
@@ -573,3 +765,45 @@ def test_query_vector_cache_keeps_progress_when_embedding_fails_midway(tmp_path:
     idle = _FlakyEmbedder(fail_on=0)
     assert rs.build_query_vector_cache(queries, embedder=idle, cache_path=cache_path) == vectors
     assert idle.calls == 0
+
+
+def test_ablation_lists_the_capped_settings_but_still_hides_redundant_scope_a_rows(
+    fake_study: dict[str, Any], tmp_path: Path
+) -> None:
+    out = _write(_run(tmp_path), tmp_path)
+    with (out / "ablation.csv").open(encoding="utf-8", newline="") as handle:
+        rows = {row["setting_id"]: row for row in csv.DictReader(handle)}
+
+    # The capped window changes scope-A results, so its rows are reported ...
+    for setting_id in (
+        "rrf-AND-cap3-scope-A",
+        "rrf-AND-cap3-scope-B",
+        "rrf-OR-cap3-scope-A",
+        "rrf-OR-cap3-scope-B",
+    ):
+        assert setting_id in rows, setting_id
+        assert rows[setting_id]["delta_recall@5"] != ""
+        assert rows[setting_id]["mcnemar_p_hit@5"] != ""
+    assert rows["rrf-AND-cap3-scope-B"]["label"] == "rrf-AND (cap3)"
+    # ... while an uncapped scope-A diversify-off row stays folded into its twin.
+    assert "raw-AND-div-off-scope-A" not in rows
+    assert "raw-AND-div-off-scope-B" in rows
+
+
+def test_attribution_has_a_bar_for_the_capped_online_setting(
+    fake_study: dict[str, Any], tmp_path: Path
+) -> None:
+    out = _write(_run(tmp_path), tmp_path)
+
+    attribution = (out / "attribution.csv").read_text()
+    assert "raw -> RRF + cap3" in attribution
+
+
+def test_setup_reports_title_rows_apart_from_segments(
+    fake_study: dict[str, Any], tmp_path: Path
+) -> None:
+    out = _write(_run(tmp_path), tmp_path)
+
+    # The fake library predates title rows, so none are counted.
+    setup = (out / "setup.md").read_text()
+    assert "Title rows indexed (not transcript segments, not counted above): 0" in setup

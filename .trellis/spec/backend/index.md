@@ -19,13 +19,13 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
-| [Ingestion Chunking and Embedding](./ingestion-chunking-embedding.md) | Semantic-first transcript chunking (80–200 words, ≤120 s, deepest-dip cut, whole-cue overlap), embedding budget guard, composer excerpt cap, and per-batch transient embedding retry | Active |
+| [Ingestion Chunking and Embedding](./ingestion-chunking-embedding.md) | Semantic-first transcript chunking (80–200 words, ≤120 s, deepest-dip cut, whole-cue overlap), embedding budget guard, composer excerpt cap, per-batch transient embedding retry, the per-item title row, Chinese bigram `fts`, and the `app.cli reindex` backfill | Active |
 | [YouTube Connector](./youtube-connector.md) | Subtitle-track selection and yt-dlp runtime contract | Active |
 | [Bilibili Connector](./bilibili-connector.md) | Strict video URL admission, public yt-dlp metadata/SRT, and browser/ASR fallback | Active |
 | [Bilibili Explicit Parts and Favorites](./bilibili-parts.md) | Stable CID selection, signed refs, bounded favorites discovery, source-proof fences and owned browser navigation | Active |
 | [LangBot Channel Runtime](./langbot-channel-runtime.md) | Required bridge readiness, fail-closed routing, and channel privacy | Active |
 | [Provider TLS and Request Diagnostics](./provider-tls-diagnostics.md) | Verified outbound CA composition and redacted Agent/retrieval stage diagnostics | Active |
-| [Agent Retrieval Convergence](./agent-retrieval-convergence.md) | Server-enforced retrieval convergence, tool-free answer composition, evidence fallback, and Top-5 video-level sources | Active |
+| [Agent Retrieval Convergence](./agent-retrieval-convergence.md) | Server-enforced retrieval convergence, rank fusion (RRF) of lexical and vector hits with a per-video window, title-row citations, tool-free answer composition, evidence fallback, and Top-5 video-level sources | Active |
 | [Agent Execution Streaming](./agent-execution-streaming.md) | Single-run tool lifecycle projection, safe public step vocabulary, SSE state machines, and transient browser timeline | Active |
 | [Channel Identity Linking](./channel-identity-linking.md) | Deterministic `/link` validation, single-use tokens, tenant merge and privacy boundaries | Active |
 | [Knowledge Item Management](./knowledge-item-management.md) | Tenant-scoped inventory tools, durable destructive confirmation, recycle-bin lifecycle, retry, and bounded purge | Active |
