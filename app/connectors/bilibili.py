@@ -212,6 +212,8 @@ class BilibiliConnector:
             raise SourceChangedError()
         if result.returncode == 22 or len(result.stdout) > maximum:
             raise IngestLimitExceeded()
+        if result.returncode == 23:
+            raise TransientFetchError("bilibili_rate_limited") from None
         if result.returncode:
             raise SourceUnavailableError()
         try:

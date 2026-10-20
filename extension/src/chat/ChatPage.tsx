@@ -92,23 +92,29 @@ function markdownPreviewText(text: string): string {
     .trim();
 }
 
-function hasDurablePendingTurn(
+export function durablePendingTurnIndex(
   transcript: ConversationTurns | undefined,
   question: string | null,
   answer: string,
   baselineTurnCount: number,
-): boolean {
-  if (!question) return false;
-  return (transcript?.turns ?? []).slice(baselineTurnCount).some((turn) => (
-    turn.user_text === question
-    && (
-      turn.assistant_text === answer
-      || (
-        answer.length > 0
-        && turn.assistant_text.startsWith(`${answer}\n\n来源：\n`)
+): number | null {
+  if (!question) return null;
+  const turns = transcript?.turns ?? [];
+  for (let index = baselineTurnCount; index < turns.length; index += 1) {
+    const turn = turns[index];
+    if (!turn) continue;
+    if (
+      turn.user_text === question
+      && (
+        turn.assistant_text === answer
+        || (
+          answer.length > 0
+          && turn.assistant_text.startsWith(`${answer}\n\n来源：\n`)
+        )
       )
-    )
-  ));
+    ) return index;
+  }
+  return null;
 }
 
 const fallbackQuestions = [
@@ -177,7 +183,7 @@ export function ChatPage({
   const [pendingStatus, setPendingStatus] = useState<"streaming" | "failed">("streaming");
   const [openMenuThreadId, setOpenMenuThreadId] = useState<string | null>(null);
   const [confirmingThreadId, setConfirmingThreadId] = useState<string | null>(null);
-  const [positionedTurn, setPositionedTurn] = useState<{ threadId: string; index: number; minHeight: number } | null>(null);
+  const [positionedTurn, setPositionedTurn] = useState<{ threadId: string; index: number; minHeight: number; turnKey?: string | null } | null>(null);
   const [historyOpenIntent, setHistoryOpenIntent] = useState<{ threadId: string } | null>(null);
   const attemptedEmptyBootstrap = useRef(false);
   const pendingQuestionRef = useRef<string | null>(null);
@@ -363,15 +369,23 @@ export function ChatPage({
           type: "all",
         });
         const latest = queryClient.getQueryData<ConversationTurns>(["conversation", pendingThreadId]);
-        const persisted = hasDurablePendingTurn(
+        const durableIndex = durablePendingTurnIndex(
           latest,
           pendingQuestionRef.current,
           response.text,
           pendingBaselineTurnCountRef.current,
         );
-        if (!persisted) {
+        if (durableIndex === null) {
           setPendingSyncError(true);
           return;
+        }
+        const durableTurn = latest?.turns?.[durableIndex];
+        if (durableTurn && pendingThreadId === selectedThreadId) {
+          // Another tab may have appended turns; anchor this exact turn.
+          setPositionedTurn({
+            ...questionPosition(pendingThreadId, durableIndex),
+            turnKey: `${durableTurn.created_at}:${durableTurn.user_text}`,
+          });
         }
         setPendingQuestion(null);
         pendingQuestionRef.current = null;
@@ -440,15 +454,22 @@ export function ChatPage({
       const latest = queryClient.getQueryData<ConversationTurns>(["conversation", pendingThreadId]);
       const question = pendingQuestionRef.current;
       const answer = pendingAnswerRef.current;
-      const persisted = hasDurablePendingTurn(
+      const durableIndex = durablePendingTurnIndex(
         latest,
         question,
         answer,
         pendingBaselineTurnCountRef.current,
       );
-      if (!persisted) {
+      if (durableIndex === null) {
         setPendingSyncError(true);
         return;
+      }
+      const durableTurn = latest?.turns?.[durableIndex];
+      if (durableTurn && pendingThreadId === selectedThreadId) {
+        setPositionedTurn({
+          ...questionPosition(pendingThreadId, durableIndex),
+          turnKey: `${durableTurn.created_at}:${durableTurn.user_text}`,
+        });
       }
       pendingQuestionRef.current = null;
       pendingAnswerRef.current = "";
@@ -548,7 +569,7 @@ export function ChatPage({
   function selectConversation(threadId: string, conversationId: string) {
     if (pendingQuestion && pendingThreadIdRef.current === threadId) {
       keepQuestionAlignedRef.current = true;
-      setPositionedTurn(questionPosition(threadId, pendingBaselineTurnCountRef.current));
+      setPositionedTurn({ ...questionPosition(threadId, pendingBaselineTurnCountRef.current), turnKey: null });
       setHistoryOpenIntent(null);
     } else {
       keepQuestionAlignedRef.current = false;
@@ -587,6 +608,14 @@ export function ChatPage({
     || sendMessage.isPending
     || newConversation.isPending;
 
+  function isPositionedTurn(turnIndex: number, turn: { created_at: string; user_text: string }): boolean {
+    if (!positionedTurn || positionedTurn.threadId !== selectedThreadId) return false;
+    if (positionedTurn.turnKey) {
+      return positionedTurn.turnKey === `${turn.created_at}:${turn.user_text}`;
+    }
+    return !visiblePendingQuestion && positionedTurn.index === turnIndex;
+  }
+
   function questionPosition(threadId: string, index: number) {
     const transcriptElement = transcriptRef.current;
     const transcriptStyle = transcriptElement ? window.getComputedStyle(transcriptElement) : null;
@@ -615,7 +644,7 @@ export function ChatPage({
       queryClient.getQueryData<ConversationTurns>(["conversation", selectedThreadId])?.turns?.length
       ?? 0
     );
-    setPositionedTurn(questionPosition(selectedThreadId, pendingBaselineTurnCountRef.current));
+    setPositionedTurn({ ...questionPosition(selectedThreadId, pendingBaselineTurnCountRef.current), turnKey: null });
     setPendingAnswer("");
     pendingAnswerRef.current = "";
     setPendingCitations([]);
@@ -672,8 +701,12 @@ export function ChatPage({
     setHistoryOpenIntent(null);
     const lastTurnIndex = (transcript.data.turns?.length ?? 0) - 1;
     if (lastTurnIndex < 0) return;
+    const lastTurn = transcript.data.turns?.[lastTurnIndex];
     keepQuestionAlignedRef.current = true;
-    setPositionedTurn(questionPosition(historyOpenIntent.threadId, lastTurnIndex));
+    setPositionedTurn({
+      ...questionPosition(historyOpenIntent.threadId, lastTurnIndex),
+      turnKey: lastTurn ? `${lastTurn.created_at}:${lastTurn.user_text}` : null,
+    });
   }, [historyOpenIntent, selectedThreadId, transcript.isSuccess, transcript.data]);
 
   useLayoutEffect(() => {
@@ -844,10 +877,10 @@ export function ChatPage({
               {turns.map((turn, turnIndex) => (
                 <li
                   key={`${turn.created_at}:${turn.user_text}`}
-                  className={`chat-turn${!visiblePendingQuestion && positionedTurn?.threadId === selectedThreadId && positionedTurn.index === turnIndex ? " chat-turn--current" : ""}`}
-                  style={!visiblePendingQuestion && positionedTurn?.threadId === selectedThreadId && positionedTurn.index === turnIndex ? { minHeight: positionedTurn.minHeight } : undefined}
+                  className={`chat-turn${isPositionedTurn(turnIndex, turn) ? " chat-turn--current" : ""}`}
+                  style={isPositionedTurn(turnIndex, turn) ? { minHeight: positionedTurn?.minHeight } : undefined}
                 >
-                  <article className="chat-message chat-message--user" ref={!visiblePendingQuestion && positionedTurn?.threadId === selectedThreadId && positionedTurn.index === turnIndex ? questionRef : undefined}>
+                  <article className="chat-message chat-message--user" ref={isPositionedTurn(turnIndex, turn) ? questionRef : undefined}>
                     <header><p className="eyebrow">问题 {String(turnIndex + 1).padStart(2, "0")}</p><time dateTime={turn.created_at}>{displayTime(turn.created_at)}</time></header>
                     <p className="chat-question-text">{turn.user_text}</p>
                   </article>
@@ -866,7 +899,7 @@ export function ChatPage({
                 </li>
               ))}
               {visiblePendingQuestion ? (
-                <li className={`chat-turn${positionedTurn?.threadId === selectedThreadId ? " chat-turn--current" : ""}`} style={positionedTurn?.threadId === selectedThreadId ? { minHeight: positionedTurn.minHeight } : undefined}>
+                <li className={`chat-turn${positionedTurn?.threadId === selectedThreadId && !positionedTurn.turnKey ? " chat-turn--current" : ""}`} style={positionedTurn?.threadId === selectedThreadId && !positionedTurn.turnKey ? { minHeight: positionedTurn.minHeight } : undefined}>
                   <article className="chat-message chat-message--user" ref={questionRef}><p className="eyebrow">你的问题</p><p>{pendingQuestion}</p></article>
                   <article className={`chat-message chat-message--assistant chat-message--${pendingStatus}`}>
                     <p className="eyebrow">资料库助手</p>

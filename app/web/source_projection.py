@@ -50,7 +50,9 @@ def project_browser_sources(
 
     Historical absolute links without provable provenance stay honest legacy
     links. Relative/model-authored resolver paths never become trusted links.
-    Explicit provenance that no longer belongs to this tenant is omitted.
+    Provenance that no longer belongs to this tenant (deleted item, replaced
+    segments, another tenant) keeps its original provider URL but is never
+    rewritten to this tenant's resolver.
     """
     projected: list[dict | None] = []
     candidates: dict[int, tuple[int | None, int]] = {}
@@ -100,9 +102,13 @@ def project_browser_sources(
             owned[segment_id] = (item_id, public_id, platform == "bilibili" and bool(bvid and cid and page))
     for index, (expected_item, segment_id) in candidates.items():
         row = owned.get(segment_id)
+        # A deleted item, a reprocessed item whose old segments were replaced,
+        # or a segment owned by another tenant cannot be projected onto this
+        # tenant's resolver. Keep the original provider URL instead of
+        # dropping the citation: history must survive reprocessing and trash.
         if row is None or (expected_item is not None and row[0] != expected_item):
-            projected[index] = None
-        elif row[2]:
+            continue
+        if row[2]:
             value = projected[index]
             if value is not None:
                 value["url"] = item_source_url(row[1], value["start_sec"] or 0)

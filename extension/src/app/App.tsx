@@ -15,6 +15,7 @@ import type { Capabilities, SessionInfo } from "../api/contracts";
 import { capabilitiesQueryOptions, preloadConversationHistory } from "../chat/conversationQueries";
 import { AppShell } from "./AppShell";
 import { BrandLogo } from "./BrandLogo";
+import { RouteErrorBoundary } from "./ErrorBoundary";
 import { useRouteNavigate } from "./RouteTransition";
 
 const AccountLinkPage = lazy(() => import("../account/AccountLinkPage").then((module) => ({ default: module.AccountLinkPage })));
@@ -238,22 +239,24 @@ function UnauthorizedBoundary({ rotateClient }: { rotateClient: (session?: Sessi
     return () => setUnauthorizedHandler(null);
   }, [client, location.pathname, location.search, navigate, rotateClient]);
   return (
-    <Routes>
-      <Route path="/" element={<LazyPage><ShowcasePage /></LazyPage>} />
-      <Route path="/showcase" element={<Navigate to="/" replace />} />
-      <Route path="/login" element={<LazyPage><LoginRoute activateSession={rotateClient} /></LazyPage>} />
-      <Route path="/login/external" element={extensionWorkspace
-        ? <Navigate to="/login" replace />
-        : <LazyPage><LoginRoute activateSession={rotateClient} external /></LazyPage>} />
-      <Route element={<ProtectedLayout rotateClient={rotateClient} />}>
-        <Route path="/library" element={<LibraryPage />} />
-        <Route path="/chat" element={<ChatPage sendStream={streamConversationMessage} />} />
-        <Route path="/videos/:id" element={<VideoDetailPage />} />
-        <Route path="/account/link" element={<AccountLinkRoute rotateClient={rotateClient} />} />
-        <Route path="/account/browser-companion" element={<BrowserCompanionPage />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <RouteErrorBoundary>
+      <Routes>
+        <Route path="/" element={<LazyPage><ShowcasePage /></LazyPage>} />
+        <Route path="/showcase" element={<Navigate to="/" replace />} />
+        <Route path="/login" element={<LazyPage><LoginRoute activateSession={rotateClient} /></LazyPage>} />
+        <Route path="/login/external" element={extensionWorkspace
+          ? <Navigate to="/login" replace />
+          : <LazyPage><LoginRoute activateSession={rotateClient} external /></LazyPage>} />
+        <Route element={<ProtectedLayout rotateClient={rotateClient} />}>
+          <Route path="/library" element={<LibraryPage />} />
+          <Route path="/chat" element={<ChatPage sendStream={streamConversationMessage} />} />
+          <Route path="/videos/:id" element={<VideoDetailPage />} />
+          <Route path="/account/link" element={<AccountLinkRoute rotateClient={rotateClient} />} />
+          <Route path="/account/browser-companion" element={<BrowserCompanionPage />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </RouteErrorBoundary>
   );
 }
 

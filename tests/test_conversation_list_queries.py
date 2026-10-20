@@ -174,8 +174,12 @@ async def test_reopened_history_uses_batched_owned_segment_links_without_rewriti
         response = await client.get("/api/v1/conversations/thread-1/turns")
     assert response.status_code == 200
     citations = response.json()["turns"][0]["citations"]
-    assert len(citations) == 8
-    assert all(value["url"] == "/api/v1/library/items/verified-part/source?t=12" for value in citations)
+    assert len(citations) == 9
+    owned = [value for value in citations if value["url"].startswith("/api/v1/library/items/verified-part/source")]
+    foreign = [value for value in citations if not value["url"].startswith("/api/v1/library/items/verified-part/source")]
+    assert len(owned) == 8
+    assert all(value["url"] == "/api/v1/library/items/verified-part/source?t=12" for value in owned)
+    assert [value["url"] for value in foreign] == ["https://www.bilibili.com/video/BV1xx411c7mD?p=2&t=12"]
     assert all(set(value) == {"title", "excerpt", "url", "start_sec"} for value in citations)
     assert len(statements) == 3  # owned thread, public turns, one source join
     with engine.connect() as connection:

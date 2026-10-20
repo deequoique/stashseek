@@ -150,8 +150,13 @@ where CID is known; retain tenant/platform/platform-ID uniqueness.
 ### Source navigation and compatibility
 
 - Owned source GET takes integer t0..2147483647. Check Session/owned nondeleted
-  item/pin, resolve current P, recheck ownership/pin, then 303 only to fixed
+  item/pin, resolve current P from a short-lived cached part map, recheck
+  ownership/pin, then 303 only to fixed
   https://www.bilibili.com/video/<BV>?p=<current>&t=<bounded>. Never P1-fallback.
+  Provider throttling/busy during discovery or extraction is retryable
+  (`TransientFetchError`), not a permanent source failure. If discovery fails
+  during a click, redirect to the item's last attested page instead of showing
+  the API's JSON error body.
 - Browser detail/chapters/transcript/current JSON/SSE/reopened history consume
   server-issued paths. Batched owned segment provenance authorizes citation/
   history mapping, never URL host/LLM resolver text. Unprovable old absolute

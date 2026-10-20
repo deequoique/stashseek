@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import asdict
 from sqlalchemy import select
 
@@ -11,6 +12,12 @@ from app.ingest.submission import ItemReference, PreparedBatch, PreparedItem, Sa
 from app.models import ContentItem
 
 
+# Source clicks are a navigation, not a discovery operation: cache the
+# BV -> part map briefly so repeated clicks do not hammer api.bilibili.com.
+_PARTS_CACHE_TTL_SECONDS = 300.0
+_PARTS_CACHE_MAX_ENTRIES = 256
+
+
 class BilibiliService:
     def __init__(self, session_factory, submission, public: BilibiliPublicClient, signer: PartRefSigner, gate) -> None:
         self._factory = session_factory
@@ -18,6 +25,23 @@ class BilibiliService:
         self._public = public
         self._signer = signer
         self._gate = gate
+        self._parts_cache: dict[str, tuple[float, object]] = {}
+
+    def _cached_parts(self, bvid: str):
+        now = time.monotonic()
+        cached = self._parts_cache.get(bvid)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+        if len(self._parts_cache) >= _PARTS_CACHE_MAX_ENTRIES:
+            self._parts_cache = {
+                key: value for key, value in self._parts_cache.items() if value[0] > now
+            }
+            if len(self._parts_cache) >= _PARTS_CACHE_MAX_ENTRIES:
+                self._parts_cache.pop(next(iter(self._parts_cache)))
+        with self._gate.upstream():
+            parts = self._public.get_parts(bvid)
+        self._parts_cache[bvid] = (now + _PARTS_CACHE_TTL_SECONDS, parts)
+        return parts
 
     def preview_parts(self, scope, url: str, *, page: int | None = None) -> dict:
         bvid, requested = parse_video_input(url)
@@ -37,6 +61,7 @@ class BilibiliService:
                 ContentItem.user_id == scope.app_user_id,
                 ContentItem.platform == "bilibili", ContentItem.platform_id == bvid,
                 ContentItem.bilibili_cid.is_(None),
+                ContentItem.deleted_at.is_(None),
             ).limit(1)) is not None
         parts = []
         for part in part_map.parts[start:start + 20]:
@@ -90,20 +115,31 @@ class BilibiliService:
         if type(timestamp) is not int or not 0 <= timestamp <= 2147483647:
             raise BilibiliPublicError("bilibili_invalid_url")
         with self._factory() as db:
-            source = db.execute(select(ContentItem.bilibili_bvid, ContentItem.bilibili_cid).where(
+            source = db.execute(select(
+                ContentItem.bilibili_bvid,
+                ContentItem.bilibili_cid,
+                ContentItem.bilibili_page,
+            ).where(
                 ContentItem.public_id == item_public_id,
                 ContentItem.user_id == scope.app_user_id, ContentItem.deleted_at.is_(None),
             )).one_or_none()
             if source is None:
                 raise BilibiliPublicError("not_found")
-            bvid, cid = source
+            bvid, cid, stored_page = source
         # Unverified old records retain provider-direct source links; this
         # verified resolver cannot claim that an unpinned source is a CID.
         if bvid is None or cid is None:
             raise BilibiliPublicError("source_unavailable")
         self._gate.admit(scope.app_user_id)
-        with self._gate.upstream():
-            part = self._public.get_parts(bvid).resolve_part(cid)
+        try:
+            part = self._cached_parts(bvid).resolve_part(cid)
+            page = part.page
+        except BilibiliPublicError:
+            # A navigation must not end on a JSON error page. The stored page
+            # is the last attested position; clicking still opens the video.
+            if type(stored_page) is not int or not 1 <= stored_page <= 1000:
+                raise
+            page = stored_page
         # Repeat ownership/deletion and immutable pin check after network I/O.
         with self._factory() as db:
             still_owned = db.scalar(select(ContentItem.id).where(
@@ -113,7 +149,7 @@ class BilibiliService:
             ))
             if still_owned is None:
                 raise BilibiliPublicError("not_found")
-        return f"https://www.bilibili.com/video/{bvid}?p={part.page}&t={timestamp}"
+        return f"https://www.bilibili.com/video/{bvid}?p={page}&t={timestamp}"
 
 
 def build_bilibili_service(settings, factory, submission) -> BilibiliService:

@@ -32,7 +32,7 @@ def test_only_owned_provenance_can_project_a_browser_resolver():
     projected = project_browser_sources(db, 9, [source(), source(item=8), source(segment=12)])
     assert projected[0]["url"] == "/api/v1/library/items/item-public/source?t=12"
     assert set(projected[0]) == {"title", "excerpt", "url", "start_sec"}
-    assert projected[1:] == [None, None]
+    assert [value["url"] for value in projected[1:]] == [source()["url"], source()["url"]]
     assert len(db.statements) == 1
     sql = str(db.statements[0])
     assert "content_item.user_id =" in sql
@@ -105,5 +105,6 @@ def test_real_owned_segment_join_omits_foreign_deleted_and_forged_pairs():
     with Session(engine) as db:
         projected = project_browser_sources(db, 9, [source(), source(segment=12, item=8), source(segment=13, item=9), source(item=8)])
     assert projected[0]["url"] == "/api/v1/library/items/owned/source?t=12"
-    assert projected[1:] == [None, None, None]
+    original = source()["url"]
+    assert [value["url"] for value in projected[1:]] == [original, original, original]
     engine.dispose()

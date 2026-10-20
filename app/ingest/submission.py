@@ -12,7 +12,7 @@ from typing import Literal
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -440,6 +440,12 @@ class PreparedBatch:
     items: tuple[PreparedItem, ...]
 
 
+def _bv_id(platform_id: str) -> str | None:
+    """BV ids are the only Bilibili ids a CID-qualified row can share."""
+
+    return platform_id if platform_id.upper().startswith("BV") else None
+
+
 def normalize_item_reference(url: str) -> ItemReference:
     """Normalize a URL, complete BV ID, or single Bilibili share locally."""
 
@@ -678,6 +684,7 @@ class IngestSubmissionService:
                         ContentItem.platform == "bilibili",
                         ContentItem.platform_id == reference.bilibili_bvid,
                         ContentItem.bilibili_cid.is_(None),
+                        ContentItem.deleted_at.is_(None),
                     ).limit(1))
                     if legacy is not None:
                         return SaveItemResult(result_id, prepared.input_index, "legacy_identity_unknown", safe_error_code="legacy_identity_unknown")
@@ -1259,6 +1266,20 @@ class IngestSubmissionService:
         if reference.bilibili_cid is not None:
             return query.where(ContentItem.bilibili_bvid == reference.bilibili_bvid,
                                ContentItem.bilibili_cid == reference.bilibili_cid)
+        bilibili_bvid = reference.bilibili_bvid or _bv_id(reference.platform_id)
+        if reference.platform == "bilibili" and bilibili_bvid is not None:
+            # A favorites/parts import stores the same P1 as ``bvid_cid...``;
+            # pasting the plain video link must not create a second row.
+            return query.where(or_(
+                ContentItem.platform_id == reference.platform_id,
+                and_(
+                    ContentItem.bilibili_bvid == bilibili_bvid,
+                    ContentItem.bilibili_page == 1,
+                ),
+            )).order_by(
+                (ContentItem.platform_id == reference.platform_id).desc(),
+                ContentItem.id,
+            )
         return query.where(ContentItem.platform_id == reference.platform_id)
 
     def _set_dispatch_state(

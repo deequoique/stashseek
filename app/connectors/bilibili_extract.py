@@ -24,6 +24,20 @@ _CID = re.compile(r"[1-9][0-9]{0,19}")
 EXIT_SOURCE_CHANGED = 20
 EXIT_SOURCE_UNAVAILABLE = 21
 EXIT_TOO_LARGE = 22
+EXIT_TRANSIENT = 23
+
+_TRANSIENT_MARKERS = (
+    "http error 412", "http error 429", "too many requests", "rate limit",
+    "risk control", "风控", "timed out", "timeout", "connection reset",
+    "connection aborted", "temporarily unavailable", "temporary failure",
+    "502 bad gateway", "503 service unavailable", "504 gateway timeout",
+)
+
+
+def _is_transient_failure(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in _TRANSIENT_MARKERS)
+
 
 
 class _Discard:
@@ -198,8 +212,10 @@ def main() -> int:
         return EXIT_SOURCE_CHANGED
     except IngestLimitExceeded:
         return EXIT_TOO_LARGE
-    except Exception:
-        return EXIT_SOURCE_UNAVAILABLE
+    except Exception as exc:
+        # Provider throttling, risk control and socket failures are not proof
+        # that the source is gone; let the parent schedule a retry.
+        return EXIT_TRANSIENT if _is_transient_failure(exc) else EXIT_SOURCE_UNAVAILABLE
     sys.stdout.buffer.write(output)
     return 0
 

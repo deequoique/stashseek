@@ -373,6 +373,23 @@ def _needs_asr_reason(settings: Any, item: Any, platforms: frozenset[str]) -> st
     return "asr_unavailable"
 
 
+_TRANSIENT_PUBLIC_CODES = frozenset(
+    {"bilibili_rate_limited", "bilibili_busy", "bilibili_unavailable"}
+)
+
+
+def _raise_public_error(exc: BilibiliPublicError) -> None:
+    """Keep provider throttling/busy failures retryable, not terminal.
+
+    A rate-limited or unavailable discovery call says nothing about the
+    source's identity; only an invalid/private/missing source is permanent.
+    """
+
+    if getattr(exc, "error_code", "") in _TRANSIENT_PUBLIC_CODES:
+        raise TransientFetchError("transient_fetch_failed") from None
+    raise SourceUnavailableError() from None
+
+
 def _part_pin(item: Any) -> tuple[str, str] | None:
     bvid = getattr(item, "bilibili_bvid", None)
     cid = getattr(item, "bilibili_cid", None)
@@ -497,8 +514,8 @@ def process_item(
             try:
                 before = public_client.get_parts(pin[0])
                 part = before.resolve_part(pin[1])
-            except BilibiliPublicError:
-                raise SourceUnavailableError() from None
+            except BilibiliPublicError as exc:
+                _raise_public_error(exc)
             if connector is None:
                 configure_trusted_ca(settings.tls_ca_bundle)
                 connector = BilibiliConnector(
@@ -519,8 +536,8 @@ def process_item(
                 raise SourceChangedError()
             try:
                 after = public_client.get_parts(pin[0]).resolve_part(pin[1])
-            except BilibiliPublicError:
-                raise SourceUnavailableError() from None
+            except BilibiliPublicError as exc:
+                _raise_public_error(exc)
             if after.page != part.page:
                 raise SourceChangedError()
             if not _lock_part_item(db, item, pin, user_id=item_user_id, dispatch_id=dispatch_id, dispatch_task_id=dispatch_task_id):
@@ -624,14 +641,6 @@ def process_item(
                 "capture_v1": "application/json",
             }
             store.put(key, result.raw_body, content_types[result.format])
-        db.refresh(item)
-        if pin is not None and not _lock_part_item(db, item, pin, user_id=item_user_id, dispatch_id=dispatch_id, dispatch_task_id=dispatch_task_id):
-            _delete_object_best_effort(store, key)
-            return "deleted"
-        if getattr(item, "deleted_at", None) is not None or getattr(item, "purge_claimed_at", None) is not None:
-            _delete_object_best_effort(store, key)
-            _mark_item_deleted(db, item)
-            return "deleted"
         if embedder is None:
             embedder = build_worker_embedder()
         remaining_embedding_chars = settings.ingest_max_embedding_chars_per_item

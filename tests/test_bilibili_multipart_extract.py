@@ -10,7 +10,7 @@ from yt_dlp import YoutubeDL
 
 from app.bilibili.public import BilibiliPart, BilibiliPartMap, BilibiliPublicError
 from app.config import Settings
-from app.connectors.base import Cue, ItemMeta, NeedsASR, SourceChangedError, SourceUnavailableError, TextResult
+from app.connectors.base import Cue, ItemMeta, NeedsASR, SourceChangedError, SourceUnavailableError, TextResult, TransientFetchError
 from app.connectors.bilibili import BilibiliConnector, _bounded_part_process
 from app.connectors.bilibili_extract import PinnedBiliBiliIE, extract_pinned
 from app.ingest.tasks import process_item
@@ -280,6 +280,21 @@ def test_caption_less_part_fails_closed_instead_of_an_unverifiable_asr_handoff(m
     assert state == "needs_action"
     assert item.fail_reason == "part_transcription_unsupported"
     assert connector.calls == [(BV, "202", 1)]
+
+
+class RateLimitedPublic:
+    def get_parts(self, _bvid):
+        raise BilibiliPublicError("bilibili_rate_limited")
+
+
+def test_provider_throttling_keeps_the_part_retryable(worker_settings):
+    item = worker_item()
+    connector, db = PartConnector(), WorkerDB(item)
+    with pytest.raises(TransientFetchError):
+        process_item(
+            item.id, connector=connector, public_client=RateLimitedPublic(),
+            session_factory=lambda: db,
+        )
 
 
 def test_proven_legacy_bv_retry_keeps_its_existing_item_identity(worker_settings):

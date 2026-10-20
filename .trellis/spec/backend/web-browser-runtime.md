@@ -175,6 +175,8 @@ cache.put(token_digest, session, generation=observed_generation)
   results, status and time fields after a tenant-owned thread lookup. Never
   fetch or JSON-decode internal `model_messages` for history display; projection
   must not introduce lazy-loading queries and must retain completed-only order.
+  When an owned segment is gone (reprocessed, deleted) or belongs to another
+  tenant, keep the model's absolute provider URL; only skip the resolver rewrite.
 
 ## Conversation streaming contract
 

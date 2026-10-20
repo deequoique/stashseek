@@ -879,4 +879,7 @@ def test_bilibili_references_share_one_item_and_dispatch_in_batch_and_later_requ
             "user_id_1": tenant.app_user_id,
             "platform_1": "bilibili",
             "platform_id_1": "BV1xx411c7mD",
+            "bilibili_bvid_1": "BV1xx411c7mD",
+            "bilibili_page_1": 1,
+            "platform_id_2": "BV1xx411c7mD",
         }
