@@ -3,10 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type * as BrowserCompanionModule from "./browserCompanion";
+
 const extensionContext = vi.hoisted(() => ({ active: false }));
 
 vi.mock("./browserCompanion", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./browserCompanion")>()),
+  ...(await importOriginal<typeof BrowserCompanionModule>()),
   isExtensionContext: () => extensionContext.active,
 }));
 
