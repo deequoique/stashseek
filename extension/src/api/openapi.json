@@ -3340,6 +3340,60 @@
         ]
       }
     },
+    "/api/v1/auth/external/identities": {
+      "get": {
+        "operationId": "identities_api_v1_auth_external_identities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Identities",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/external/identities/{provider}": {
+      "delete": {
+        "operationId": "unlink_api_v1_auth_external_identities__provider__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unlink",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
     "/api/v1/auth/external/pending": {
       "delete": {
         "operationId": "cancel_api_v1_auth_external_pending_delete",

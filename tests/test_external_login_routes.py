@@ -458,3 +458,33 @@ def test_provider_environment_names_are_canonical(provider, fields, monkeypatch)
     assert getattr(config, "web_" + provider + "_enabled") is True
     for name, value in fields.items():
         assert getattr(config, "web_" + provider + "_" + name.lower()) == value
+
+
+def test_linked_identities_are_listed_and_unlinked_behind_a_session(runtime):
+    rt = runtime
+    rt.email.request_challenge("linked@example.test", "ip")
+    login = rt.email.verify("linked@example.test", rt.sender.sent[-1].code)
+    rt.client.cookies.set(SESSION_COOKIE_NAME, login.raw_session_token)
+    app_user_id = login.session.tenant.app_user_id
+    with rt.factory() as db:
+        db.add(ExternalLoginIdentity(
+            id=99, provider="microsoft", application_id="test-app",
+            namespace="login.microsoftonline.com",
+            subject="private-subject", app_user_id=app_user_id,
+            channel_identity_id=1,
+        ))
+        db.commit()
+
+    assert rt.client.get(PREFIX + "/identities").json() == {"providers": ["microsoft"]}
+    assert rt.client.delete(PREFIX + "/identities/microsoft").status_code == 403
+
+    rt.client.cookies.set(CSRF_COOKIE_NAME, "csrf-token", domain="app.example.test", path="/")
+    unlinked = rt.client.delete(
+        PREFIX + "/identities/microsoft", headers={"X-CSRF-Token": "csrf-token"},
+    )
+    assert unlinked.status_code == 204
+    assert rt.client.get(PREFIX + "/identities").json() == {"providers": []}
+
+
+def test_linked_identities_require_an_authenticated_session(runtime):
+    assert runtime.client.get(PREFIX + "/identities").status_code == 401

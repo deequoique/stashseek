@@ -88,6 +88,16 @@ def bind(rt, started, email="person@example.test"):
                                   confirm_binding=True, now=NOW)
 
 
+def test_binding_email_states_the_provider(auth_runtime):
+    rt = auth_runtime
+    started, _state, _result = authorize(rt)
+    rt.service.request_email_challenge(
+        started.raw_flow_token, "person@example.test", "127.0.0.1", now=NOW,
+    )
+    message = rt.sender.sent[-1]
+    assert message.purpose == "linking a Microsoft account"
+
+
 def test_first_use_proves_both_identities_before_creating_account(auth_runtime):
     rt = auth_runtime
     started, _state, result = authorize(rt)

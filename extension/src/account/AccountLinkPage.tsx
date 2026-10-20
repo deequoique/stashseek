@@ -1,7 +1,9 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRef, useState, type FormEvent } from "react";
 
 import { ApiError, consumeLinkToken, createTelegramLinkToken } from "../api/client";
+import { externalProviderLabels } from "../auth/ExternalLoginMethods";
+import type { ExternalLoginProvider } from "../api/contracts";
 import type { LinkTokenResponse, LinkedResponse } from "../api/contracts";
 
 const LINK_TOKEN_MAX_LENGTH = 128;
@@ -11,7 +13,59 @@ const TELEGRAM_BOT_URL = "https://t.me/notebook_agent_bot";
 interface AccountLinkPageProps {
   createToken?: () => Promise<LinkTokenResponse>;
   consumeToken?: (token: string) => Promise<LinkedResponse>;
+  loadIdentities?: (signal?: AbortSignal) => Promise<{ providers: string[] }>;
+  unlinkIdentity?: (provider: string) => Promise<void>;
   onLinked: () => void;
+}
+
+function LinkedAccountsCard({ load, unlink }: {
+  load: (signal?: AbortSignal) => Promise<{ providers: string[] }>;
+  unlink: (provider: string) => Promise<void>;
+}) {
+  const identities = useQuery({
+    queryKey: ["external-identities"],
+    queryFn: ({ signal }) => load(signal),
+    gcTime: 0,
+    staleTime: 0,
+    retry: false,
+  });
+  const unlinkMutation = useMutation({
+    mutationFn: unlink,
+    gcTime: 0,
+    onSuccess: () => void identities.refetch(),
+  });
+  const providers = (identities.data?.providers ?? []).filter(
+    (provider): provider is ExternalLoginProvider => provider in externalProviderLabels,
+  );
+  if (!identities.isSuccess || providers.length === 0) return null;
+  return (
+    <section className="account-link-card linked-accounts" aria-labelledby="linked-accounts-title">
+      <header className="account-link-card__header">
+        <div className="account-link-card__meta" aria-hidden="true">
+          <p className="step-number">03</p>
+          <span>THIRD-PARTY LOGIN</span>
+        </div>
+        <h2 id="linked-accounts-title">已绑定的第三方账号</h2>
+        <p>解绑后仍可使用邮箱验证码登录同一资料库；下次使用该平台登录会重新绑定。</p>
+      </header>
+      <ul className="linked-account-list">
+        {providers.map((provider) => (
+          <li key={provider}>
+            <span>{externalProviderLabels[provider]}</span>
+            <button
+              className="button button--quiet"
+              type="button"
+              disabled={unlinkMutation.isPending && unlinkMutation.variables === provider}
+              onClick={() => unlinkMutation.mutate(provider)}
+            >
+              {unlinkMutation.isPending && unlinkMutation.variables === provider ? "解绑中…" : "解绑"}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {unlinkMutation.isError ? <p className="inline-error" role="alert">解绑没有完成，请稍后再试。</p> : null}
+    </section>
+  );
 }
 
 type CopyStatus = "copied" | "fallback" | null;
@@ -36,6 +90,8 @@ export function linkErrorMessage(error: unknown, fallback = "绑定暂时没有�
 export function AccountLinkPage({
   createToken = createTelegramLinkToken,
   consumeToken = consumeLinkToken,
+  loadIdentities,
+  unlinkIdentity,
   onLinked,
 }: AccountLinkPageProps) {
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
@@ -247,6 +303,10 @@ export function AccountLinkPage({
           </form>
         </section>
       </div>
+
+      {loadIdentities && unlinkIdentity ? (
+        <LinkedAccountsCard load={loadIdentities} unlink={unlinkIdentity} />
+      ) : null}
 
       <p className="account-link-warning" role="note">
         绑定码和 Bot 凭据不会保存到浏览器、网址或聊天记录之外的搜藏助手日志中。

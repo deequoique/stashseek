@@ -247,6 +247,17 @@ export function verifyExternalLogin(input: ExternalLoginVerifyInput, signal?: Ab
   }, { csrf: "external" });
 }
 
+export function listExternalIdentities(signal?: AbortSignal): Promise<{ providers: string[] }> {
+  return requestJson("/api/v1/auth/external/identities", { signal });
+}
+
+export function unlinkExternalIdentity(provider: string): Promise<void> {
+  return requestJson(
+    `/api/v1/auth/external/identities/${encodeURIComponent(provider)}`,
+    { method: "DELETE" },
+  );
+}
+
 export function cancelExternalLogin(signal?: AbortSignal): Promise<void> {
   return requestJson("/api/v1/auth/external/pending", { method: "DELETE", signal }, { csrf: "external" });
 }

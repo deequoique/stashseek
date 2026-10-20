@@ -37,6 +37,13 @@ ExternalProvider.complete(*, redirect_uri, code, material) -> ExternalPrincipal
 | `POST /api/v1/auth/external/pending/challenges` | Strict `{email}`; normal/rate-limited requests return `{status:"accepted"}`. |
 | `POST /api/v1/auth/external/pending/verify` | Strict `{email,code,confirm_binding:true}`; identifier-free `SessionResponse`. |
 | `DELETE /api/v1/auth/external/pending` | Cancel and expire flow cookies; 204. |
+| `GET /api/v1/auth/external/identities` | Session-scoped `{providers:[...]}` for the current account. |
+| `DELETE /api/v1/auth/external/identities/{provider}` | Session + CSRF (or extension Bearer); removes that provider binding, 204. Email sign-in remains the anchor. |
+
+Binding challenges are delivered as account-linking emails that name the
+provider (for example “linking a Microsoft account”) and warn that an
+unexpected message should be ignored; plain login challenges keep the generic
+wording. Provider bindings are listed and can be unlinked from account settings.
 
 Provider enum: `microsoft | wechat_website | qq`. Pending statuses:
 `created | exchanging | email_required | completed | failed | cancelled | expired`.

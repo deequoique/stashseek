@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
@@ -22,6 +22,23 @@ function renderPage(
 }
 
 describe("Telegram account linking page", () => {
+  it("lists linked third-party accounts and unlinks one", async () => {
+    const user = userEvent.setup();
+    const loadIdentities = vi.fn().mockResolvedValue({ providers: ["microsoft", "qq"] });
+    const unlinkIdentity = vi.fn().mockResolvedValue(undefined);
+
+    renderPage({ loadIdentities, unlinkIdentity });
+
+    expect(await screen.findByRole("heading", { name: "已绑定的第三方账号" })).toBeInTheDocument();
+    expect(await screen.findByText("Microsoft")).toBeInTheDocument();
+    expect(screen.getByText("QQ")).toBeInTheDocument();
+    const unlinkButtons = screen.getAllByRole("button", { name: "解绑" });
+    expect(unlinkButtons).toHaveLength(2);
+    fireEvent.click(unlinkButtons[1]!);
+    await waitFor(() => expect(unlinkIdentity).toHaveBeenCalled());
+    expect(unlinkIdentity.mock.calls[0]?.[0]).toBe("qq");
+  });
+
   it("generates and displays a Telegram command without offering WeChat", async () => {
     const user = userEvent.setup();
     const createToken = vi.fn().mockResolvedValue({ token: "temporary-token" });

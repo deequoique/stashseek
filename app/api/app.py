@@ -652,15 +652,6 @@ def create_app(
             extension_sessions = getattr(services, "extension_sessions", None)
             if extension_sessions is not None:
                 app.include_router(build_extension_router(extension_sessions))
-            if services.external_auth is not None:
-                app.include_router(
-                    build_external_auth_router(
-                        services.external_auth,
-                        expected_origin=expected_origin or "",
-                        cookie_secure=cookie_secure,
-                        trusted_proxy_hosts=services.trusted_proxy_hosts,
-                    )
-                )
 
         def authenticated_session(request: Request):
             cached = getattr(request.state, "authenticated_session", None)
@@ -718,6 +709,17 @@ def create_app(
                     headers={"WWW-Authenticate": "Session"},
                 ) from exc
             return UserScope(session.app_user_id)
+
+        if services.external_auth is not None:
+            app.include_router(
+                build_external_auth_router(
+                    services.external_auth,
+                    expected_origin=expected_origin or "",
+                    cookie_secure=cookie_secure,
+                    trusted_proxy_hosts=services.trusted_proxy_hosts,
+                    scope_dependency=authenticated_scope,
+                )
+            )
 
         app.include_router(
             build_library_router(

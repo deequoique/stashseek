@@ -30,6 +30,13 @@ from app.web_auth import (
 )
 
 PROVIDERS = frozenset({"microsoft", "wechat_website", "qq"})
+_PROVIDER_LABELS = {"microsoft": "Microsoft", "wechat_website": "WeChat", "qq": "QQ"}
+
+
+def _provider_label(provider: str) -> str:
+    return _PROVIDER_LABELS.get(provider, "third-party")
+
+
 ERROR_CODES = frozenset({
     "flow_invalid", "flow_expired", "flow_used", "flow_csrf_invalid", "provider_unavailable",
     "provider_failed", "provider_denied", "session_present", "session_changed", "binding_conflict",
@@ -235,6 +242,32 @@ class ExternalLoginService:
                                      failure_code=code if code in ERROR_CODES else "request_failed")
         return StartedExternalLogin("/login/external", raw, csrf, current + _FLOW_LIFETIME)
 
+    def linked_providers(self, scope) -> tuple[str, ...]:
+        """Providers currently bound to this app user, never another tenant."""
+
+        with self._factory() as db:
+            rows = db.scalars(select(ExternalLoginIdentity.provider).where(
+                ExternalLoginIdentity.app_user_id == scope.app_user_id,
+                ExternalLoginIdentity.disabled_at.is_(None),
+            ))
+            return tuple(sorted({row for row in rows if row in PROVIDERS}))
+
+    def unlink(self, scope, provider: str) -> None:
+        """Remove one provider binding; the email identity remains the anchor."""
+
+        if provider not in PROVIDERS:
+            raise ExternalLoginError("provider_unavailable")
+        with self._factory() as db:
+            identity = db.scalar(select(ExternalLoginIdentity).where(
+                ExternalLoginIdentity.app_user_id == scope.app_user_id,
+                ExternalLoginIdentity.provider == provider,
+                ExternalLoginIdentity.disabled_at.is_(None),
+            ))
+            if identity is None:
+                raise ExternalLoginError("not_found")
+            db.delete(identity)
+            db.commit()
+
     def pending(self, raw_flow_token: str, *, session_token: str = "", now: datetime | None = None) -> PendingExternalLogin:
         current = _utc(now)
         with self._factory() as db:
@@ -364,8 +397,14 @@ class ExternalLoginService:
             if not self._email_auth._limiter.allow(canonical, client_ip, now=current):
                 raise LoginRateLimited()
             try:
-                self._email_auth._request_email_proof(db, canonical, current=current,
-                    external_login_flow_id=flow.id, expires_at=_utc(flow.expires_at))
+                self._email_auth._request_email_proof(
+                    db, canonical, current=current,
+                    external_login_flow_id=flow.id,
+                    expires_at=_utc(flow.expires_at),
+                    purpose=(
+                        "linking a " + _provider_label(flow.provider) + " account"
+                    ),
+                )
             except EmailDeliveryUnavailable:
                 db.commit()
                 raise

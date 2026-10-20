@@ -32,7 +32,7 @@ from app.connectors.proxy_env import build_proxy_environment, classify_proxy_fai
 from app.ingest.validate import IngestLimitExceeded, guard_transcript
 
 
-_BILIBILI_HOSTS = frozenset({"bilibili.com", "www.bilibili.com"})
+_BILIBILI_HOSTS = frozenset({"bilibili.com", "www.bilibili.com", "m.bilibili.com"})
 _BILIBILI_VIDEO_RE = re.compile(
     r"^/video/(?P<id>(?:[aA][vV])\d+|(?:[bB][vV])[0-9A-Za-z]{10})/?$"
 )

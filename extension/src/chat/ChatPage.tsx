@@ -603,6 +603,22 @@ export function ChatPage({
     newConversation.mutate();
   }
 
+  const touchInput = useState(() => (
+    typeof window !== "undefined"
+    && (
+      window.matchMedia?.("(pointer: coarse)").matches === true
+      || navigator.maxTouchPoints > 0
+    )
+  ))[0];
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const element = composerRef.current;
+    if (!element) return;
+    element.style.height = "auto";
+    element.style.height = `${Math.min(element.scrollHeight, 160)}px`;
+  }, [draft]);
+
   const composerDisabled = !selectedConversationId
     || transcript.isPending
     || sendMessage.isPending
@@ -687,6 +703,18 @@ export function ChatPage({
     || (selectedThreadId !== null && transcript.isPending);
 
   useEffect(() => {
+    // The chat layout fills the viewport without relying on CSS :has(), which
+    // older engines used by embedded browsers may not support.
+    const root = document.documentElement;
+    root.classList.add("chat-route");
+    document.body.classList.add("chat-route");
+    return () => {
+      root.classList.remove("chat-route");
+      document.body.classList.remove("chat-route");
+    };
+  }, []);
+
+  useEffect(() => {
     function onPageScroll() {
       const top = Math.max(0, window.scrollY);
       if (Math.abs(top - scrollPositionRef.current.page) > 1) keepQuestionAlignedRef.current = false;
@@ -767,7 +795,7 @@ export function ChatPage({
               <nav aria-label="选择历史对话">
                 <ol className="chat-thread-list">
                   {historyItems.map((item) => (
-                    <li key={item.thread_id} className="chat-thread-row">
+                    <li key={item.thread_id} className={`chat-thread-row${item.thread_id === selectedThreadId ? " chat-thread-row--selected" : ""}`}>
                       <button
                         className={`chat-thread-select${item.thread_id === selectedThreadId ? " is-selected" : ""}`}
                         type="button"
@@ -947,8 +975,12 @@ export function ChatPage({
                 value={draft}
                 disabled={composerDisabled}
                 onChange={(event) => setDraft(event.target.value)}
+                ref={composerRef}
                 onKeyDown={(event) => {
-                  if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+                  if (
+                    touchInput || event.key !== "Enter" || event.shiftKey
+                    || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229
+                  ) return;
                   event.preventDefault();
                   if (!event.repeat) event.currentTarget.form?.requestSubmit();
                 }}
@@ -956,7 +988,7 @@ export function ChatPage({
                 rows={2}
               />
               <div className="chat-compose__footer">
-                <span id="chat-question-hint">Enter 发送，Shift+Enter 换行 · 回答附原文依据</span>
+                <span id="chat-question-hint">{touchInput ? "回车换行，点击「发送」提交 · 回答附原文依据" : "Enter 发送，Shift+Enter 换行 · 回答附原文依据"}</span>
                 <button className="button button--primary" type="submit" disabled={!draft.trim() || composerDisabled}>{sendMessage.isPending ? "正在检索…" : "发送问题 →"}</button>
               </div>
             </div>

@@ -7,7 +7,7 @@ import re
 from typing import Protocol
 from urllib.parse import parse_qsl, urlsplit
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -20,7 +20,8 @@ from app.api.auth_schemas import (
     SessionResponse,
 )
 from app.api.email_auth_routes import _set_session_cookies, public_login_channel
-from app.web.auth import SESSION_COOKIE_NAME
+from app.external_auth import ExternalLoginError
+from app.web.auth import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
 from app.web_auth import (
     EmailDeliveryUnavailable,
     InvalidEmail,
@@ -70,6 +71,7 @@ _MESSAGES = {
     "login_rate_limited": "请求过多，请稍后重试",
     "email_delivery_unavailable": "登录服务暂时不可用，请稍后重试",
     "request_failed": "请求无法完成",
+    "not_found": "没有找到已绑定的账号",
 }
 
 
@@ -91,6 +93,8 @@ class ExternalAuthBoundary(Protocol):
     def verify_email(self, raw_flow_token: str, email: str, code: str, **kwargs): ...
 
     def cancel(self, raw_flow_token: str): ...
+    def linked_providers(self, scope): ...
+    def unlink(self, scope, provider: str): ...
 
 
 class ExternalCallbackQueryRedactionMiddleware:
@@ -118,6 +122,7 @@ def build_external_auth_router(
     expected_origin: str,
     cookie_secure: bool,
     trusted_proxy_hosts: str = "",
+    scope_dependency=None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/auth/external", tags=["authentication"])
     trusted_proxies = {host.strip() for host in trusted_proxy_hosts.split(",") if host.strip()}
@@ -188,6 +193,28 @@ def build_external_auth_router(
         except Exception:
             return _error("request_failed", 500)
         return None
+
+    if scope_dependency is not None:
+
+        def session_csrf_ok(request: Request) -> bool:
+            header = request.headers.get("x-csrf-token", "")
+            cookie = request.cookies.get(CSRF_COOKIE_NAME, "")
+            return bool(header and cookie) and hmac.compare_digest(header, cookie)
+
+        @router.get("/identities")
+        def identities(scope=Depends(scope_dependency)):
+            return {"providers": list(external_auth.linked_providers(scope))}
+
+        @router.delete("/identities/{provider}", status_code=204)
+        def unlink(provider: str, request: Request, scope=Depends(scope_dependency)):
+            bearer = request.headers.get("authorization", "").lower().startswith("bearer ")
+            if not bearer and not session_csrf_ok(request):
+                return _error("flow_csrf_invalid", 403)
+            try:
+                external_auth.unlink(scope, provider)
+            except ExternalLoginError as exc:
+                return _service_error(exc)
+            return Response(status_code=204)
 
     @router.post(
         "/{provider}/start", response_model=None, status_code=303,
@@ -368,6 +395,8 @@ def _service_error(error: WebAuthError) -> JSONResponse:
     status = 400
     if code in {"flow_invalid", "flow_expired", "flow_used", "flow_csrf_invalid"}:
         status = 403
+    elif code == "not_found":
+        status = 404
     elif code == "verification_failed":
         status = 401
     elif code in {"session_present", "session_changed", "binding_conflict"}:

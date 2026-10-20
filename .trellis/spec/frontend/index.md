@@ -34,6 +34,8 @@ The frontend is a mobile-first React and TypeScript application under `web/`. It
 - Supported routes: `/login`, `/login/external`, `/library`, `/videos/:id`, protected
   `/account/link`, and protected `/account/browser-companion`.
 - The first-empty Agent message is static copy and must never call an LLM.
+- Every lazy route is wrapped in a route-level ErrorBoundary; a stale chunk after a release must offer a reload card instead of a blank page.
+- The chat composer sends on Enter only for precise pointers; touch input inserts a newline and the visible send button submits. The textarea auto-grows up to a bounded height.
 - Search segments are not a transcript source. The detail page consumes the
   bounded transcript API, which projects legacy JSON3 and canonical browser
   captures behind one response contract.

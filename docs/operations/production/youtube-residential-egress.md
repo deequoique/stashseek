@@ -201,6 +201,8 @@ sudo journalctl -u notebook-agent-youtube-egress --since today
 的连接。出口地区不同，Bilibili 音频 CDN 主机也会不同；看到合法的 Bilibili 主机被拒绝时，
 把它补进 `deploy/youtube-egress/tinyproxy.filter`（保持锚定规则，并同步
 `scripts/youtube-home-egress` 里内嵌的同一份规则），重新安装并重启 egress 服务。
+`b23.tv` 也在规则内，用于展开手机 App 分享的短链；漏掉它会让 B 站分享链接在
+数据中心出口上解析失败。
 
 ## 故障处理
 

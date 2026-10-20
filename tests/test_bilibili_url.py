@@ -44,6 +44,11 @@ from app.ingest.submission import (
             "av1074402",
             "https://www.bilibili.com/video/av1074402",
         ),
+        (
+            "https://m.bilibili.com/video/BV1xx411c7mD",
+            "BV1xx411c7mD",
+            "https://www.bilibili.com/video/BV1xx411c7mD",
+        ),
     ],
 )
 def test_bilibili_url_is_normalized_without_remote_fetch(url, platform_id, canonical):
@@ -70,7 +75,7 @@ def test_complete_bare_bv_matches_full_url_identity_and_preserves_suffix_case(va
     "保存 BV1xx411c7mD", "BV1xx411c7mD BV1xx411c7mD", "BV1xx411c7mD/",
     "BV1xx411c7mD?p=1", "BV1xx411c7mD#fragment", "BV1xx411c7m_", "BV1xx411c7mé",
     "av1074402", "https://foreign.example/video/BV1xx411c7mD",
-    "https://foreign.example/?video=BV1xx411c7mD", "https://b23.tv/BV1xx411c7mD",
+    "https://foreign.example/?video=BV1xx411c7mD",
 ])
 def test_bare_bv_recognition_never_extracts_from_malformed_or_untrusted_input(value):
     with pytest.raises((InvalidURL, UnsupportedURL)):
@@ -139,7 +144,6 @@ def test_share_separator_joined_uris_are_rejected_without_truncating_query(separ
     "https://www.bilibili.com/video/BV15pao6iEZo#",
     "https://www.bilibili.com/video/BV15pao6iEZo?p=2",
     "https://www.bilibili.com/video/BV15pao6iEZo?p=1&p=2",
-    "https://b23.tv/BV15pao6iEZo",
     "https://foreign.example/https://www.bilibili.com/video/BV15pao6iEZo",
     "https://foreign.example/?next=https://www.bilibili.com/video/BV15pao6iEZo",
     "ftp://foreign.example/?next=https://www.bilibili.com/video/BV15pao6iEZo",
@@ -207,7 +211,6 @@ def test_bare_bv_mixed_batch_preflight_is_local_and_preserves_order(monkeypatch)
         "https://www.bilibili.com/video/BV1xx411c7mD#fragment",
         "https://www.bilibili.com:444/video/BV1xx411c7mD",
         "https://user:password@www.bilibili.com/video/BV1xx411c7mD",
-        "https://b23.tv/abc123",
         "https://www.bilibili.com/space/123",
         "https://www.bilibili.com/video/BV1short",
         "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
@@ -424,3 +427,57 @@ def test_retrieval_hit_uses_bilibili_source_instead_of_youtube_fallback():
     hit = _hits([(segment, item, 0.9)])[0]
 
     assert hit.url == "https://www.bilibili.com/video/BV1xx411c7mD?t=42"
+
+
+def test_b23_share_link_resolves_before_canonicalization(monkeypatch):
+    monkeypatch.setattr(
+        "app.ingest.submission.resolve_share_link",
+        lambda _url: "https://www.bilibili.com/video/BV1xx411c7mD?share_source=copy_web",
+    )
+    reference = normalize_item_reference("【手机分享】https://b23.tv/abc123")
+    assert reference.platform_id == "BV1xx411c7mD"
+    assert reference.canonical_url == "https://www.bilibili.com/video/BV1xx411c7mD"
+
+
+def test_b23_share_link_that_cannot_be_resolved_is_rejected(monkeypatch):
+    from app.connectors.bilibili_share import ShareLinkError
+
+    def broken(_url):
+        raise ShareLinkError("share_unresolved")
+
+    monkeypatch.setattr("app.ingest.submission.resolve_share_link", broken)
+    with pytest.raises(UnsupportedURL):
+        normalize_item_reference("https://b23.tv/abc123")
+
+
+def test_share_resolver_accepts_only_redirects_to_a_bilibili_video():
+    from app.connectors.bilibili_share import ShareLinkError, resolve_share_link
+
+    class Response:
+        def __init__(self, final: str) -> None:
+            self._final = final
+
+        def geturl(self) -> str:
+            return self._final
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+    class Opener:
+        def __init__(self, final: str) -> None:
+            self.final = final
+
+        def open(self, _request, timeout=None):
+            return Response(self.final)
+
+    resolved = resolve_share_link(
+        "https://b23.tv/one", opener=Opener("https://m.bilibili.com/video/BV1xx411c7mD")
+    )
+    assert resolved == "https://m.bilibili.com/video/BV1xx411c7mD"
+    with pytest.raises(ShareLinkError):
+        resolve_share_link(
+            "https://b23.tv/two", opener=Opener("https://example.test/video/BV1xx411c7mD")
+        )

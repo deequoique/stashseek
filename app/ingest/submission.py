@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.channels.types import UserScope
 from app.connectors.bilibili import canonicalize_bilibili_url
+from app.connectors.bilibili_share import SHARE_HOSTS, ShareLinkError, resolve_share_link
 from app.connectors.youtube import YouTubeConnector
 from app.config import get_settings
 from app.models import (
@@ -470,6 +471,12 @@ def normalize_item_reference(url: str) -> ItemReference:
         raise InvalidURL("invalid URL") from None
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise InvalidURL("invalid URL")
+    if (parsed.hostname or "").lower() in SHARE_HOSTS:
+        try:
+            value = resolve_share_link(value)
+        except ShareLinkError:
+            raise UnsupportedURL("unsupported URL") from None
+        parsed = urlparse(value)
     bilibili = canonicalize_bilibili_url(value)
     if bilibili is not None:
         if "#" in value:

@@ -15,8 +15,12 @@ ordinary compatibility path below never silently expands those selections.
 
 ## 2. URL Contract
 
-- The ordinary direct-input connector accepts only credential-free HTTPS `bilibili.com`/`www.bilibili.com` ordinary
-  video paths with a strict 12-character BV ID or numeric av ID.
+- The ordinary direct-input connector accepts only credential-free HTTPS
+  `bilibili.com`/`www.bilibili.com`/`m.bilibili.com` ordinary video paths with a
+  strict 12-character BV ID or numeric av ID. Mobile share links on `b23.tv`
+  are expanded by a bounded, cached HEAD/GET redirect resolver that accepts only
+  redirects to `/video/` on those Bilibili hosts; an unresolved short link stays
+  unsupported.
 - Strip tracking queries and fragments from the canonical URL. Reject fragments,
   explicit ports, short links, non-video paths, malformed IDs, and `p` values
   other than the first part. Base multipart URLs intentionally select part 1

@@ -10,7 +10,14 @@ import {
   useLocation,
 } from "react-router";
 
-import { getSession, logout, setUnauthorizedHandler, streamConversationMessage } from "../api/client";
+import {
+  getSession,
+  listExternalIdentities,
+  logout,
+  setUnauthorizedHandler,
+  streamConversationMessage,
+  unlinkExternalIdentity,
+} from "../api/client";
 import type { Capabilities, SessionInfo } from "../api/contracts";
 import { capabilitiesQueryOptions, preloadConversationHistory } from "../chat/conversationQueries";
 import { AppShell } from "./AppShell";
@@ -172,7 +179,13 @@ function AccountLinkRoute({ rotateClient }: { rotateClient: () => void }) {
   const onLinked = useCallback(() => {
     endPrivateSession(client, navigate, rotateClient, { accountLinkSuccess: true });
   }, [client, navigate, rotateClient]);
-  return <AccountLinkPage onLinked={onLinked} />;
+  return (
+    <AccountLinkPage
+      onLinked={onLinked}
+      loadIdentities={listExternalIdentities}
+      unlinkIdentity={unlinkExternalIdentity}
+    />
+  );
 }
 
 function LoginRoute({ activateSession, external = false }: { activateSession: (session?: SessionInfo, capabilities?: PublicCapabilitiesSnapshot) => void; external?: boolean }) {

@@ -69,7 +69,10 @@ class InvalidSession(WebAuthError):
 
 
 class EmailSender(Protocol):
-    def send_login_code(self, to_email: str, code: str, expires_at: datetime) -> None: ...
+    def send_login_code(
+        self, to_email: str, code: str, expires_at: datetime,
+        *, purpose: str | None = None,
+    ) -> None: ...
 
 
 class LoginRateLimiter(Protocol):
@@ -81,6 +84,7 @@ class SentEmail:
     to_email: str
     code: str
     expires_at: datetime
+    purpose: str | None = None
 
 
 class InMemoryEmailSender:
@@ -94,8 +98,11 @@ class InMemoryEmailSender:
         """Compatibility alias for tests without exposing a production sink."""
         return self.messages
 
-    def send_login_code(self, to_email: str, code: str, expires_at: datetime) -> None:
-        self.messages.append(SentEmail(to_email, code, expires_at))
+    def send_login_code(
+        self, to_email: str, code: str, expires_at: datetime,
+        *, purpose: str | None = None,
+    ) -> None:
+        self.messages.append(SentEmail(to_email, code, expires_at, purpose))
 
 
 class ResendEmailSender:
@@ -111,12 +118,25 @@ class ResendEmailSender:
         self._timeout = timeout_seconds
         self._client = client
 
-    def send_login_code(self, to_email: str, code: str, expires_at: datetime) -> None:
+    def send_login_code(
+        self, to_email: str, code: str, expires_at: datetime,
+        *, purpose: str | None = None,
+    ) -> None:
+        subject = "Your StashSeek Chat login code"
+        text = f"Your login code is {code}. It expires at {expires_at.isoformat()}."
+        if purpose:
+            subject = "StashSeek Chat account linking code"
+            text = (
+                f"Your verification code is {code}. It expires at "
+                f"{expires_at.isoformat()}.\n\n"
+                f"You are {purpose} to this email address. If you did not "
+                "request this, ignore this message and do not share the code."
+            )
         payload = {
             "from": self._from_email,
             "to": [to_email],
-            "subject": "Your StashSeek Chat login code",
-            "text": f"Your login code is {code}. It expires at {expires_at.isoformat()}.",
+            "subject": subject,
+            "text": text,
         }
         try:
             if self._client is not None:
@@ -168,14 +188,26 @@ class SmtpEmailSender:
         self._timeout = timeout_seconds
         self._client_factory = client_factory or smtplib.SMTP
 
-    def send_login_code(self, to_email: str, code: str, expires_at: datetime) -> None:
+    def send_login_code(
+        self, to_email: str, code: str, expires_at: datetime,
+        *, purpose: str | None = None,
+    ) -> None:
         message = EmailMessage()
         message["From"] = self._from_email
         message["To"] = to_email
-        message["Subject"] = "Your StashSeek Chat login code"
-        message.set_content(
-            f"Your login code is {code}. It expires at {expires_at.isoformat()}."
-        )
+        if purpose:
+            message["Subject"] = "StashSeek Chat account linking code"
+            message.set_content(
+                f"Your verification code is {code}. It expires at "
+                f"{expires_at.isoformat()}.\n\n"
+                f"You are {purpose} to this email address. If you did not "
+                "request this, ignore this message and do not share the code."
+            )
+        else:
+            message["Subject"] = "Your StashSeek Chat login code"
+            message.set_content(
+                f"Your login code is {code}. It expires at {expires_at.isoformat()}."
+            )
         client = None
         try:
             client = self._client_factory(self._host, self._port, timeout=self._timeout)
@@ -597,14 +629,15 @@ class WebAuthService:
 
     def _request_email_proof(self, db: Session, canonical: str, *, current: datetime,
                              external_login_flow_id: int | None = None,
-                             expires_at: datetime | None = None) -> None:
+                             expires_at: datetime | None = None,
+                             purpose: str | None = None) -> None:
         """Transaction-local challenge issuance with an exact proof purpose."""
         code = f"{secrets.randbelow(1_000_000):06d}"
-        purpose = WebAuthChallenge.external_login_flow_id == external_login_flow_id
+        purpose_filter = WebAuthChallenge.external_login_flow_id == external_login_flow_id
         if external_login_flow_id is None:
-            purpose = and_(purpose, WebAuthChallenge.email == canonical)
+            purpose_filter = and_(purpose_filter, WebAuthChallenge.email == canonical)
         db.execute(update(WebAuthChallenge).where(
-            purpose,
+            purpose_filter,
             WebAuthChallenge.consumed_at.is_(None), WebAuthChallenge.invalidated_at.is_(None),
         ).values(invalidated_at=current))
         challenge = WebAuthChallenge(
@@ -618,7 +651,9 @@ class WebAuthService:
         db.flush()
         challenge.code_hash = self._code_hash(challenge.id, code)
         try:
-            self._sender.send_login_code(canonical, code, challenge.expires_at)
+            self._sender.send_login_code(
+                canonical, code, challenge.expires_at, purpose=purpose
+            )
         except EmailDeliveryUnavailable:
             challenge.delivery_failed_at = current
             raise
