@@ -45,10 +45,30 @@ describe("browser companion account page", () => {
     renderPage();
 
     expect(screen.getByRole("heading", { name: "浏览器伴侣" })).toBeInTheDocument();
-    expect(screen.getByText(/也能在服务器访问受限时使用/)).toBeInTheDocument();
+    expect(screen.getByText(/服务器访问受限时同样可用/)).toBeInTheDocument();
     expect(screen.queryByText(/NTU|Kaltura/)).not.toBeInTheDocument();
     expect(await screen.findByText("目前没有已连接的插件。")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("sends the install card to the Chrome Web Store with the offline package as a fallback", async () => {
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: "从 Chrome 应用商店安装" })).toBeInTheDocument();
+    const store = screen.getByRole("link", { name: "前往 Chrome 应用商店" });
+    expect(store).toHaveAttribute(
+      "href",
+      "https://chromewebstore.google.com/detail/jeemllapbelpglmpnhjfamcnoibpeail",
+    );
+    expect(store).toHaveAttribute("target", "_blank");
+    expect(store).toHaveAttribute("rel", "noreferrer");
+    const offline = screen.getByRole("link", { name: "下载离线安装包" });
+    expect(offline).toHaveAttribute(
+      "href",
+      "/assets/stashseek-chat-browser-companion-production-0.2.1.zip",
+    );
+    expect(offline).toHaveAttribute("download");
+    expect(await screen.findByText("目前没有已连接的插件。")).toBeInTheDocument();
   });
 
   it("approves the public pairing id and can revoke a listed device", async () => {

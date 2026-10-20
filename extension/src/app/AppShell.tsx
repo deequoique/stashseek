@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import type { SessionInfo } from "../api/contracts";
 import { BrandLogo } from "./BrandLogo";
+import { BROWSER_COMPANION_STORE_URL, isExtensionContext } from "./browserCompanion";
 import { RouteLink } from "./RouteTransition";
 
 interface AppShellProps {
@@ -65,6 +66,21 @@ export function AppShell({ children, loginChannel, onLogout, logoutPending = fal
             <span>StashSeek Chat</span>
           </RouteLink>
           <div className="topbar__actions">
+            {isExtensionContext() ? null : (
+              <a
+                className="topbar__install"
+                href={BROWSER_COMPANION_STORE_URL}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="在 Chrome 应用商店安装搜藏助手插件"
+                title="在 Chrome 应用商店安装"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M4 7h3a1 1 0 0 0 1 -1v-1a2 2 0 0 1 4 0v1a1 1 0 0 0 1 1h3a1 1 0 0 1 1 1v3a1 1 0 0 0 1 1h1a2 2 0 0 1 0 4h-1a1 1 0 0 0 -1 1v3a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1v-1a2 2 0 0 0 -4 0v1a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1h1a2 2 0 0 0 0 -4h-1a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1" />
+                </svg>
+                <span>Chrome 插件</span>
+              </a>
+            )}
             <details className="community-menu" ref={communityMenuRef}>
               <summary aria-label="查看用户交流群，QQ群 1107151131" title="QQ群 1107151131">
                 <svg aria-hidden="true" viewBox="0 0 24 24">
