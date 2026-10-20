@@ -39,7 +39,7 @@ from app.web_auth import (
 class EmailAuthBoundary(Protocol):
     def request_challenge(self, email: str, client_ip: str) -> None: ...
 
-    def verify(self, email: str, code: str): ...
+    def verify(self, email: str, code: str, **kwargs): ...
 
     def resolve_session(self, raw_token: str): ...
 
@@ -80,7 +80,7 @@ class EmailWebAuthAdapter:
         return EmailResolvedSession(
             app_user_id=session.tenant.app_user_id,
             session_public_id=session.public_id,
-            login_channel="email",
+            login_channel=public_login_channel(session),
             expires_at=session.expires_at,
         )
 
@@ -128,6 +128,7 @@ def build_email_auth_router(
     expected_origin: str,
     cookie_secure: bool,
     trusted_proxy_hosts: str = "",
+    external_flow_cookie_name: str | None = None,
 ) -> APIRouter:
     """Build the canonical email login/session routes.
 
@@ -213,7 +214,12 @@ def build_email_auth_router(
         if error := same_origin(request):
             return error
         try:
-            verified = email_auth.verify(payload.email, payload.code)
+            flow_token = request.cookies.get(external_flow_cookie_name, "") if external_flow_cookie_name else ""
+            verified = (
+                email_auth.verify(payload.email, payload.code, external_login_flow_token=flow_token)
+                if flow_token
+                else email_auth.verify(payload.email, payload.code)
+            )
         except (InvalidEmail, InvalidVerification):
             return _error("verification_failed", 401)
         except Exception:
@@ -221,7 +227,7 @@ def build_email_auth_router(
         response = JSONResponse(
             SessionResponse(
                 authenticated=True,
-                login_channel="email",
+                login_channel=public_login_channel(verified.session),
                 expires_at=verified.session.expires_at,
             ).model_dump(mode="json"),
             status_code=200,
@@ -251,7 +257,7 @@ def build_email_auth_router(
         return JSONResponse(
             SessionResponse(
                 authenticated=True,
-                login_channel="email",
+                login_channel=public_login_channel(session),
                 expires_at=session.expires_at,
             ).model_dump(mode="json"),
             status_code=200,
@@ -321,6 +327,17 @@ def _set_session_cookies(response: Response, verified, *, secure: bool) -> None:
         httponly=False,
         samesite="lax",
     )
+
+
+def public_login_channel(session) -> str:
+    """Translate historical email storage without hiding provider provenance."""
+
+    method = getattr(session, "login_channel", "web")
+    if method == "web":
+        return "email"
+    if method in {"email", "telegram", "wechat", "microsoft", "wechat_website", "qq"}:
+        return method
+    raise InvalidSession()
 
 
 def _delete_session_cookies(response: Response, *, secure: bool) -> None:

@@ -15,6 +15,13 @@ vi.mock("./browserCompanion", async (importOriginal) => ({
 import { AppShell, COMMUNITY_NOTICE_STORAGE_KEY } from "./AppShell";
 
 describe("application shell", () => {
+  it.each([
+    ["microsoft", "Microsoft"], ["wechat_website", "微信网站授权"], ["qq", "QQ"],
+  ] as const)("labels the %s Session explicitly", (provider, label) => {
+    render(<MemoryRouter><AppShell loginChannel={provider} onLogout={() => undefined}><h1>资料库</h1></AppShell></MemoryRouter>);
+    expect(screen.getByText(label)).toBeInTheDocument();
+  });
+
   beforeEach(() => {
     window.localStorage.clear();
     extensionContext.active = false;

@@ -443,6 +443,12 @@ class Settings:
     bilibili_fetch_timeout_seconds: float = field(
         default_factory=lambda: _env_float("BILIBILI_FETCH_TIMEOUT_SECONDS", 30.0)
     )
+    # Public-favorites and multipart access requires server egress to
+    # api.bilibili.com, which datacenter IPs cannot rely on. Off unless a
+    # deployment has a working egress path.
+    bilibili_public_enabled: bool = field(
+        default_factory=lambda: _env_bool("BILIBILI_PUBLIC_ENABLED", False)
+    )
 
     # --- Hosted ASR for subtitle-less public videos ---
     # Disabled by default. Required values and ranges are validated only when
@@ -747,6 +753,16 @@ class Settings:
     web_public_origin: str | None = field(
         default_factory=lambda: _env("WEB_PUBLIC_ORIGIN")
     )
+    web_microsoft_enabled: bool = field(default_factory=lambda: _env_bool("WEB_MICROSOFT_ENABLED", False))
+    web_microsoft_client_id: str | None = field(default_factory=lambda: _env("WEB_MICROSOFT_CLIENT_ID"))
+    web_microsoft_client_secret: str | None = field(default_factory=lambda: _env("WEB_MICROSOFT_CLIENT_SECRET"), repr=False)
+    web_microsoft_tenant: str = field(default_factory=lambda: _env("WEB_MICROSOFT_TENANT", "common") or "common")
+    web_wechat_website_enabled: bool = field(default_factory=lambda: _env_bool("WEB_WECHAT_WEBSITE_ENABLED", False))
+    web_wechat_website_app_id: str | None = field(default_factory=lambda: _env("WEB_WECHAT_WEBSITE_APP_ID"))
+    web_wechat_website_app_secret: str | None = field(default_factory=lambda: _env("WEB_WECHAT_WEBSITE_APP_SECRET"), repr=False)
+    web_qq_enabled: bool = field(default_factory=lambda: _env_bool("WEB_QQ_ENABLED", False))
+    web_qq_app_id: str | None = field(default_factory=lambda: _env("WEB_QQ_APP_ID"))
+    web_qq_app_key: str | None = field(default_factory=lambda: _env("WEB_QQ_APP_KEY"), repr=False)
     browser_companion_allowed_origins: tuple[str, ...] = field(
         default_factory=lambda: _env_csv("BROWSER_COMPANION_ALLOWED_ORIGINS")
     )
@@ -1020,6 +1036,8 @@ class Settings:
                 parsed_origin.scheme != "https"
                 or not parsed_origin.netloc
                 or parsed_origin.path not in {"", "/"}
+                or parsed_origin.username is not None
+                or parsed_origin.password is not None
                 or parsed_origin.query
                 or parsed_origin.fragment
             ):
@@ -1059,6 +1077,7 @@ class Settings:
                     "\n" in value or "\r" in value for value in smtp_header_values
                 ):
                     raise ValueError("SMTP settings must not contain line breaks")
+        self.validate_external_login()
         if self.agent_composer_max_tokens <= 0:
             raise ValueError("AGENT_COMPOSER_MAX_TOKENS must be positive")
         if self.trash_retention_days <= 0:
@@ -1182,6 +1201,28 @@ class Settings:
                 "AGENT_COMPOSER_MAX_TOKENS multiplied by the Composer request "
                 "limit must not exceed AGENT_OUTPUT_TOKEN_LIMIT"
             )
+
+    def validate_external_login(self) -> None:
+        """Fail startup for enabled providers without their email/auth boundary."""
+
+        enabled = (
+            (self.web_microsoft_enabled, "WEB_MICROSOFT", (self.web_microsoft_client_id, self.web_microsoft_client_secret)),
+            (self.web_wechat_website_enabled, "WEB_WECHAT_WEBSITE", (self.web_wechat_website_app_id, self.web_wechat_website_app_secret)),
+            (self.web_qq_enabled, "WEB_QQ", (self.web_qq_app_id, self.web_qq_app_key)),
+        )
+        if not any(flag for flag, _name, _credentials in enabled):
+            return
+        if not self.web_auth_enabled:
+            raise ValueError("external login requires WEB_AUTH_ENABLED")
+        if not self.web_cookie_secure:
+            raise ValueError("external login requires WEB_COOKIE_SECURE")
+        for flag, name, credentials in enabled:
+            if flag and not all(value and value.strip() for value in credentials):
+                raise ValueError(f"{name} requires its application ID and secret")
+        if self.web_microsoft_enabled:
+            tenant = self.web_microsoft_tenant
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}", tenant):
+                raise ValueError("WEB_MICROSOFT_TENANT must be a tenant identifier")
 
     def validate_web_auth(self) -> None:
         if self.web_auth_secret is None or len(self.web_auth_secret) < 32:

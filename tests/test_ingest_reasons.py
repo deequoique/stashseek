@@ -17,6 +17,7 @@ EXPECTED = {
     "asr_disabled": ("no_transcription", True),
     "asr_unsupported_platform": ("no_transcription", False),
     "asr_unavailable": ("no_transcription", True),
+    "part_transcription_unsupported": ("no_transcription", False),
     "asr_not_configured": ("no_transcription", True),
     "transient_fetch_failed": ("fetch_failed", True),
     "asr_audio_unavailable": ("fetch_failed", True),

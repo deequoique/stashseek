@@ -1,12 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 import {
-  getCapabilities,
   ConversationStreamError,
-  getConversationTurns,
-  listConversations,
   deleteConversation,
   resetConversation,
   sendConversationMessage,
@@ -30,6 +27,7 @@ import {
 } from "./ExecutionTimeline";
 import { assistantTextWithoutSourceList } from "./answerText";
 import { MarkdownAnswer } from "./MarkdownAnswer";
+import { capabilitiesQueryOptions, conversationHistoryQueryOptions, conversationTurnsQueryOptions } from "./conversationQueries";
 
 interface ChatPageProps {
   loadCapabilities?: () => Promise<Capabilities>;
@@ -94,23 +92,29 @@ function markdownPreviewText(text: string): string {
     .trim();
 }
 
-function hasDurablePendingTurn(
+export function durablePendingTurnIndex(
   transcript: ConversationTurns | undefined,
   question: string | null,
   answer: string,
   baselineTurnCount: number,
-): boolean {
-  if (!question) return false;
-  return (transcript?.turns ?? []).slice(baselineTurnCount).some((turn) => (
-    turn.user_text === question
-    && (
-      turn.assistant_text === answer
-      || (
-        answer.length > 0
-        && turn.assistant_text.startsWith(`${answer}\n\n来源：\n`)
+): number | null {
+  if (!question) return null;
+  const turns = transcript?.turns ?? [];
+  for (let index = baselineTurnCount; index < turns.length; index += 1) {
+    const turn = turns[index];
+    if (!turn) continue;
+    if (
+      turn.user_text === question
+      && (
+        turn.assistant_text === answer
+        || (
+          answer.length > 0
+          && turn.assistant_text.startsWith(`${answer}\n\n来源：\n`)
+        )
       )
-    )
-  ));
+    ) return index;
+  }
+  return null;
 }
 
 const fallbackQuestions = [
@@ -155,9 +159,9 @@ function CitationList({ citations }: { citations: ConversationCitation[] }) {
 }
 
 export function ChatPage({
-  loadCapabilities = getCapabilities,
-  fetchHistory = () => listConversations(),
-  fetchTurns = getConversationTurns,
+  loadCapabilities,
+  fetchHistory,
+  fetchTurns,
   reset = resetConversation,
   send = sendConversationMessage,
   sendStream,
@@ -179,30 +183,27 @@ export function ChatPage({
   const [pendingStatus, setPendingStatus] = useState<"streaming" | "failed">("streaming");
   const [openMenuThreadId, setOpenMenuThreadId] = useState<string | null>(null);
   const [confirmingThreadId, setConfirmingThreadId] = useState<string | null>(null);
+  const [positionedTurn, setPositionedTurn] = useState<{ threadId: string; index: number; minHeight: number; turnKey?: string | null } | null>(null);
+  const [historyOpenIntent, setHistoryOpenIntent] = useState<{ threadId: string } | null>(null);
   const attemptedEmptyBootstrap = useRef(false);
   const pendingQuestionRef = useRef<string | null>(null);
   const pendingAnswerRef = useRef<string>("");
   const pendingThreadIdRef = useRef<string | null>(null);
   const pendingBaselineTurnCountRef = useRef(0);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const capabilities = useQuery({
-    queryKey: ["capabilities"],
-    queryFn: loadCapabilities,
-    retry: false,
-    staleTime: 5 * 60_000,
-  });
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const questionRef = useRef<HTMLElement | null>(null);
+  const keepQuestionAlignedRef = useRef(false);
+  const scrollPositionRef = useRef({ transcript: 0, page: 0 });
+  const capabilities = useQuery(capabilitiesQueryOptions(loadCapabilities));
   const chatEnabled = capabilities.data?.chat === true;
   const history = useQuery({
-    queryKey: ["conversations"],
-    queryFn: fetchHistory,
+    ...conversationHistoryQueryOptions(fetchHistory),
     enabled: chatEnabled,
-    retry: 1,
   });
   const transcript = useQuery({
-    queryKey: ["conversation", selectedThreadId],
-    queryFn: () => fetchTurns(selectedThreadId as string),
+    ...conversationTurnsQueryOptions(selectedThreadId, fetchTurns),
     enabled: chatEnabled && selectedThreadId !== null,
-    retry: 1,
   });
   const newConversation = useMutation({
     mutationFn: async (): Promise<NewConversationResult> => {
@@ -368,15 +369,23 @@ export function ChatPage({
           type: "all",
         });
         const latest = queryClient.getQueryData<ConversationTurns>(["conversation", pendingThreadId]);
-        const persisted = hasDurablePendingTurn(
+        const durableIndex = durablePendingTurnIndex(
           latest,
           pendingQuestionRef.current,
           response.text,
           pendingBaselineTurnCountRef.current,
         );
-        if (!persisted) {
+        if (durableIndex === null) {
           setPendingSyncError(true);
           return;
+        }
+        const durableTurn = latest?.turns?.[durableIndex];
+        if (durableTurn && pendingThreadId === selectedThreadId) {
+          // Another tab may have appended turns; anchor this exact turn.
+          setPositionedTurn({
+            ...questionPosition(pendingThreadId, durableIndex),
+            turnKey: `${durableTurn.created_at}:${durableTurn.user_text}`,
+          });
         }
         setPendingQuestion(null);
         pendingQuestionRef.current = null;
@@ -415,6 +424,10 @@ export function ChatPage({
         return;
       }
       setPendingQuestion(null);
+      if (pendingThreadIdRef.current === selectedThreadId) {
+        keepQuestionAlignedRef.current = false;
+        setPositionedTurn(null);
+      }
       pendingQuestionRef.current = null;
       setPendingAnswer("");
       pendingAnswerRef.current = "";
@@ -441,15 +454,22 @@ export function ChatPage({
       const latest = queryClient.getQueryData<ConversationTurns>(["conversation", pendingThreadId]);
       const question = pendingQuestionRef.current;
       const answer = pendingAnswerRef.current;
-      const persisted = hasDurablePendingTurn(
+      const durableIndex = durablePendingTurnIndex(
         latest,
         question,
         answer,
         pendingBaselineTurnCountRef.current,
       );
-      if (!persisted) {
+      if (durableIndex === null) {
         setPendingSyncError(true);
         return;
+      }
+      const durableTurn = latest?.turns?.[durableIndex];
+      if (durableTurn && pendingThreadId === selectedThreadId) {
+        setPositionedTurn({
+          ...questionPosition(pendingThreadId, durableIndex),
+          turnKey: `${durableTurn.created_at}:${durableTurn.user_text}`,
+        });
       }
       pendingQuestionRef.current = null;
       pendingAnswerRef.current = "";
@@ -499,10 +519,11 @@ export function ChatPage({
   useEffect(() => {
     // Page threads are read-only; open on the newest library conversation.
     const latest = history.data?.items?.find((item) => item.page_qa !== true);
-    if (!chatEnabled || !latest || selectedThreadId) return;
+    if (!chatEnabled || !latest || selectedThreadId || newConversation.isPending) return;
+    setHistoryOpenIntent({ threadId: latest.thread_id });
     setSelectedThreadId(latest.thread_id);
     setSelectedConversationId(latest.conversation_id);
-  }, [chatEnabled, history.data, selectedThreadId]);
+  }, [chatEnabled, history.data, selectedThreadId, newConversation.isPending]);
 
   useEffect(() => {
     if (
@@ -546,12 +567,24 @@ export function ChatPage({
   }, [openMenuThreadId]);
 
   function selectConversation(threadId: string, conversationId: string) {
+    if (pendingQuestion && pendingThreadIdRef.current === threadId) {
+      keepQuestionAlignedRef.current = true;
+      setPositionedTurn({ ...questionPosition(threadId, pendingBaselineTurnCountRef.current), turnKey: null });
+      setHistoryOpenIntent(null);
+    } else {
+      keepQuestionAlignedRef.current = false;
+      setPositionedTurn(null);
+      setHistoryOpenIntent({ threadId });
+    }
     setSelectedThreadId(threadId);
     setSelectedConversationId(conversationId);
   }
 
   function startNewConversation() {
     if (!chatEnabled) return;
+    keepQuestionAlignedRef.current = false;
+    setPositionedTurn(null);
+    setHistoryOpenIntent(null);
     setDraft("");
     setPendingQuestion(null);
     pendingQuestionRef.current = null;
@@ -570,10 +603,56 @@ export function ChatPage({
     newConversation.mutate();
   }
 
+  const touchInput = useState(() => (
+    typeof window !== "undefined"
+    && (
+      window.matchMedia?.("(pointer: coarse)").matches === true
+      || navigator.maxTouchPoints > 0
+    )
+  ))[0];
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const element = composerRef.current;
+    if (!element) return;
+    element.style.height = "auto";
+    element.style.height = `${Math.min(element.scrollHeight, 160)}px`;
+  }, [draft]);
+
+  const composerDisabled = !selectedConversationId
+    || transcript.isPending
+    || sendMessage.isPending
+    || newConversation.isPending;
+
+  function isPositionedTurn(turnIndex: number, turn: { created_at: string; user_text: string }): boolean {
+    if (!positionedTurn || positionedTurn.threadId !== selectedThreadId) return false;
+    if (positionedTurn.turnKey) {
+      return positionedTurn.turnKey === `${turn.created_at}:${turn.user_text}`;
+    }
+    return !visiblePendingQuestion && positionedTurn.index === turnIndex;
+  }
+
+  function questionPosition(threadId: string, index: number) {
+    const transcriptElement = transcriptRef.current;
+    const transcriptStyle = transcriptElement ? window.getComputedStyle(transcriptElement) : null;
+    const transcriptPadding = (Number.parseFloat(transcriptStyle?.paddingTop ?? "") || 0)
+      + (Number.parseFloat(transcriptStyle?.paddingBottom ?? "") || 0);
+    return {
+      threadId,
+      index,
+      minHeight: Math.max(0, (transcriptElement?.clientHeight ?? 0) - transcriptPadding),
+    };
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = draft.trim();
-    if (!text || !selectedConversationId || sendMessage.isPending || selectedIsPageThread) return;
+    if (
+      !text || !selectedConversationId || !selectedThreadId
+      || composerDisabled || selectedIsPageThread
+    ) return;
+    setHistoryOpenIntent(null);
+    keepQuestionAlignedRef.current = true;
     setPendingQuestion(text);
     pendingQuestionRef.current = text;
     pendingThreadIdRef.current = selectedThreadId;
@@ -581,6 +660,7 @@ export function ChatPage({
       queryClient.getQueryData<ConversationTurns>(["conversation", selectedThreadId])?.turns?.length
       ?? 0
     );
+    setPositionedTurn({ ...questionPosition(selectedThreadId, pendingBaselineTurnCountRef.current), turnKey: null });
     setPendingAnswer("");
     pendingAnswerRef.current = "";
     setPendingCitations([]);
@@ -595,12 +675,16 @@ export function ChatPage({
 
   function deleteSelectedConversation(threadId: string) {
     if (deleteConversationMutation.isPending) return;
+    keepQuestionAlignedRef.current = false;
+    setPositionedTurn(null);
+    setHistoryOpenIntent(null);
     setOpenMenuThreadId(null);
     setConfirmingThreadId(null);
     deleteConversationMutation.mutate(threadId);
   }
 
   const turns = transcript.data?.turns ?? [];
+  const visiblePendingQuestion = pendingThreadIdRef.current === selectedThreadId ? pendingQuestion : null;
   const historyItems = history.data?.items ?? [];
   // A page-Q&A thread belongs to the video page it was asked on: read-only here.
   const selectedIsPageThread = transcript.data?.page_qa === true
@@ -617,6 +701,52 @@ export function ChatPage({
     || newConversation.isPending
     || sendMessage.isPending
     || (selectedThreadId !== null && transcript.isPending);
+
+  useEffect(() => {
+    // The chat layout fills the viewport without relying on CSS :has(), which
+    // older engines used by embedded browsers may not support.
+    const root = document.documentElement;
+    root.classList.add("chat-route");
+    document.body.classList.add("chat-route");
+    return () => {
+      root.classList.remove("chat-route");
+      document.body.classList.remove("chat-route");
+    };
+  }, []);
+
+  useEffect(() => {
+    function onPageScroll() {
+      const top = Math.max(0, window.scrollY);
+      if (Math.abs(top - scrollPositionRef.current.page) > 1) keepQuestionAlignedRef.current = false;
+      scrollPositionRef.current.page = top;
+    }
+    window.addEventListener("scroll", onPageScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onPageScroll);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!historyOpenIntent || historyOpenIntent.threadId !== selectedThreadId || !transcript.isSuccess) return;
+    setHistoryOpenIntent(null);
+    const lastTurnIndex = (transcript.data.turns?.length ?? 0) - 1;
+    if (lastTurnIndex < 0) return;
+    const lastTurn = transcript.data.turns?.[lastTurnIndex];
+    keepQuestionAlignedRef.current = true;
+    setPositionedTurn({
+      ...questionPosition(historyOpenIntent.threadId, lastTurnIndex),
+      turnKey: lastTurn ? `${lastTurn.created_at}:${lastTurn.user_text}` : null,
+    });
+  }, [historyOpenIntent, selectedThreadId, transcript.isSuccess, transcript.data]);
+
+  useLayoutEffect(() => {
+    if (!positionedTurn || !keepQuestionAlignedRef.current) return;
+    // Align on an explicit history open, submission, or durable handoff.
+    // Refetches and answer deltas leave the reader's chosen position in place.
+    questionRef.current?.scrollIntoView?.({ behavior: "instant", block: "start", inline: "nearest" });
+    scrollPositionRef.current = {
+      transcript: transcriptRef.current?.scrollTop ?? 0,
+      page: Math.max(0, window.scrollY),
+    };
+  }, [positionedTurn, visiblePendingQuestion]);
 
   return (
     <section className="chat-page" aria-labelledby="chat-title">
@@ -652,6 +782,7 @@ export function ChatPage({
                 {capabilities.isPending || newConversation.isPending ? "…" : "+"}
               </button>
             </div>
+            <div className="chat-history-scroll" role="region" aria-label="历史检索列表" tabIndex={0}>
             {capabilities.isPending ? <p className="chat-sidebar__status" aria-live="polite">正在确认检索能力…</p> : null}
             {capabilities.isError ? <div className="chat-sidebar__status"><p>无法确认检索服务状态。</p><button className="text-button" type="button" onClick={() => void capabilities.refetch()}>重试</button></div> : null}
             {capabilities.isSuccess && !chatEnabled ? <p className="chat-sidebar__status">当前部署未开放 AI 检索。</p> : null}
@@ -664,7 +795,7 @@ export function ChatPage({
               <nav aria-label="选择历史对话">
                 <ol className="chat-thread-list">
                   {historyItems.map((item) => (
-                    <li key={item.thread_id} className="chat-thread-row">
+                    <li key={item.thread_id} className={`chat-thread-row${item.thread_id === selectedThreadId ? " chat-thread-row--selected" : ""}`}>
                       <button
                         className={`chat-thread-select${item.thread_id === selectedThreadId ? " is-selected" : ""}`}
                         type="button"
@@ -733,11 +864,23 @@ export function ChatPage({
                 </ol>
               </nav>
             ) : null}
+            </div>
           </div>
         </aside>
 
         <div className="chat-conversation" aria-busy={conversationBusy}>
-          <div className="chat-transcript">
+          <div
+            className="chat-transcript"
+            role="region"
+            aria-label="对话内容滚动区域"
+            tabIndex={0}
+            ref={transcriptRef}
+            onScroll={(event) => {
+              const top = Math.max(0, event.currentTarget.scrollTop);
+              if (Math.abs(top - scrollPositionRef.current.transcript) > 1) keepQuestionAlignedRef.current = false;
+              scrollPositionRef.current.transcript = top;
+            }}
+          >
             {capabilities.isPending ? <div className="chat-empty-stage chat-empty-stage--loading" aria-live="polite"><span className="chat-search-line" aria-hidden="true" /><p>正在确认资料库检索能力…</p></div> : null}
             {capabilities.isError ? <div className="chat-empty-stage" role="alert"><p className="eyebrow">检索暂时不可用</p><h2>无法确认当前服务能力</h2><p>请重试；已经保存的视频不会受到影响。</p></div> : null}
             {capabilities.isSuccess && !chatEnabled ? <div className="chat-empty-stage" role="status"><p className="eyebrow">当前部署</p><h2>尚未开放 AI 智能检索</h2><p>你仍可返回资料库阅读视频和字幕。</p></div> : null}
@@ -760,8 +903,12 @@ export function ChatPage({
             ) : null}
             <ol className="chat-turns" aria-label="对话内容">
               {turns.map((turn, turnIndex) => (
-                <li key={`${turn.created_at}:${turn.user_text}`} className="chat-turn">
-                  <article className="chat-message chat-message--user">
+                <li
+                  key={`${turn.created_at}:${turn.user_text}`}
+                  className={`chat-turn${isPositionedTurn(turnIndex, turn) ? " chat-turn--current" : ""}`}
+                  style={isPositionedTurn(turnIndex, turn) ? { minHeight: positionedTurn?.minHeight } : undefined}
+                >
+                  <article className="chat-message chat-message--user" ref={isPositionedTurn(turnIndex, turn) ? questionRef : undefined}>
                     <header><p className="eyebrow">问题 {String(turnIndex + 1).padStart(2, "0")}</p><time dateTime={turn.created_at}>{displayTime(turn.created_at)}</time></header>
                     <p className="chat-question-text">{turn.user_text}</p>
                   </article>
@@ -779,9 +926,9 @@ export function ChatPage({
                   </article>
                 </li>
               ))}
-              {pendingQuestion ? (
-                <li className="chat-turn">
-                  <article className="chat-message chat-message--user"><p className="eyebrow">你的问题</p><p>{pendingQuestion}</p></article>
+              {visiblePendingQuestion ? (
+                <li className={`chat-turn${positionedTurn?.threadId === selectedThreadId && !positionedTurn.turnKey ? " chat-turn--current" : ""}`} style={positionedTurn?.threadId === selectedThreadId && !positionedTurn.turnKey ? { minHeight: positionedTurn.minHeight } : undefined}>
+                  <article className="chat-message chat-message--user" ref={questionRef}><p className="eyebrow">你的问题</p><p>{pendingQuestion}</p></article>
                   <article className={`chat-message chat-message--assistant chat-message--${pendingStatus}`}>
                     <p className="eyebrow">资料库助手</p>
                     <p aria-live="polite" role={pendingStatus === "failed" ? "alert" : "status"}>{pendingActivity}</p>
@@ -819,13 +966,30 @@ export function ChatPage({
               {pageThreadLink ? <> <a href={pageThreadLink} target="_blank" rel="noreferrer">打开这个视频 ↗</a></> : null}
             </p>
           ) : (
-          <form className="chat-compose" onSubmit={submit}>
+          <form className="chat-compose" aria-label="向资料库提问" onSubmit={submit}>
             <label className="sr-only" htmlFor="chat-question">向资料库提问</label>
             <div className="chat-compose__field">
-              <textarea id="chat-question" value={draft} disabled={!selectedConversationId || transcript.isPending || sendMessage.isPending || newConversation.isPending} onChange={(event) => setDraft(event.target.value)} placeholder="向资料库提问…" rows={2} />
+              <textarea
+                id="chat-question"
+                aria-describedby="chat-question-hint"
+                value={draft}
+                disabled={composerDisabled}
+                onChange={(event) => setDraft(event.target.value)}
+                ref={composerRef}
+                onKeyDown={(event) => {
+                  if (
+                    touchInput || event.key !== "Enter" || event.shiftKey
+                    || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229
+                  ) return;
+                  event.preventDefault();
+                  if (!event.repeat) event.currentTarget.form?.requestSubmit();
+                }}
+                placeholder="向资料库提问…"
+                rows={2}
+              />
               <div className="chat-compose__footer">
-                <span>仅从你的资料库中检索，回答会附上原文依据</span>
-                <button className="button button--primary" type="submit" disabled={!draft.trim() || !selectedConversationId || transcript.isPending || sendMessage.isPending || newConversation.isPending}>{sendMessage.isPending ? "正在检索…" : "发送问题 →"}</button>
+                <span id="chat-question-hint">{touchInput ? "回车换行，点击「发送」提交 · 回答附原文依据" : "Enter 发送，Shift+Enter 换行 · 回答附原文依据"}</span>
+                <button className="button button--primary" type="submit" disabled={!draft.trim() || composerDisabled}>{sendMessage.isPending ? "正在检索…" : "发送问题 →"}</button>
               </div>
             </div>
           </form>

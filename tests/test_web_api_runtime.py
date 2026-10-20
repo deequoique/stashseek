@@ -74,6 +74,7 @@ def test_runtime_email_composition_is_canonical_and_mounts_compatibility_routes(
         publisher=lambda _dispatch_id: "task",
         object_store=object(),
         email_auth=EmailAuth(),
+        external_auth=SimpleNamespace(available_providers=()),
         mount_static=False,
     )
 
@@ -82,7 +83,10 @@ def test_runtime_email_composition_is_canonical_and_mounts_compatibility_routes(
 
     paths = app.openapi()["paths"]
     assert capabilities.json()["web_login_channels"] == ["email"]
+    assert capabilities.json()["external_login_providers"] == []
     assert "/api/v1/auth/verify" in paths
+    assert "/api/v1/auth/external/{provider}/start" in paths
+    assert "/api/v1/auth/external/pending/verify" in paths
     assert "/api/v1/conversations/{conversation_id}/messages" in paths
     assert "/api/v1/link-tokens/consume" in paths
 

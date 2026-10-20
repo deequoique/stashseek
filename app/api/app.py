@@ -20,10 +20,17 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.auth_routes import build_auth_router
+from app.api.bilibili_routes import build_bilibili_router
 from app.api.browser_companion_routes import build_browser_companion_router
 from app.api.conversation_routes import build_conversation_router
 from app.api.email_auth_routes import build_email_auth_router
 from app.api.extension_routes import build_extension_router
+from app.api.external_auth_routes import (
+    EXTERNAL_FLOW_COOKIE_NAME,
+    ExternalCallbackQueryRedactionMiddleware,
+    authorization_form_origins,
+    build_external_auth_router,
+)
 from app.api.library_routes import build_library_router
 from app.api.library_schemas import ErrorResponse
 from app.api.privacy import register_privacy_routes
@@ -56,6 +63,7 @@ _SAFE_HTTP_CODES = frozenset(
         "retry_unavailable",
         "quota_exceeded",
         "save_disabled",
+        "bilibili_disabled",
         "empty_batch",
         "batch_too_large",
         "transcript_unavailable",
@@ -96,6 +104,14 @@ _SAFE_HTTP_CODES = frozenset(
         "extension_session_invalid",
         "rate_limited",
         "page_thread_read_only",
+        "bilibili_invalid_url",
+        "bilibili_invalid_favorites_url",
+        "bilibili_favorites_private",
+        "bilibili_unavailable",
+        "bilibili_limit_exceeded",
+        "bilibili_rate_limited",
+        "bilibili_busy",
+        "source_unavailable",
     }
 )
 
@@ -130,6 +146,7 @@ class CapabilitiesResponse(BaseModel):
         "telegram",
         "wechat",
     )
+    external_login_providers: tuple[Literal["microsoft", "wechat_website", "qq"], ...] = ()
     save_enabled: bool = True
     max_save_batch_size: int = MAX_SAVE_BATCH_SIZE
     transcript_pagination: bool = True
@@ -144,6 +161,8 @@ class CapabilitiesResponse(BaseModel):
     transcription_platforms: tuple[Literal["youtube", "bilibili"], ...] = Field(
         default_factory=tuple
     )
+    bilibili_parts_enabled: bool = False
+    bilibili_favorites_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -157,6 +176,7 @@ class WebApiServices:
     browser_companion: Any | None = None
     browser_capture_submission: Any | None = None
     email_auth: Any | None = None
+    external_auth: Any | None = None
     trusted_proxy_hosts: str = ""
     # Retained conversation/link routes are mounted by this canonical app.
     # Optional values keep the OpenAPI exporter inert while allowing runtime
@@ -182,6 +202,7 @@ class WebApiServices:
     # Platforms advertised as ``transcription_platforms``; runtime composition
     # sets it from ASR_ENABLED, so it is empty when ASR is off.
     transcription_platforms: tuple[str, ...] = ()
+    bilibili: Any | None = None
 
 
 _SAFE_MESSAGES = {
@@ -195,6 +216,7 @@ _SAFE_MESSAGES = {
     "retry_unavailable": "当前状态不能重试",
     "quota_exceeded": "已达到当前保存额度，请稍后重试",
     "save_disabled": "资料库当前为只读模式，暂时不能添加或重新整理视频",
+    "bilibili_disabled": "B 站收藏夹与分 P 功能暂未开放",
     "empty_batch": "请至少添加一个链接",
     "batch_too_large": "一次最多添加 10 个链接",
     "transcript_unavailable": "全文暂不可用",
@@ -236,6 +258,14 @@ _SAFE_MESSAGES = {
     "extension_session_invalid": "扩展登录已失效，请重新登录",
     "rate_limited": "提问过于频繁，请稍后重试",
     "page_thread_read_only": "这是视频页问答记录，请回到视频页继续提问。",
+    "bilibili_invalid_url": "请输入有效的 B 站视频链接或 BV 号",
+    "bilibili_invalid_favorites_url": "请输入有效的公开 B 站收藏夹链接",
+    "bilibili_favorites_private": "这个收藏夹未公开，暂时无法读取",
+    "bilibili_unavailable": "暂时无法读取 B 站资料，请稍后重试",
+    "bilibili_limit_exceeded": "B 站资料超过当前预览上限",
+    "bilibili_rate_limited": "读取过于频繁，请稍后重试",
+    "bilibili_busy": "B 站资料读取繁忙，请稍后重试",
+    "source_unavailable": "当前分 P 来源不可用，请稍后重试",
 }
 
 
@@ -324,6 +354,7 @@ def create_app(
     cookie_secure: bool = True,
     publish_budget_seconds: float = 5.0,
     save_enabled: bool = True,
+    bilibili_public_enabled: bool = False,
     web_login_channels: tuple[str, ...] = ("telegram", "wechat"),
     static_dir: str | Path | None = None,
 ) -> FastAPI:
@@ -506,12 +537,18 @@ def create_app(
                 "Authorization, Content-Type, Idempotency-Key"
             )
             response.headers["Vary"] = "Origin"
+        external_form_origins = authorization_form_origins(
+            tuple(services.external_auth.available_providers)
+            if services is not None and services.external_auth is not None
+            else ()
+        )
+        form_sources = " ".join(("'self'", *external_form_origins))
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self'; "
             "img-src 'self' https://i.ytimg.com https://img.youtube.com "
             "https://ntulearnvideo.ntu.edu.sg data:; "
             "connect-src 'self'; object-src 'none'; base-uri 'none'; "
-            "frame-ancestors 'none'; form-action 'self'"
+            f"frame-ancestors 'none'; form-action {form_sources}"
         )
         if expected_origin and expected_origin.startswith("https://"):
             response.headers["Strict-Transport-Security"] = (
@@ -524,6 +561,9 @@ def create_app(
         ).startswith("text/html"):
             response.headers["Cache-Control"] = "no-store"
         return response
+
+    # Outermost: even middleware URL diagnostics must see a clean callback URL.
+    app.add_middleware(ExternalCallbackQueryRedactionMiddleware)
 
     @app.exception_handler(StarletteHTTPException)
     async def safe_http_error(
@@ -559,12 +599,29 @@ def create_app(
     def capabilities() -> CapabilitiesResponse:
         return CapabilitiesResponse(
             web_login_channels=public_login_channels,
+            external_login_providers=(
+                tuple(services.external_auth.available_providers)
+                if services is not None and services.external_auth is not None
+                else ()
+            ),
             save_enabled=save_enabled,
             page_qa=page_qa_enabled,
             transcription_platforms=(
                 tuple(services.transcription_platforms)
                 if services is not None
                 else ()
+            ),
+            bilibili_parts_enabled=bool(
+                save_enabled
+                and bilibili_public_enabled
+                and services is not None
+                and services.bilibili is not None
+            ),
+            bilibili_favorites_enabled=bool(
+                save_enabled
+                and bilibili_public_enabled
+                and services is not None
+                and services.bilibili is not None
             ),
         )
 
@@ -587,6 +644,9 @@ def create_app(
                     expected_origin=expected_origin or "",
                     cookie_secure=cookie_secure,
                     trusted_proxy_hosts=services.trusted_proxy_hosts,
+                    external_flow_cookie_name=(
+                        EXTERNAL_FLOW_COOKIE_NAME if services.external_auth is not None else None
+                    ),
                 )
             )
             extension_sessions = getattr(services, "extension_sessions", None)
@@ -650,6 +710,17 @@ def create_app(
                 ) from exc
             return UserScope(session.app_user_id)
 
+        if services.external_auth is not None:
+            app.include_router(
+                build_external_auth_router(
+                    services.external_auth,
+                    expected_origin=expected_origin or "",
+                    cookie_secure=cookie_secure,
+                    trusted_proxy_hosts=services.trusted_proxy_hosts,
+                    scope_dependency=authenticated_scope,
+                )
+            )
+
         app.include_router(
             build_library_router(
                 services.library,
@@ -660,6 +731,12 @@ def create_app(
                 scope_dependency=authenticated_scope,
             )
         )
+        if services.bilibili is not None:
+            app.include_router(build_bilibili_router(
+                services.bilibili, scope_dependency=authenticated_scope,
+                publish_budget_seconds=publish_budget_seconds, save_enabled=save_enabled,
+                enabled=bilibili_public_enabled,
+            ))
         if (
             services.browser_companion is not None
             and services.browser_capture_submission is not None
@@ -684,6 +761,7 @@ def create_app(
                     session_factory=services.session_factory,
                     settings=services.settings,
                     session_identity_resolver=services.session_identity_resolver,
+                    bilibili_public_enabled=bilibili_public_enabled,
                 )
             )
 

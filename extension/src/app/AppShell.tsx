@@ -1,13 +1,13 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import type { LoginChannel } from "../api/contracts";
+import type { SessionInfo } from "../api/contracts";
 import { BrandLogo } from "./BrandLogo";
 import { BROWSER_COMPANION_STORE_URL, isExtensionContext } from "./browserCompanion";
 import { RouteLink } from "./RouteTransition";
 
 interface AppShellProps {
   children: ReactNode;
-  loginChannel: LoginChannel;
+  loginChannel: SessionInfo["login_channel"];
   onLogout: () => void;
   logoutPending?: boolean;
   logoutError?: string;
@@ -25,11 +25,10 @@ function communityNoticeWasDismissed(): boolean {
 }
 
 export function AppShell({ children, loginChannel, onLogout, logoutPending = false, logoutError }: AppShellProps) {
-  const loginChannelLabel = loginChannel === "telegram"
-    ? "Telegram"
-    : loginChannel === "email"
-      ? "邮箱"
-      : "微信";
+  const loginChannelLabel = {
+    telegram: "Telegram", email: "邮箱", wechat: "微信",
+    microsoft: "Microsoft", wechat_website: "微信网站授权", qq: "QQ",
+  }[loginChannel];
   const accountMenuRef = useRef<HTMLDetailsElement>(null);
   const communityMenuRef = useRef<HTMLDetailsElement>(null);
   const [communityNoticeVisible, setCommunityNoticeVisible] = useState(

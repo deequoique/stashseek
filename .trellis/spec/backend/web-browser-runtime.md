@@ -31,9 +31,14 @@
 
 ## Email authentication contract
 
-- Production browser login is email-only and uses:
+- Production browser login always retains the email-code entry point:
   `POST /api/v1/auth/challenges`, `POST /api/v1/auth/verify`, and
   `GET|DELETE /api/v1/auth/session`.
+- Configured Microsoft, WeChat website and QQ providers add email-anchored
+  authorization through the same canonical app/session service. First use
+  verifies a mailbox and explicitly binds; subsequent use reuses that exact
+  owner/anchor. See [External Website Login](./external-login.md) for routes,
+  provenance, provider validation and configuration readiness boundaries.
 - Keep raw session and CSRF credentials only in `__Host-kb_session` and
   `__Host-kb_csrf`. Unsafe browser requests require exact Origin validation and
   double-submit `X-CSRF-Token` validation.
@@ -63,9 +68,18 @@ WEB_SESSION_CACHE_TTL_SECONDS=60  # 0 means PostgreSQL-only
 
 ### 3. Contracts
 
-- PostgreSQL is authoritative. Cold resolution is one joined query over
+- PostgreSQL is authoritative. Email cold resolution is one joined query over
   `WebSession`, `AppUser`, and `ChannelIdentity`, enforcing expiry, revocation,
   enabled state, ownership, and the exact `web/web` namespace.
+- Provider-issued sessions additionally validate their external mapping and
+  current configured provider in one joined query on every request. They never
+  enter Redis. The versioned email cache payload explicitly has email method
+  and null external provenance; provider data cannot downgrade into this path.
+- Capture the immutable Session projection before committing or rolling back
+  its transaction. Rollback expires ORM rows even with `expire_on_commit=False`;
+  accessing Session/user/identity afterwards silently adds three SELECTs. Test
+  both read-only and last-used-update paths with cache disabled/missing/down and
+  either Session factory expiration mode.
 - Redis stores a versioned projection under `generation + SHA-256(token)`.
   Never cache or log raw Session/CSRF credentials. TTL is bounded by both the
   configured TTL and Session lifetime.
@@ -79,6 +93,10 @@ WEB_SESSION_CACHE_TTL_SECONDS=60  # 0 means PostgreSQL-only
   dependencies reuse it. Throttle `last_used_at` instead of writing per request.
 - Security mutations mark invalidation in their database transaction, but bump
   Redis only after the outermost commit. SAVEPOINT release is not authoritative.
+- That marker discovers cache instances in the current process. Existing
+  standalone-CLI cross-process email-cache invalidation remains a known limit;
+  do not infer a distributed mutation guarantee from these hooks. New provider
+  Session safety uses the uncached database path independently of that limit.
 
 ### 4. Validation & Error Matrix
 
@@ -153,6 +171,12 @@ cache.put(token_digest, session, generation=observed_generation)
   - An extension session Bearer, which a `chrome-extension://` page holds and
     which cannot read the CSRF cookie, needs no header.
   - A required route-level header turns every Bearer mutation into a 422.
+- Browser transcript reads select only the public answer, citations, action
+  results, status and time fields after a tenant-owned thread lookup. Never
+  fetch or JSON-decode internal `model_messages` for history display; projection
+  must not introduce lazy-loading queries and must retain completed-only order.
+  When an owned segment is gone (reprocessed, deleted) or belongs to another
+  tenant, keep the model's absolute provider URL; only skip the resolver rewrite.
 
 ## Conversation streaming contract
 

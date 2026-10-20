@@ -31,9 +31,11 @@ def rendered_schema() -> str:
             submission=placeholder,
             transcript=placeholder,
             email_auth=placeholder,
+            external_auth=placeholder,
             browser_companion=placeholder,
             browser_capture_submission=placeholder,
             extension_sessions=placeholder,
+            bilibili=placeholder,
         ),
         expected_origin="https://contract.invalid",
         cookie_secure=True,
@@ -41,8 +43,22 @@ def rendered_schema() -> str:
         web_login_channels=("email",),
     )
     document = app.openapi()
+    # Python's standard HTTP 422 phrase differs across supported versions.
+    # Keep the existing generated contract stable without changing custom text.
+    for path in document["paths"].values():
+        for operation in path.values():
+            if not isinstance(operation, dict):
+                continue
+            response = operation.get("responses", {}).get("422")
+            if isinstance(response, dict) and response.get("description") in {
+                "Unprocessable Entity", "Unprocessable Content",
+            }:
+                response["description"] = "Unprocessable Entity"
     # Keep compatibility request schemas available for channel integrations
-    # without treating them as the extension workspace's login contract.
+    # without treating them as the extension workspace's login contract.  The
+    # legacy channel UI remains an explicitly non-production compatibility path
+    # for embedders that still advertise Telegram/WeChat; keep its generated
+    # request aliases without mounting those routes in the canonical document.
     schemas = document["components"]["schemas"]
     for model in (
         ChallengeCreateRequest,

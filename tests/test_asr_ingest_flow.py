@@ -702,7 +702,7 @@ def test_default_dispatch_processor_requests_the_asr_handoff(monkeypatch):
     monkeypatch.setattr("app.ingest.tasks.process_item", fake_process_item)
 
     assert process_dispatch(71, task_id="t", session_factory=factory) == "ready"
-    assert calls == [(41, {"asr_handoff": True})]
+    assert calls == [(41, {"asr_handoff": True, "dispatch_id": 71, "dispatch_task_id": "t"})]
 
 
 def test_asr_error_marks_the_dispatch_failed_with_its_stable_code():

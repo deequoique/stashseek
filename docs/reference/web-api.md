@@ -22,7 +22,7 @@ GET /api/v1/docs
 | 方法 | 路径 | 结果 |
 | --- | --- | --- |
 | `GET` | `/api/v1/health` | `{"status":"ok"}`；只表示 HTTP app 存活 |
-| `GET` | `/api/v1/capabilities` | supported platforms、browser companion、login channels、save/archive/chat 能力和 batch 上限 |
+| `GET` | `/api/v1/capabilities` | supported platforms、browser companion、login channels、`external_login_providers`、save/archive/chat 能力和 batch 上限 |
 | `GET` | `/api/v1/openapi.json` | 当前 app 的 OpenAPI schema |
 | `GET` | `/api/v1/docs` | FastAPI Swagger UI |
 
@@ -71,6 +71,48 @@ Content-Type: application/json
 email session、CSRF 原文只在浏览器 cookie 中；数据库和可选 Redis cache 只存
 hash/受限 projection。Redis miss、损坏或故障会回退 PostgreSQL，不能让缓存
 成为身份 authority。
+
+### 可选外部网站登录
+
+启用并配置的提供方枚举是 `microsoft`、`wechat_website`、`qq`，单独出现在
+`external_login_providers`；保留原有 `web_login_channels` 语义。首次授权后只形成
+匿名待绑定流程，邮箱验证码和显式确认在同一事务内将提供方身份绑定到该邮箱的
+原账户；后续授权直接使用已绑定身份。提供方返回的邮箱、昵称或 UnionID 不能
+自动选取资料库。平台申请和真实域名验收见[配置指南](../how-to/configure-external-login.md)。
+
+| 方法 | 路径 | 请求/结果 |
+| --- | --- | --- |
+| `POST` | `/api/v1/auth/external/{provider}/start` | 同源原生表单；精确 Origin；303 跳转到固定授权入口或 `/login/external` 安全失败页 |
+| `GET` | `/api/v1/auth/external/{provider}/callback` | 仅 OAuth 协议回调；校验唯一、有界的 code/state/error；303 离开含凭据 URL |
+| `GET` | `/api/v1/auth/external/pending` | 当前浏览器流程的安全状态 projection |
+| `POST` | `/api/v1/auth/external/pending/challenges` | `{email}`；发送此绑定流程专用验证码；正常/限流同为 accepted |
+| `POST` | `/api/v1/auth/external/pending/verify` | `{email,code,confirm_binding:true}`；原子绑定并返回 canonical Session |
+| `DELETE` | `/api/v1/auth/external/pending` | 取消流程、清除流程 cookie；204 |
+
+流程 cookie 为 `__Host-kb_external_flow`（HttpOnly）和 `__Host-kb_external_csrf`，
+Secure、SameSite=Lax、Path=/、无 Domain。pending 的写操作要求精确 Origin 和
+独立的 flow CSRF cookie/header/服务端哈希验证，不能使用普通 Session CSRF。
+原生 start 无需已有 Session CSRF；callback 是经过专门校验的 GET 协议例外。
+
+pending 只包含 `status`、`provider`、`expires_at`、可选 `error_code`。状态枚举为
+`created`、`exchanging`、`email_required`、`completed`、`failed`、`cancelled`、
+`expired`；未知/外来 cookie 返回 expired 安全状态，不创建用户。响应不包含邮箱、
+内部 ID、state、flow handle、授权 code、SDK 内容或 token。
+
+外部来源 Session 的公开 `login_channel` 是提供方枚举；其授权 tenant 仍是原邮箱
+anchor。服务端每次用一条数据库 join 验证来源、owner、anchor、启用状态及配置，
+不将这类 Session 放进 Redis。旧渠道 resolver 不得绕过这些检查。完成后浏览器
+仍使用普通 `__Host-kb_session` / `__Host-kb_csrf` 访问资料库和注销。
+
+同一浏览器改用普通邮箱验证码成功登录时，会作废其 cookie 对应的外部授权流程；
+旧回调即使稍后完成网络请求，也不能覆盖新的有效登录。错误邮箱验证码不会取消
+仍可继续的外部流程。已有有效 Session 时需要明确继续或退出，不能隐式绑定。
+
+错误仍为固定 `{code,message}`：错误验证码 `verification_failed` 为 401，本地
+表单可恢复；既有/变化 Session 或身份冲突为 409；流程/CSRF 失败为 403；提供方
+或发信不可用为 503。回调失败始终先离开协议 URL，再由安全状态提供重试指引。
+应用请求及反向代理日志都必须省略/脱敏 callback query；QQ/微信服务端 GET URL
+也包含凭据，不能记录完整 URL。流程默认十分钟，不会延长为长期浏览器凭据。
 
 ### 开发/迁移兼容的渠道批准登录
 
@@ -203,6 +245,9 @@ ingestion limits 约束；签名字幕 URL、Cookie、SAML、Kaltura KS、授权
 
 - unsafe Web 请求要求 `Origin == WEB_PUBLIC_ORIGIN`（兼容路径为 `WEB_ORIGIN`）
   和 `X-CSRF-Token` 与 CSRF cookie 的 double-submit 校验。
+- 登录前的邮箱验证码请求、原生外部 start 和外部 callback 按上方各自的严格
+  Origin/协议规则处理；pending mutation 使用独立 flow CSRF，不能借用现有
+  Session 的 cookie/header。其他 protected mutation 继续使用普通 Session CSRF。
 - `WEB_FORWARDED_ALLOW_IPS`、`WEB_TRUSTED_PROXY_HOSTS` 只能列出明确受信任
   proxy；不允许 wildcard `*`。
 - combined Web/MCP ASGI dispatcher 先按 `MCP_PATH` 选 MCP。Web cookie 不会

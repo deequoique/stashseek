@@ -11,8 +11,10 @@ from __future__ import annotations
 import html
 import json
 import re
+import selectors
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 
@@ -21,6 +23,8 @@ from app.connectors.base import (
     ItemMeta,
     NeedsASR,
     NeedsExtension,
+    SourceChangedError,
+    SourceUnavailableError,
     TextResult,
     TransientFetchError,
 )
@@ -28,7 +32,7 @@ from app.connectors.proxy_env import build_proxy_environment, classify_proxy_fai
 from app.ingest.validate import IngestLimitExceeded, guard_transcript
 
 
-_BILIBILI_HOSTS = frozenset({"bilibili.com", "www.bilibili.com"})
+_BILIBILI_HOSTS = frozenset({"bilibili.com", "www.bilibili.com", "m.bilibili.com"})
 _BILIBILI_VIDEO_RE = re.compile(
     r"^/video/(?P<id>(?:[aA][vV])\d+|(?:[bB][vV])[0-9A-Za-z]{10})/?$"
 )
@@ -39,6 +43,47 @@ _SRT_TIMING_RE = re.compile(
 _LOGIN_SUBTITLE_MARKER = "subtitles are only available when logged in"
 DEFAULT_MAX_TRANSCRIPT_BYTES = 5_000_000
 DEFAULT_FETCH_TIMEOUT_SECONDS = 30.0
+
+
+def _bounded_part_process(args, *, input: bytes, timeout: float, max_output: int):
+    """Bound both child output streams while enforcing a whole-process deadline."""
+
+    child = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert child.stdin is not None and child.stdout is not None and child.stderr is not None
+    deadline = time.monotonic() + timeout
+    output = bytearray()
+    total = 0
+    try:
+        child.stdin.write(input)
+        child.stdin.close()
+        with selectors.DefaultSelector() as selector:
+            selector.register(child.stdout, selectors.EVENT_READ, True)
+            selector.register(child.stderr, selectors.EVENT_READ, False)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(args, timeout)
+                for key, _ in selector.select(remaining):
+                    chunk = key.fileobj.read1(64 * 1024)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    total += len(chunk)
+                    if total > max_output:
+                        raise IngestLimitExceeded()
+                    if key.data:
+                        output.extend(chunk)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(args, timeout)
+        returncode = child.wait(timeout=remaining)
+        return subprocess.CompletedProcess(args, returncode, bytes(output), b"")
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.wait()
+        child.stdout.close()
+        child.stderr.close()
 
 
 def _srt_seconds(value: str) -> float:
@@ -124,6 +169,7 @@ class BilibiliConnector:
         self,
         *,
         runner=subprocess.run,
+        part_runner=_bounded_part_process,
         max_transcript_bytes: int = DEFAULT_MAX_TRANSCRIPT_BYTES,
         fetch_timeout_seconds: float = DEFAULT_FETCH_TIMEOUT_SECONDS,
         proxy_url: str | None = None,
@@ -131,12 +177,80 @@ class BilibiliConnector:
         if max_transcript_bytes <= 0 or fetch_timeout_seconds <= 0:
             raise ValueError("connector limits must be positive")
         self._runner = runner
+        self._part_runner = part_runner
         self._max_transcript_bytes = max_transcript_bytes
         self._fetch_timeout_seconds = fetch_timeout_seconds
         self._proxy_url = proxy_url
         self._proxy_environment = build_proxy_environment(proxy_url)
         self._meta: dict[str, dict] = {}
         self._login_subtitles: set[str] = set()
+
+    def fetch_part(
+        self, bvid: str, cid: str, page: int, *,
+        video_title: str | None = None, part_title: str | None = None,
+    ) -> tuple[ItemMeta, TextResult | NeedsExtension | NeedsASR]:
+        """Extract one explicit immutable source; require actual subtitle CID proof."""
+
+        if (not re.fullmatch(r"BV[0-9A-Za-z]{10}", bvid)
+            or not re.fullmatch(r"[1-9][0-9]{0,19}", cid)
+            or isinstance(page, bool) or not isinstance(page, int) or not 1 <= page <= 1000):
+            raise SourceUnavailableError()
+        maximum = self._max_transcript_bytes * 2 + 250_000
+        try:
+            result = self._part_runner(
+                [sys.executable, "-m", "app.connectors.bilibili_extract"],
+                input=json.dumps({"bvid": bvid, "cid": cid, "page": page,
+                                  "max_bytes": self._max_transcript_bytes,
+                                  "timeout": self._fetch_timeout_seconds}).encode("utf-8"),
+                timeout=self._fetch_timeout_seconds, max_output=maximum,
+            )
+        except subprocess.TimeoutExpired:
+            raise TransientFetchError("bilibili_fetch_timeout") from None
+        except OSError:
+            raise SourceUnavailableError() from None
+        if result.returncode == 20:
+            raise SourceChangedError()
+        if result.returncode == 22 or len(result.stdout) > maximum:
+            raise IngestLimitExceeded()
+        if result.returncode == 23:
+            raise TransientFetchError("bilibili_rate_limited") from None
+        if result.returncode:
+            raise SourceUnavailableError()
+        try:
+            data = json.loads(result.stdout)
+        except (TypeError, UnicodeDecodeError, json.JSONDecodeError):
+            raise SourceUnavailableError() from None
+        if not isinstance(data, dict):
+            raise SourceUnavailableError()
+        if (data.get("source_bvid"), data.get("source_cid"), data.get("source_page")) != (bvid, cid, page):
+            raise SourceChangedError()
+        key = f"{bvid}_cid{cid}"
+        self._meta[key] = data
+        if data.get("login_subtitles") is True:
+            self._login_subtitles.add(key)
+        timestamp = data.get("timestamp")
+        published_at = None
+        if isinstance(timestamp, (float, int)) and not isinstance(timestamp, bool):
+            try:
+                published_at = datetime.fromtimestamp(timestamp, timezone.utc)
+            except (ValueError, OverflowError, OSError):
+                pass
+        duration = data.get("duration")
+        # The part label comes from the CID-aware discovery descriptor, never
+        # yt-dlp's separately cached ordinal-based title composition.
+        title = " · ".join(value for value in (video_title, f"P{page}", part_title) if value)
+        meta = ItemMeta(
+            platform_id=key, url=f"{self.canonical_url(bvid)}?p={page}",
+            title=title, author=data.get("uploader") if isinstance(data.get("uploader"), str) else None,
+            published_at=published_at,
+            duration_sec=round(duration) if isinstance(duration, (int, float)) and not isinstance(duration, bool) and duration >= 0 else None,
+            description=data.get("description") if isinstance(data.get("description"), str) else None,
+            tags=data.get("tags") if isinstance(data.get("tags"), list) else [],
+            chapters=data.get("chapters") if isinstance(data.get("chapters"), list) else [],
+            cover_url=_safe_cover_url(data.get("thumbnail")),
+            bilibili_bvid=bvid, bilibili_cid=cid, bilibili_page=page,
+        )
+        return meta, self.fetch_text(key)
 
     def match(self, url: str) -> str | None:
         parts = urlsplit(str(url).strip())

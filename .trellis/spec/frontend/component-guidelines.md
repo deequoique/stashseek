@@ -52,6 +52,66 @@ Components are plain function components. Pages orchestrate queries and mutation
 - Async status changes use `aria-live`, `role="alert"`, or `aria-busy` as appropriate.
 - Focus indicators remain visible; keyboard and touch controls are at least 44px high where practical.
 - Thumbnails are decorative when the adjacent title already names the destination.
+- Keep `main#main-content` focusable by the skip link, but suppress the global
+  focus outline on `main.page-container` itself. A page-sized outline appears
+  as unwanted red side lines; interactive controls and scroll regions retain
+  their own visible keyboard focus indicators.
+
+## Fixed Chat Viewport
+
+- Only the chat route locks the document to the dynamic viewport height. The
+  application shell reserves its actual top bar and optional announcement
+  heights; the main area and nested chat grids use `min-height: 0` to share
+  the remaining space. Leaving chat restores normal document scrolling.
+- The history list and transcript are separately named, keyboard-focusable
+  scroll areas with overscroll containment. Keep the history heading/new button
+  and the question composer outside those scrolling areas.
+- The complete textarea, shortcut hint, and send button stay inside the
+  viewport on desktop, narrow, and short screens. Compact heading spacing and
+  allocate remaining height instead of imposing a fixed minimum chat height.
+- Present the library return link as a prominent, keyboard-accessible action
+  with at least a 44px hit area, sufficient contrast, and a visible focus state.
+- Question positioning measures the actual bounded transcript content height
+  at every breakpoint. It must scroll the transcript without moving the page.
+- Verify real browser geometry and wheel/keyboard behavior: no chat document
+  overflow, independently scrollable history/transcript, fully visible composer,
+  retained latest-question positioning, and normal library scrolling on exit.
+
+## Chat Composer Keyboard
+
+- The `chat-question` textarea sends on Enter; Shift+Enter inserts a newline.
+- Submit through the existing form with `requestSubmit()` so keyboard and button
+  sends share validation, loading state, and duplicate-submit protection.
+- Never send while an IME is composing (`nativeEvent.isComposing` or the
+  composition key code `229`), including Enter used to confirm Chinese text.
+  Ignore repeated Enter keydown events to prevent an accidental second send.
+- Empty drafts, a missing conversation, transcript loading, and pending
+  conversation creation or sending must block both submission paths.
+- Keep a visible shortcut hint associated with the textarea through
+  `aria-describedby`. Interaction tests cover sending, multiline entry,
+  composition confirmation, and blocked/duplicate submissions.
+- After a valid send, align the latest question with the top of the visible
+  conversation area after its turn is committed to the DOM. Leave enough room
+  beneath a short pending turn for that alignment. Keep the question's position
+  through the durable transcript handoff, including repeated identical questions.
+- Render the answer below the question without repeatedly scrolling on answer
+  deltas. Readers may scroll freely after positioning. Shift+Enter, IME
+  confirmation, and blocked sends must not initiate scrolling. Use instant
+  positioning to respect reduced motion.
+- Opening a populated historical conversation, including the initial selected
+  conversation and reopening its sidebar row, aligns its last question at the
+  top once its transcript is ready. Keep every earlier turn in chronological
+  order and accessible by scrolling upward. Cached and delayed transcripts
+  share this behavior; empty or failed transcript loads do not scroll.
+- Background transcript refreshes must not reset the reader's scroll position.
+  A new history selection may position once again, including returning to a
+  previously opened conversation. History positioning must not override an
+  in-flight question or its pending-to-durable handoff.
+- Test that the latest question is the scroll target, short turns can align at
+  the top, streaming does not force scrolling, and the final handoff preserves
+  the question's position without pulling readers back from a manual scroll.
+  History tests verify last-question positioning while retaining all older
+  turns, cached/async loading, reopening, and no refetch-driven scroll reset.
 
 ## Safe Markdown Answers
 

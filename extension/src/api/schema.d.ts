@@ -21,6 +21,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/external/identities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Identities */
+        get: operations["identities_api_v1_auth_external_identities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/external/identities/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Unlink */
+        delete: operations["unlink_api_v1_auth_external_identities__provider__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/external/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pending */
+        get: operations["pending_api_v1_auth_external_pending_get"];
+        put?: never;
+        post?: never;
+        /** Cancel */
+        delete: operations["cancel_api_v1_auth_external_pending_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/external/pending/challenges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request Challenge */
+        post: operations["request_challenge_api_v1_auth_external_pending_challenges_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/external/pending/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify */
+        post: operations["verify_api_v1_auth_external_pending_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/external/{provider}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Callback */
+        get: operations["callback_api_v1_auth_external__provider__callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/external/{provider}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start */
+        post: operations["start_api_v1_auth_external__provider__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/session": {
         parameters: {
             query?: never;
@@ -50,6 +170,57 @@ export interface paths {
         put?: never;
         /** Verify */
         post: operations["verify_api_v1_auth_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bilibili/favorites:preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Favorites */
+        post: operations["favorites_api_v1_bilibili_favorites_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bilibili/parts:batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save */
+        post: operations["save_api_v1_bilibili_parts_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bilibili/parts:preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview */
+        post: operations["preview_api_v1_bilibili_parts_preview_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -513,6 +684,23 @@ export interface paths {
         patch: operations["update_api_v1_library_items__item_public_id__patch"];
         trace?: never;
     };
+    "/api/v1/library/items/{item_public_id}/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Source */
+        get: operations["source_api_v1_library_items__item_public_id__source_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/library/items/{item_public_id}/transcript": {
         parameters: {
             query?: never;
@@ -706,6 +894,148 @@ export interface components {
             /** Results */
             results: components["schemas"]["BatchItemResponse"][];
         };
+        /** BilibiliFavoriteVideo */
+        BilibiliFavoriteVideo: {
+            /** Available */
+            available: boolean;
+            /** Bvid */
+            bvid?: string | null;
+            /** Canonical Url */
+            canonical_url?: string | null;
+            /** Entry Key */
+            entry_key: string;
+            /** Title */
+            title?: string | null;
+            /** Unavailable Reason */
+            unavailable_reason?: ("deleted" | "not_video" | "invalid_video") | null;
+        };
+        /** BilibiliFavoritesPreviewRequest */
+        BilibiliFavoritesPreviewRequest: {
+            /**
+             * Page
+             * @default 1
+             */
+            page: number;
+            /** Url */
+            url: string;
+        };
+        /** BilibiliFavoritesPreviewResponse */
+        BilibiliFavoritesPreviewResponse: {
+            /** Capped */
+            capped: boolean;
+            /** Collection Id */
+            collection_id: string;
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["BilibiliFavoriteVideo"][];
+            /** Page */
+            page: number;
+            /**
+             * Page Size
+             * @default 20
+             * @constant
+             */
+            page_size: 20;
+            /** Reported Total */
+            reported_total: number;
+            /** Title */
+            title?: string | null;
+        };
+        /** BilibiliPartPreview */
+        BilibiliPartPreview: {
+            /** Duration Sec */
+            duration_sec?: number | null;
+            /** Expires At */
+            expires_at?: number | null;
+            /**
+             * Has Unverified Legacy Item
+             * @default false
+             */
+            has_unverified_legacy_item: boolean;
+            /** Page */
+            page: number;
+            /** Part Key */
+            part_key: string;
+            /** Part Ref */
+            part_ref?: string | null;
+            /** Selectable */
+            selectable: boolean;
+            /** Title */
+            title?: string | null;
+            /** Unavailable Reason */
+            unavailable_reason?: "source_unavailable" | null;
+        };
+        /** BilibiliPartSaveResult */
+        BilibiliPartSaveResult: {
+            /** Input Index */
+            input_index: number;
+            /** Item Public Id */
+            item_public_id?: string | null;
+            /** Lifecycle */
+            lifecycle?: ("archived" | "ready" | "needs_action" | "failed" | "processing" | "queued") | null;
+            /** Result Id */
+            result_id: string;
+            /** Safe Error Code */
+            safe_error_code?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "already_exists" | "unsupported_url" | "invalid_url" | "queue_unavailable" | "create_failed" | "quota_exceeded" | "part_ref_invalid" | "part_ref_expired" | "legacy_identity_unknown";
+        };
+        /** BilibiliPartSelection */
+        BilibiliPartSelection: {
+            /**
+             * Allow Legacy Overlap
+             * @default false
+             */
+            allow_legacy_overlap: boolean;
+            /** Part Ref */
+            part_ref: string;
+        };
+        /** BilibiliPartsBatchRequest */
+        BilibiliPartsBatchRequest: {
+            /** Selections */
+            selections: components["schemas"]["BilibiliPartSelection"][];
+            /** Why Saved */
+            why_saved?: string | null;
+        };
+        /** BilibiliPartsBatchResponse */
+        BilibiliPartsBatchResponse: {
+            /** Results */
+            results: components["schemas"]["BilibiliPartSaveResult"][];
+        };
+        /** BilibiliPartsPreviewRequest */
+        BilibiliPartsPreviewRequest: {
+            /** Page */
+            page?: number | null;
+            /** Url */
+            url: string;
+        };
+        /** BilibiliPartsPreviewResponse */
+        BilibiliPartsPreviewResponse: {
+            /** Bvid */
+            bvid: string;
+            /** Has More */
+            has_more: boolean;
+            /** Page */
+            page: number;
+            /**
+             * Page Size
+             * @default 20
+             * @constant
+             */
+            page_size: 20;
+            /** Parts */
+            parts: components["schemas"]["BilibiliPartPreview"][];
+            /** Requested Page */
+            requested_page?: number | null;
+            /** Title */
+            title?: string | null;
+            /** Total Parts */
+            total_parts: number;
+        };
         /** BrowserCaptureRequest */
         BrowserCaptureRequest: {
             /** Canonical Url */
@@ -782,6 +1112,16 @@ export interface components {
              */
             archive: boolean;
             /**
+             * Bilibili Favorites Enabled
+             * @default false
+             */
+            bilibili_favorites_enabled: boolean;
+            /**
+             * Bilibili Parts Enabled
+             * @default false
+             */
+            bilibili_parts_enabled: boolean;
+            /**
              * Browser Companion
              * @default true
              */
@@ -791,6 +1131,11 @@ export interface components {
              * @default true
              */
             chat: boolean;
+            /**
+             * External Login Providers
+             * @default []
+             */
+            external_login_providers: ("microsoft" | "wechat_website" | "qq")[];
             /**
              * Max Save Batch Size
              * @default 10
@@ -1240,6 +1585,32 @@ export interface components {
             /** Email */
             email: string;
         };
+        /** ExternalLoginPendingResponse */
+        ExternalLoginPendingResponse: {
+            /** Error Code */
+            error_code?: ("flow_invalid" | "flow_expired" | "flow_used" | "flow_csrf_invalid" | "provider_unavailable" | "provider_failed" | "provider_denied" | "session_present" | "session_changed" | "binding_conflict" | "verification_failed" | "invalid_email" | "login_rate_limited" | "email_delivery_unavailable" | "request_failed") | null;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Provider */
+            provider?: ("microsoft" | "wechat_website" | "qq") | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "created" | "exchanging" | "email_required" | "completed" | "failed" | "cancelled" | "expired";
+        };
+        /** ExternalLoginVerifyRequest */
+        ExternalLoginVerifyRequest: {
+            /** Code */
+            code: string;
+            /**
+             * Confirm Binding
+             * @constant
+             */
+            confirm_binding: true;
+            /** Email */
+            email: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1546,7 +1917,7 @@ export interface components {
              * Login Channel
              * @enum {string}
              */
-            login_channel: "email" | "telegram" | "wechat";
+            login_channel: "email" | "telegram" | "wechat" | "microsoft" | "wechat_website" | "qq";
         };
         /** SessionResponse */
         app__api__extension_routes__SessionResponse: {
@@ -1636,6 +2007,293 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+        };
+    };
+    identities_api_v1_auth_external_identities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    unlink_api_v1_auth_external_identities__provider__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pending_api_v1_auth_external_pending_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalLoginPendingResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+        };
+    };
+    cancel_api_v1_auth_external_pending_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+        };
+    };
+    request_challenge_api_v1_auth_external_pending_challenges_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmailChallengeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+        };
+    };
+    verify_api_v1_auth_external_pending_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExternalLoginVerifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["app__api__auth_schemas__SessionResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    callback_api_v1_auth_external__provider__callback_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Leave protocol parameters at a fixed clean URL */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_api_v1_auth_external__provider__start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Navigate to authorization or clean continuation */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1790,6 +2448,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+        };
+    };
+    favorites_api_v1_bilibili_favorites_preview_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BilibiliFavoritesPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BilibiliFavoritesPreviewResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    save_api_v1_bilibili_parts_batch_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-CSRF-Token": string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BilibiliPartsBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BilibiliPartsBatchResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    preview_api_v1_bilibili_parts_preview_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-CSRF-Token": string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BilibiliPartsPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BilibiliPartsPreviewResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -2804,6 +3568,37 @@ export interface operations {
             };
         };
     };
+    source_api_v1_library_items__item_public_id__source_get: {
+        parameters: {
+            query?: {
+                t?: number;
+            };
+            header?: never;
+            path: {
+                item_public_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     transcript_page_api_v1_library_items__item_public_id__transcript_get: {
         parameters: {
             query?: {
@@ -3178,7 +3973,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Request Entity Too Large */
+            /** @description Content Too Large */
             413: {
                 headers: {
                     [name: string]: unknown;

@@ -837,3 +837,49 @@ def test_existing_item_replays_same_request_and_does_not_republish():
     assert len(store.items) == 1
     assert len(store.dispatches) == 1
     assert published == [71]
+
+
+@pytest.mark.parametrize("bare_first", (True, False))
+@pytest.mark.parametrize("include_share", (False, True))
+def test_bilibili_references_share_one_item_and_dispatch_in_batch_and_later_request(bare_first, include_share):
+    bare = " bv1xx411c7mD "
+    url = "https://www.bilibili.com/video/BV1xx411c7mD?spm_id_from=333.1007"
+    values = [bare, url] if bare_first else [url, bare]
+    if include_share:
+        values.append("【同一个视频的分享标题】\n" + url)
+    store = FakeStore([None])
+    published = []
+
+    def publish(dispatch_id):
+        published.append(dispatch_id)
+        # Later entries in the batch find the item and same-key dispatch
+        # committed by the first entry.
+        store.scalar_results.extend([store.items[0], store.dispatches[0]] * (len(values) - 1))
+        return "task-id"
+
+    service = IngestSubmissionService(store.session, publish)
+    tenant = TenantContext(57, 9, "web", "web", "person@example.test")
+    batch = service.submit_urls(tenant, values, why_saved=None, request_key="web:first:save")
+    store.scalar_results.extend([store.items[0], None, store.dispatches[0]])
+    later = service.submit_urls(tenant, [values[-1]], why_saved=None, request_key="web:second:save")
+
+    assert [result.input_index for result in batch.results] == list(range(len(values)))
+    assert [result.status for result in batch.results] == ["queued"] * len(values)
+    assert later.results[0].status == "already_exists"
+    assert len({result.item_public_id for result in (*batch.results, *later.results)}) == 1
+    assert len(store.items) == len(store.dispatches) == 1
+    assert published == [71]
+    assert (store.items[0].platform, store.items[0].platform_id, store.items[0].url) == (
+        "bilibili", "BV1xx411c7mD", "https://www.bilibili.com/video/BV1xx411c7mD",
+    )
+    lookups = [statement for statement in store.statements if "FROM content_item" in str(statement)]
+    assert len(lookups) == len(values) + 1
+    for statement in lookups:
+        assert statement.compile().params == {
+            "user_id_1": tenant.app_user_id,
+            "platform_1": "bilibili",
+            "platform_id_1": "BV1xx411c7mD",
+            "bilibili_bvid_1": "BV1xx411c7mD",
+            "bilibili_page_1": 1,
+            "platform_id_2": "BV1xx411c7mD",
+        }

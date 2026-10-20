@@ -50,6 +50,9 @@ _REGISTRY: dict[str, IngestReason] = {
         IngestReason("asr_disabled", "no_transcription", True),
         IngestReason("asr_unsupported_platform", "no_transcription", False),
         IngestReason("asr_unavailable", "no_transcription", True),
+        # Explicit Bilibili parts skip browser capture and cannot be
+        # transcribed from a verified CID-qualified audio source yet.
+        IngestReason("part_transcription_unsupported", "no_transcription", False),
         IngestReason("asr_not_configured", "no_transcription", True),
         IngestReason("transient_fetch_failed", "fetch_failed", True),
         IngestReason("asr_audio_unavailable", "fetch_failed", True),

@@ -1,10 +1,20 @@
 import type {
+  BilibiliPartsPreviewInput,
+  BilibiliPartsPreview,
+  BilibiliPartsBatchInput,
+  BilibiliPartsBatchResponse,
+  BilibiliFavoritesPreviewInput,
+  BilibiliFavoritesPreview,
   BatchSubmitInput,
   BatchSubmitResponse,
   AcceptedResponse,
   Capabilities,
   ChallengeStatus,
   ConsumeLinkTokenInput,
+  EmailChallengeInput,
+  EmailVerifyInput,
+  ExternalLoginPending,
+  ExternalLoginVerifyInput,
   LinkTokenInput,
   LinkTokenResponse,
   LinkedResponse,
@@ -74,13 +84,15 @@ function cookie(name: string): string | null {
 export async function requestJson<T>(
   path: string,
   init: RequestInit = {},
+  context: { csrf?: "session" | "external"; unauthorized?: "global" | "local" } = {},
 ): Promise<T> {
+  const requestUnauthorizedHandler = unauthorizedHandler;
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   if (init.method && !["GET", "HEAD", "OPTIONS"].includes(init.method.toUpperCase())) {
-    const csrf = cookie("__Host-kb_csrf");
+    const csrf = cookie(context.csrf === "external" ? "__Host-kb_external_csrf" : "__Host-kb_csrf");
     if (csrf) headers.set("X-CSRF-Token", csrf);
   }
   let requestUrl = path;
@@ -95,9 +107,11 @@ export async function requestJson<T>(
     headers,
     credentials: "same-origin",
   });
+  init.signal?.throwIfAborted();
   if (!response.ok) {
     const fallback = { code: "request_failed", message: "请求无法完成" };
     const payload = await response.json().catch(() => fallback) as Partial<typeof fallback>;
+    init.signal?.throwIfAborted();
     const error = new ApiError(
       response.status,
       payload.code ?? fallback.code,
@@ -106,8 +120,9 @@ export async function requestJson<T>(
     // Login verification failures are 401s too, but they are recoverable
     // form errors.  Only an invalidated browser session tears down the
     // private query client and redirects to the login route.
-    if (response.status === 401 && payload.code === "session_invalid") {
-      unauthorizedHandler?.();
+    if (response.status === 401 && payload.code === "session_invalid" && context.unauthorized !== "local"
+      && requestUnauthorizedHandler === unauthorizedHandler) {
+      requestUnauthorizedHandler?.();
     }
     throw error;
   }
@@ -148,9 +163,23 @@ export function exchangeChallenge(
   });
 }
 
+const extensionRuntime = (): boolean => (
+  typeof chrome !== "undefined"
+  && Boolean(chrome.storage?.local)
+  && globalThis.location?.protocol === "chrome-extension:"
+);
+
 export function requestEmailChallenge(
   email: string,
 ): Promise<AcceptedResponse> {
+  if (!extensionRuntime()) {
+    // A plain https page uses the canonical cookie session; the extension
+    // transport is only reachable from chrome-extension://.
+    return requestJson<AcceptedResponse>("/api/v1/auth/challenges", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  }
   return requestJson<{ challenge_id: string }>("/api/v1/extension/auth/challenge", { method: "POST", body: JSON.stringify({ email }) }).then(async (r) => {
     lastExtensionChallenge = r.challenge_id;
     if (typeof chrome !== "undefined" && chrome.storage?.local) await chrome.storage.local.set({ loginChallengeId: r.challenge_id });
@@ -169,6 +198,12 @@ export async function verifyEmailChallenge(
     const state = await chrome.storage.local.get(["loginChallengeId"]);
     challengeId = typeof state.loginChallengeId === "string" ? state.loginChallengeId : null;
   }
+  if (!extensionRuntime()) {
+    return requestJson<SessionInfo>("/api/v1/auth/verify", {
+      method: "POST",
+      body: JSON.stringify({ email, code }),
+    });
+  }
   if (!challengeId) throw new Error("challenge_missing");
   const session = await requestJson<{ access_token: string; expires_at: string }>(
     "/api/v1/extension/auth/verify",
@@ -182,8 +217,11 @@ export async function verifyEmailChallenge(
   return { authenticated: true as const, login_channel: "email" as const, expires_at: session.expires_at };
 }
 
-export function getSession(): Promise<SessionInfo> {
-  return requestJson<{ expires_at?: string }>("/api/v1/extension/auth/session").then((session) => ({
+export function getSession(signal?: AbortSignal): Promise<SessionInfo> {
+  if (!extensionRuntime()) {
+    return requestJson<SessionInfo>("/api/v1/auth/session", { signal });
+  }
+  return requestJson<{ expires_at?: string }>("/api/v1/extension/auth/session", { signal }).then((session) => ({
     authenticated: true as const, login_channel: "email" as const, expires_at: session.expires_at ?? "",
   }));
 }
@@ -192,14 +230,61 @@ export async function logout(): Promise<void> {
   try {
     if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage && globalThis.location?.protocol === "chrome-extension:") {
       await chrome.runtime.sendMessage({ type: "DISCONNECT" });
-    } else {
+    } else if (extensionRuntime()) {
       await requestJson("/api/v1/extension/auth/logout", { method: "POST" });
+    } else {
+      await requestJson("/api/v1/auth/session", { method: "DELETE" });
     }
   } finally {
     if (typeof chrome !== "undefined" && chrome.storage?.local) {
       await chrome.storage.local.remove(["accessToken", "captureToken", "expiresAt", "user", "tenant", "deviceId", "pairingId", "pairingVerifier", "loginChallengeId"]);
     }
   }
+}
+
+// The cookie-based external login continuation is only reachable from a real
+// http(s) origin; the chrome-extension:// workspace hides its entry points
+// because SameSite cookies never reach a cross-site fetch from an extension.
+// Missing authentication is expected while an anonymous login is in progress.
+// Protected requests continue to use getSession() and global invalidation.
+export async function probeLoginSession(signal?: AbortSignal): Promise<SessionInfo | null> {
+  try {
+    return await requestJson<SessionInfo>("/api/v1/auth/session", { signal }, { unauthorized: "local" });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401 && error.code === "session_invalid") return null;
+    throw error;
+  }
+}
+
+export function getExternalLoginPending(signal?: AbortSignal): Promise<ExternalLoginPending> {
+  return requestJson("/api/v1/auth/external/pending", { signal });
+}
+
+export function requestExternalLoginCode(email: string, signal?: AbortSignal): Promise<AcceptedResponse> {
+  return requestJson("/api/v1/auth/external/pending/challenges", {
+    method: "POST", body: JSON.stringify({ email }), signal,
+  }, { csrf: "external" });
+}
+
+export function verifyExternalLogin(input: ExternalLoginVerifyInput, signal?: AbortSignal): Promise<SessionInfo> {
+  return requestJson("/api/v1/auth/external/pending/verify", {
+    method: "POST", body: JSON.stringify(input), signal,
+  }, { csrf: "external" });
+}
+
+export function listExternalIdentities(signal?: AbortSignal): Promise<{ providers: string[] }> {
+  return requestJson("/api/v1/auth/external/identities", { signal });
+}
+
+export function unlinkExternalIdentity(provider: string): Promise<void> {
+  return requestJson(
+    `/api/v1/auth/external/identities/${encodeURIComponent(provider)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function cancelExternalLogin(signal?: AbortSignal): Promise<void> {
+  return requestJson("/api/v1/auth/external/pending", { method: "DELETE", signal }, { csrf: "external" });
 }
 
 export function createTelegramLinkToken(): Promise<LinkTokenResponse> {
@@ -238,18 +323,18 @@ export function revokeBrowserCompanionDevice(deviceId: string): Promise<void> {
   );
 }
 
-export function getCapabilities(): Promise<Capabilities> {
-  return requestJson("/api/v1/capabilities");
+export function getCapabilities(signal?: AbortSignal): Promise<Capabilities> {
+  return requestJson("/api/v1/capabilities", { signal });
 }
 
-export function listConversations(cursor?: string | null): Promise<ConversationHistoryPage> {
+export function listConversations(cursor?: string | null, signal?: AbortSignal): Promise<ConversationHistoryPage> {
   const params = new URLSearchParams({ limit: "30" });
   if (cursor) params.set("cursor", cursor);
-  return requestJson(`/api/v1/conversations?${params.toString()}`);
+  return requestJson(`/api/v1/conversations?${params.toString()}`, { signal });
 }
 
-export function getConversationTurns(threadId: string): Promise<ConversationTurns> {
-  return requestJson(`/api/v1/conversations/${encodeURIComponent(threadId)}/turns`);
+export function getConversationTurns(threadId: string, signal?: AbortSignal): Promise<ConversationTurns> {
+  return requestJson(`/api/v1/conversations/${encodeURIComponent(threadId)}/turns`, { signal });
 }
 
 export function deleteConversation(threadId: string): Promise<void> {
@@ -851,5 +936,28 @@ export function submitVideoBatch(input: BatchSubmitInput): Promise<BatchSubmitRe
     method: "POST",
     headers: { "Idempotency-Key": crypto.randomUUID() },
     body: JSON.stringify(input),
+  });
+}
+
+export function previewBilibiliParts(input: BilibiliPartsPreviewInput, signal?: AbortSignal): Promise<BilibiliPartsPreview> {
+  return requestJson("/api/v1/bilibili/parts:preview", {
+    method: "POST", body: JSON.stringify(input), signal,
+  });
+}
+
+export function previewBilibiliFavorites(input: BilibiliFavoritesPreviewInput, signal?: AbortSignal): Promise<BilibiliFavoritesPreview> {
+  return requestJson("/api/v1/bilibili/favorites:preview", {
+    method: "POST", body: JSON.stringify(input), signal,
+  });
+}
+
+export function submitBilibiliParts(
+  input: BilibiliPartsBatchInput,
+  operationKey: string,
+  signal?: AbortSignal,
+): Promise<BilibiliPartsBatchResponse> {
+  return requestJson("/api/v1/bilibili/parts:batch", {
+    method: "POST", headers: { "Idempotency-Key": operationKey },
+    body: JSON.stringify(input), signal,
   });
 }

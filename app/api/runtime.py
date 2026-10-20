@@ -12,6 +12,7 @@ from app.asr.types import ASR_PLATFORMS
 from app.config import Settings, get_settings
 from app.browser_capture_submission import BrowserCaptureSubmissionService
 from app.browser_companion import BrowserCompanionService
+from app.bilibili.service import build_bilibili_service
 from app.db import get_session_factory
 from app.ingest.submission import build_ingest_submission_service
 from app.object_store import RawObjectStore
@@ -54,7 +55,10 @@ def build_api_app(
     publisher=None,
     object_store=None,
     email_auth=None,
+    external_auth=None,
+    external_providers=None,
     channel_service=None,
+    bilibili=None,
     mount_static: bool | None = None,
 ):
     """Wire concrete services while keeping test doubles explicit and local.
@@ -105,6 +109,16 @@ def build_api_app(
         # Tests and embedders may inject the deterministic in-memory service;
         # production still builds the configured provider-backed service here.
         email_auth = email_auth or build_email_auth_service(settings, factory)
+        if external_auth is None:
+            from app.external_auth import ExternalLoginService
+            from app.external_providers import build_external_providers
+
+            providers = (
+                build_external_providers(settings)
+                if external_providers is None
+                else external_providers
+            )
+            external_auth = ExternalLoginService(email_auth, settings, providers)
         web_auth = EmailWebAuthAdapter(email_auth)
         expected_origin = getattr(settings, "web_public_origin", None) or (
             tuple(getattr(settings, "browser_companion_allowed_origins", ())) or
@@ -139,9 +153,13 @@ def build_api_app(
         )
         expected_origin = settings.web_origin
         public_login_channels = settings.web_login_channels
+    bilibili_public_enabled = bool(
+        getattr(settings, "bilibili_public_enabled", False)
+    )
     services = WebApiServices(
         web_auth=web_auth,
         email_auth=email_auth,
+        external_auth=external_auth,
         channel_service=channel_service or _LazyChannelService(settings, factory),
         session_resolver=(email_auth or web_auth).resolve_session,
         session_identity_resolver=lambda session: resolve_browser_session_identity(
@@ -155,9 +173,12 @@ def build_api_app(
             publisher,
             quota_policy=submission.quota_policy,
             save_enabled=True,
+            bilibili_public_enabled=bilibili_public_enabled,
         ),
         submission=submission,
-        transcript=TranscriptService(factory, store),
+        transcript=TranscriptService(
+            factory, store, bilibili_public_enabled=bilibili_public_enabled
+        ),
         browser_companion=browser_companion,
         browser_capture_submission=browser_capture_submission,
         extension_sessions=ExtensionSessionService(email_auth) if email_auth is not None else None,
@@ -170,6 +191,7 @@ def build_api_app(
             if getattr(settings, "asr_enabled", False)
             else ()
         ),
+        bilibili=bilibili or build_bilibili_service(settings, factory, submission),
     )
     return create_app(
         services=services,
@@ -177,6 +199,7 @@ def build_api_app(
         cookie_secure=True,
         publish_budget_seconds=settings.web_publish_budget_seconds,
         save_enabled=True,
+        bilibili_public_enabled=bilibili_public_enabled,
         web_login_channels=public_login_channels,
         static_dir=None,
     )

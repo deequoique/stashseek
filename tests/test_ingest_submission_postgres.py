@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session
 from app.channels.types import TenantContext
 from app.connectors.base import TransientFetchError
 from app.db import get_engine
-from app.ingest.submission import IngestSubmissionService
+from app.ingest.submission import (
+    IngestSubmissionService,
+    ItemReference,
+    PreparedBatch,
+    PreparedItem,
+)
 from app.ingest.tasks import (
     IngestCompletionPublisher,
     _claim_completion_event,
@@ -993,3 +998,68 @@ def test_physical_item_purge_cascades_completion_event_before_late_publish_pg(
         )
         is None
     )
+
+
+def test_favorites_imported_first_part_is_not_duplicated_by_a_plain_link(
+    submission_factory,
+):
+    tenant = _tenant(submission_factory, 101)
+    published = []
+    service = IngestSubmissionService(
+        submission_factory,
+        lambda dispatch_id: published.append(dispatch_id)
+        or f"task-{dispatch_id}",
+    )
+    bv = "BV1xx411c7mD"
+    part = PreparedBatch((
+        PreparedItem(0, reference=ItemReference(
+            "bilibili", f"{bv}_cid123",
+            f"https://www.bilibili.com/video/{bv}?p=1",
+            bilibili_bvid=bv, bilibili_cid="123", bilibili_page=1,
+        )),
+    ))
+
+    first = service.submit_prepared(
+        tenant, part, why_saved=None, request_key="parts:first",
+    )
+    second = service.submit_urls(
+        tenant, [f"https://www.bilibili.com/video/{bv}"],
+        why_saved=None, request_key="link:second",
+    )
+
+    assert first.results[0].status == "queued"
+    assert second.results[0].status == "already_exists"
+    with submission_factory() as db:
+        items = list(db.scalars(
+            select(ContentItem).where(ContentItem.user_id == tenant.app_user_id)
+        ))
+    assert len(items) == 1
+
+
+def test_trashed_legacy_item_does_not_block_part_admission(submission_factory):
+    tenant = _tenant(submission_factory, 102)
+    bv = "BV1xx411c7mD"
+    with submission_factory() as db:
+        db.add(ContentItem(
+            public_id=uuid4().hex, user_id=tenant.app_user_id,
+            platform="bilibili", platform_id=bv, kind="video",
+            url=f"https://www.bilibili.com/video/{bv}",
+            state="ready", deleted_at=datetime.now(UTC),
+        ))
+        db.commit()
+    service = IngestSubmissionService(
+        submission_factory, lambda dispatch_id: f"task-{dispatch_id}",
+    )
+    part = PreparedBatch((
+        PreparedItem(0, reference=ItemReference(
+            "bilibili", f"{bv}_cid123",
+            f"https://www.bilibili.com/video/{bv}?p=1",
+            bilibili_bvid=bv, bilibili_cid="123", bilibili_page=1,
+        )),
+    ))
+
+    result = service.submit_prepared(
+        tenant, part, why_saved=None, request_key="parts:trashed-legacy",
+    )
+
+    assert result.results[0].status == "queued"

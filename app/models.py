@@ -24,6 +24,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    String,
     Text,
     UniqueConstraint,
     func,
@@ -99,6 +100,7 @@ class ChannelIdentity(Base):
             name="uq_channel_identity_external",
         ),
         Index("ix_channel_identity_user", "app_user_id"),
+        UniqueConstraint("id", "app_user_id", name="uq_channel_identity_owner"),
     )
 
 
@@ -227,6 +229,69 @@ class WebLoginChallenge(Base):
     )
 
 
+class ExternalLoginIdentity(Base):
+    """A proved website-provider identity anchored to one exact email identity."""
+
+    __tablename__ = "external_login_identity"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    application_id: Mapped[str] = mapped_column(Text, nullable=False)
+    namespace: Mapped[str] = mapped_column(Text, nullable=False)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    app_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_user.id", ondelete="RESTRICT"), nullable=False
+    )
+    channel_identity_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("provider", "application_id", "namespace", "subject", name="uq_external_login_principal"),
+        ForeignKeyConstraint(
+            ["channel_identity_id", "app_user_id"],
+            ["channel_identity.id", "channel_identity.app_user_id"],
+            name="fk_external_login_anchor_owner", deferrable=True, initially="DEFERRED",
+        ),
+        CheckConstraint("provider IN ('microsoft', 'wechat_website', 'qq')", name="ck_external_login_provider"),
+        CheckConstraint("length(application_id) BETWEEN 1 AND 512 AND length(namespace) BETWEEN 1 AND 1024 AND length(subject) BETWEEN 1 AND 1024", name="ck_external_login_principal_bounds"),
+        Index("ix_external_login_user", "app_user_id"),
+        Index("ix_external_login_anchor", "channel_identity_id"),
+    )
+
+
+class ExternalLoginFlow(Base):
+    """Browser-bound one-time authorization; SDK material is encrypted at rest."""
+
+    __tablename__ = "external_login_flow"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    state_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    csrf_token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    requester_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    application_id: Mapped[str] = mapped_column(Text, nullable=False)
+    configuration_id: Mapped[str] = mapped_column(Text, nullable=False)
+    phase: Mapped[str] = mapped_column(Text, nullable=False, server_default="created")
+    material_ciphertext: Mapped[str | None] = mapped_column(Text)
+    namespace: Mapped[str | None] = mapped_column(Text)
+    subject: Mapped[str | None] = mapped_column(Text)
+    failure_code: Mapped[str | None] = mapped_column(Text)
+    completed_session_hash: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("provider IN ('microsoft', 'wechat_website', 'qq')", name="ck_external_flow_provider"),
+        CheckConstraint("phase IN ('created', 'exchanging', 'email_required', 'completed', 'failed', 'cancelled')", name="ck_external_flow_phase"),
+        Index("ix_external_flow_expires", "expires_at"),
+        Index("ix_external_flow_requester_created", "requester_hash", "created_at"),
+    )
+
+
 class WebAuthChallenge(Base):
     """One-time, HMAC-protected email login challenge."""
 
@@ -234,6 +299,9 @@ class WebAuthChallenge(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     email: Mapped[str] = mapped_column(Text, nullable=False)
+    external_login_flow_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("external_login_flow.id", ondelete="CASCADE")
+    )
     code_hash: Mapped[str] = mapped_column(Text, nullable=False)
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -265,6 +333,9 @@ class WebSession(Base):
         nullable=False,
     )
     login_channel: Mapped[str] = mapped_column(Text, nullable=False)
+    external_login_identity_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("external_login_identity.id", ondelete="RESTRICT")
+    )
     # Channel-assisted sessions predate this linkage.  Email-auth sessions
     # populate it; existing upstream sessions intentionally leave it NULL.
     channel_identity_id: Mapped[int | None] = mapped_column(
@@ -281,6 +352,12 @@ class WebSession(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
+        CheckConstraint(
+            "(external_login_identity_id IS NULL AND login_channel IN ('web', 'email', 'telegram', 'wechat')) OR "
+            "(external_login_identity_id IS NOT NULL AND login_channel IN ('microsoft', 'wechat_website', 'qq') AND channel_identity_id IS NOT NULL)",
+            name="ck_web_session_external_provenance",
+        ),
+        Index("ix_web_session_external_identity", "external_login_identity_id"),
         Index("ix_web_session_user_expires", "app_user_id", "expires_at"),
         Index("ix_web_session_expires_at", "expires_at"),
         Index(
@@ -497,6 +574,11 @@ class ContentItem(Base):
     )
     platform: Mapped[str] = mapped_column(platform_enum, nullable=False)
     platform_id: Mapped[str] = mapped_column(Text, nullable=False)  # video_id / bvid / sn
+    # NULL means historical/unverified source identity; never infer it from
+    # today's P1 mapping. CID is the immutable content pin, page is navigation.
+    bilibili_bvid: Mapped[str | None] = mapped_column(String(12))
+    bilibili_cid: Mapped[str | None] = mapped_column(String(20))
+    bilibili_page: Mapped[int | None] = mapped_column(Integer)
     kind: Mapped[str] = mapped_column(item_kind_enum, nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str | None] = mapped_column(Text)
@@ -546,6 +628,17 @@ class ContentItem(Base):
     delete_claim_token: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
+        CheckConstraint(
+            "(bilibili_bvid IS NULL AND bilibili_cid IS NULL AND bilibili_page IS NULL) OR "
+            "(bilibili_bvid IS NOT NULL AND bilibili_cid IS NOT NULL AND bilibili_page IS NOT NULL "
+            "AND platform = 'bilibili' AND bilibili_bvid ~ '^BV[0-9A-Za-z]{10}$' "
+            "AND bilibili_cid ~ '^[1-9][0-9]{0,19}$' AND bilibili_page BETWEEN 1 AND 1000)",
+            name="ck_content_item_bilibili_source",
+        ),
+        Index(
+            "uq_content_item_user_bilibili_cid", "user_id", "bilibili_bvid", "bilibili_cid",
+            unique=True, postgresql_where=text("bilibili_cid IS NOT NULL"),
+        ),
         UniqueConstraint(
             "user_id", "platform", "platform_id",
             name="uq_content_item_user_platform_platform_id",

@@ -30,6 +30,7 @@ from app.ingest.submission import (
 )
 from app.models import BrowserCapture, ContentItem, ContentItemStage, IngestDispatch
 from app.limits import normalize_why_saved
+from app.web.source_projection import has_verified_bilibili_source, item_source_url
 
 
 ACTIVE_DISPATCH_STATES = frozenset({"pending", "enqueued", "running"})
@@ -44,6 +45,8 @@ SAFE_ERROR_CODES = frozenset(
         "transcript_invalid",
         "ingest_too_large",
         *sorted(ASR_ERROR_CODES),
+        "source_changed",
+        "source_unavailable",
     }
 )
 Lifecycle = Literal[
@@ -385,6 +388,7 @@ class ContentLibraryService:
         quota_policy: IngestQuotaPolicy | None = None,
         save_enabled: bool = True,
         enrichment_stages: Sequence[str] | None = None,
+        bilibili_public_enabled: bool = True,
     ) -> None:
         self._session_factory = session_factory
         self._publisher = publisher
@@ -394,6 +398,7 @@ class ContentLibraryService:
         self._enrichment_stages = tuple(
             ENRICHMENT_STAGES if enrichment_stages is None else enrichment_stages
         )
+        self._bilibili_public_enabled = bool(bilibili_public_enabled)
         try:
             signature = inspect.signature(publisher)
             self._publisher_accepts_budget = (
@@ -883,7 +888,11 @@ class ContentLibraryService:
             public_id=item.public_id,
             platform=item.platform,
             kind=item.kind,
-            url=item.url,
+            url=item_source_url(item.public_id)
+            if has_verified_bilibili_source(
+                item, bilibili_public_enabled=self._bilibili_public_enabled
+            )
+            else item.url,
             title=item.title,
             author=item.author,
             published_at=item.published_at,
