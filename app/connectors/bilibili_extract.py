@@ -31,6 +31,11 @@ _TRANSIENT_MARKERS = (
     "risk control", "风控", "timed out", "timeout", "connection reset",
     "connection aborted", "temporarily unavailable", "temporary failure",
     "502 bad gateway", "503 service unavailable", "504 gateway timeout",
+    # Server-local egress proxy (US_VIDEO_PROXY_URL) failures: an outage or a
+    # misconfigured proxy is never proof that the source is gone.
+    "http error 407", "proxy authentication required", "unable to connect to proxy",
+    "failed to connect to proxy", "cannot connect to proxy", "tunnel connection failed",
+    "proxyerror", "connection refused",
 )
 
 
@@ -38,6 +43,13 @@ def _is_transient_failure(exc: BaseException) -> bool:
     text = str(exc).lower()
     return any(marker in text for marker in _TRANSIENT_MARKERS)
 
+
+
+class TransientExtractionError(RuntimeError):
+    """Provider throttling or egress failure: retry later, do not drop the source."""
+
+    def __init__(self) -> None:
+        super().__init__("transient_extraction_failure")
 
 
 class _Discard:
@@ -140,9 +152,13 @@ def extract_pinned(
                     f"https://www.bilibili.com/video/{bvid}?p={page}",
                     download=False, process=False, ie_key=ie.ie_key(),
                 )
-            except Exception:
+            except Exception as exc:
                 if ie.source_mismatch:
                     raise SourceChangedError() from None
+                # The provider text is classified here and then discarded; a
+                # throttle or proxy outage must not read as a vanished source.
+                if _is_transient_failure(exc):
+                    raise TransientExtractionError() from None
                 raise SourceUnavailableError() from None
     if (
         not isinstance(data, dict) or data.get("_type", "video") != "video"
@@ -212,6 +228,8 @@ def main() -> int:
         return EXIT_SOURCE_CHANGED
     except IngestLimitExceeded:
         return EXIT_TOO_LARGE
+    except TransientExtractionError:
+        return EXIT_TRANSIENT
     except Exception as exc:
         # Provider throttling, risk control and socket failures are not proof
         # that the source is gone; let the parent schedule a retry.

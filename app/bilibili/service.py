@@ -16,6 +16,9 @@ from app.models import ContentItem
 # BV -> part map briefly so repeated clicks do not hammer api.bilibili.com.
 _PARTS_CACHE_TTL_SECONDS = 300.0
 _PARTS_CACHE_MAX_ENTRIES = 256
+# Only these failures say "the provider/admission is unavailable right now";
+# every other code (notably source_unavailable for a vanished CID) is real.
+_TRANSIENT_OPEN_CODES = frozenset({"bilibili_rate_limited", "bilibili_busy", "bilibili_unavailable"})
 
 
 class BilibiliService:
@@ -130,14 +133,21 @@ class BilibiliService:
         # verified resolver cannot claim that an unpinned source is a CID.
         if bvid is None or cid is None:
             raise BilibiliPublicError("source_unavailable")
-        self._gate.admit(scope.app_user_id)
         try:
+            self._gate.admit(scope.app_user_id)
             part = self._cached_parts(bvid).resolve_part(cid)
             page = part.page
-        except BilibiliPublicError:
-            # A navigation must not end on a JSON error page. The stored page
-            # is the last attested position; clicking still opens the video.
-            if type(stored_page) is not int or not 1 <= stored_page <= 1000:
+        except BilibiliPublicError as exc:
+            # A navigation must not end on a JSON error page, so a transient
+            # upstream or admission failure falls back to the stored page: the
+            # last attested position, which still opens the video. Any other
+            # failure (e.g. the CID no longer exists) must not silently open
+            # a different part, so it propagates.
+            if (
+                exc.error_code not in _TRANSIENT_OPEN_CODES
+                or type(stored_page) is not int
+                or not 1 <= stored_page <= 1000
+            ):
                 raise
             page = stored_page
         # Repeat ownership/deletion and immutable pin check after network I/O.
@@ -158,4 +168,4 @@ def build_bilibili_service(settings, factory, submission) -> BilibiliService:
     from app.bilibili.public import build_public_client
 
     client = redis.Redis.from_url(getattr(settings, "redis_url", "redis://127.0.0.1:6379/0"), socket_connect_timeout=1, socket_timeout=1)
-    return BilibiliService(factory, submission, build_public_client(), PartRefSigner(settings.web_auth_secret), RedisPublicGate(client, settings.web_auth_secret))
+    return BilibiliService(factory, submission, build_public_client(getattr(settings, "us_video_proxy_url", None)), PartRefSigner(settings.web_auth_secret), RedisPublicGate(client, settings.web_auth_secret))

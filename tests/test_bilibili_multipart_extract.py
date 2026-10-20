@@ -1,6 +1,8 @@
 """Offline actual-extractor evidence and immutable worker source fences."""
 
+import io
 import json
+import os
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -12,7 +14,8 @@ from app.bilibili.public import BilibiliPart, BilibiliPartMap, BilibiliPublicErr
 from app.config import Settings
 from app.connectors.base import Cue, ItemMeta, NeedsASR, SourceChangedError, SourceUnavailableError, TextResult, TransientFetchError
 from app.connectors.bilibili import BilibiliConnector, _bounded_part_process
-from app.connectors.bilibili_extract import PinnedBiliBiliIE, extract_pinned
+from app.connectors import bilibili_extract
+from app.connectors.bilibili_extract import PinnedBiliBiliIE, TransientExtractionError, extract_pinned
 from app.ingest.tasks import process_item
 from app.ingest.validate import IngestLimitExceeded
 from app.agent.runtime_state import _citation_matches_scope
@@ -122,6 +125,123 @@ def test_part_parent_validates_child_proof_and_retains_part_source():
     data.pop("source_cid")
     with pytest.raises(SourceChangedError):
         connector.fetch_part(BV, "202", 2)
+
+
+PROXY = "http://127.0.0.1:18080"
+
+
+def part_runner_capturing(calls, *, returncode=0):
+    data = {"source_bvid": BV, "source_cid": "202", "source_page": 2, "subtitles": {}}
+
+    def runner(args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(returncode=returncode, stdout=json.dumps(data).encode())
+    return runner
+
+
+def test_part_child_receives_the_proxy_environment_only_when_configured(monkeypatch):
+    for name in ("HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.setenv(name, "http://203.0.113.9:3128")
+    calls = []
+    BilibiliConnector(part_runner=part_runner_capturing(calls), proxy_url=PROXY).fetch_part(BV, "202", 2)
+    env = calls[0][1]["env"]
+    assert env["HTTPS_PROXY"] == env["https_proxy"] == env["HTTP_PROXY"] == env["http_proxy"] == PROXY
+    assert env["NO_PROXY"] == "127.0.0.1,localhost,::1"
+    assert "ALL_PROXY" not in env and "all_proxy" not in env
+    assert os.environ["HTTP_PROXY"] == "http://203.0.113.9:3128"  # worker environment untouched
+
+    direct = []
+    BilibiliConnector(part_runner=part_runner_capturing(direct)).fetch_part(BV, "202", 2)
+    assert direct[0][1]["env"] is None
+
+
+def test_bounded_part_process_hands_the_environment_to_the_child_only():
+    code = "import os, sys; sys.stdout.write(os.environ.get('HTTPS_PROXY', 'direct'))"
+    routed = _bounded_part_process(
+        [sys.executable, "-c", code], input=b"", timeout=10, max_output=100,
+        env={**os.environ, "HTTPS_PROXY": PROXY},
+    )
+    assert routed.stdout == PROXY.encode()
+    inherited = _bounded_part_process([sys.executable, "-c", code], input=b"", timeout=10, max_output=100)
+    assert inherited.stdout == (os.environ.get("HTTPS_PROXY", "direct")).encode()
+
+
+@pytest.mark.parametrize("returncode,error", [
+    (20, SourceChangedError), (21, SourceUnavailableError), (22, IngestLimitExceeded), (23, TransientFetchError),
+])
+def test_part_child_exit_codes_keep_transient_failures_retryable(returncode, error):
+    calls = []
+    connector = BilibiliConnector(part_runner=part_runner_capturing(calls, returncode=returncode), proxy_url=PROXY)
+    with pytest.raises(error):
+        connector.fetch_part(BV, "202", 2)
+
+
+@pytest.mark.parametrize("proxy,label", [(PROXY, "bilibili_proxy_timeout"), (None, "bilibili_fetch_timeout")])
+def test_part_child_timeout_names_the_proxy_only_when_one_is_configured(proxy, label):
+    def runner(args, **kwargs):
+        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+    with pytest.raises(TransientFetchError, match=f"^{label}$"):
+        BilibiliConnector(part_runner=runner, proxy_url=proxy).fetch_part(BV, "202", 2)
+
+
+class FailingYDL(YoutubeDL):
+    message = ""
+
+    def extract_info(self, *_args, **_kwargs):
+        raise OSError(self.message)
+
+
+PROXY_FAILURES = [
+    "HTTP Error 407: Proxy Authentication Required",
+    "ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403 Forbidden'))",
+    "<urlopen error [Errno 61] Connection refused>",
+]
+THROTTLES = ["HTTP Error 412: Precondition Failed", "HTTP Error 429: Too Many Requests", "Read timed out"]
+
+
+@pytest.mark.parametrize("message", PROXY_FAILURES + THROTTLES)
+def test_proxy_outage_and_throttling_in_the_extractor_are_transient_not_unavailable(message):
+    class Failing(FailingYDL):
+        pass
+    Failing.message = message
+    with pytest.raises(TransientExtractionError):
+        extract_pinned(payload(), ydl_factory=Failing, extractor_class=fixture_extractor())
+
+
+def test_other_extractor_failures_stay_permanently_unavailable():
+    class Failing(FailingYDL):
+        message = "HTTP Error 404: Not Found"
+    with pytest.raises(SourceUnavailableError):
+        extract_pinned(payload(), ydl_factory=Failing, extractor_class=fixture_extractor())
+
+
+@pytest.mark.parametrize("message,expected", [
+    (PROXY_FAILURES[0], bilibili_extract.EXIT_TRANSIENT),
+    (PROXY_FAILURES[1], bilibili_extract.EXIT_TRANSIENT),
+    (THROTTLES[0], bilibili_extract.EXIT_TRANSIENT),
+    ("HTTP Error 404: Not Found", bilibili_extract.EXIT_SOURCE_UNAVAILABLE),
+])
+def test_extract_child_exit_code_distinguishes_transient_from_unavailable(monkeypatch, message, expected):
+    class Failing(FailingYDL):
+        pass
+    Failing.message = message
+    real = bilibili_extract.extract_pinned
+    monkeypatch.setenv("YTDLP_NO_PLUGINS", "1")  # main() sets it; restore afterwards
+    monkeypatch.setattr(bilibili_extract, "extract_pinned",
+        lambda data: real(data, ydl_factory=Failing, extractor_class=fixture_extractor()))
+    monkeypatch.setattr(bilibili_extract.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(json.dumps(payload()).encode())))
+    monkeypatch.setattr(bilibili_extract.sys, "stdout", SimpleNamespace(buffer=io.BytesIO()))
+    assert bilibili_extract.main() == expected
+
+
+def test_installed_ytdlp_honours_the_child_proxy_environment_without_a_proxy_option(monkeypatch):
+    """The extraction child sets no ``proxy`` option; yt-dlp must read the env."""
+    for name in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", PROXY)
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost,::1")
+    ydl = YoutubeDL({"quiet": True, "cookiefile": None, "cookiesfrombrowser": None}, auto_init=False)
+    assert ydl.proxies["https"] == PROXY
 
 
 @pytest.mark.parametrize("stream", ["stdout", "stderr"])
@@ -263,6 +383,32 @@ def test_worker_retry_resolves_same_pin_at_new_page_and_keeps_no_caption_proof(w
     assert item.bilibili_cid == "202" and item.bilibili_page == 1
     assert item.url.endswith("?p=1")
     assert item.raw_object_key == "old.raw" and not db.deletes
+
+
+def test_worker_pin_path_routes_discovery_and_extraction_through_the_configured_proxy(monkeypatch):
+    settings = Settings(
+        database_url="postgresql+psycopg://unused/unused", redis_url="redis://localhost/0",
+        us_video_proxy_url=PROXY,
+    )
+    monkeypatch.setattr("app.ingest.tasks.get_settings", lambda: settings)
+    monkeypatch.setattr("app.ingest.tasks.configure_trusted_ca", lambda *_args, **_kwargs: None)
+    built = {}
+
+    def public_factory(proxy_url=None):
+        built["public_proxy"] = proxy_url
+        return Maps((1, 1))
+
+    class ProxyConnector(PartConnector):
+        def __init__(self, **kwargs):
+            super().__init__()
+            built["connector"] = kwargs
+
+    monkeypatch.setattr("app.ingest.tasks.build_public_client", public_factory)
+    monkeypatch.setattr("app.ingest.tasks.BilibiliConnector", ProxyConnector)
+    item = worker_item()
+    assert process_item(item.id, session_factory=lambda: WorkerDB(item)) == "needs_asr"
+    assert built["public_proxy"] == PROXY
+    assert built["connector"]["proxy_url"] == PROXY
 
 
 def test_caption_less_part_fails_closed_instead_of_an_unverifiable_asr_handoff(monkeypatch):

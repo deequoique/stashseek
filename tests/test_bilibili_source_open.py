@@ -13,11 +13,13 @@ CID = "123"
 
 
 class Gate:
-    def __init__(self) -> None:
+    def __init__(self, *, admit_error: BilibiliPublicError | None = None) -> None:
         self.upstream_calls = 0
+        self.admit_error = admit_error
 
     def admit(self, _user_id: int) -> None:
-        return None
+        if self.admit_error is not None:
+            raise self.admit_error
 
     @contextmanager
     def upstream(self):
@@ -67,8 +69,8 @@ class Session:
         return 1 if self._owned else None
 
 
-def service(public: Public, *, row=(BV, CID, 2), owned: bool = True):
-    gate = Gate()
+def service(public: Public, *, row=(BV, CID, 2), owned: bool = True, admit_error: BilibiliPublicError | None = None):
+    gate = Gate(admit_error=admit_error)
     return BilibiliService(
         lambda: Session(row, owned=owned),
         submission=SimpleNamespace(),
@@ -99,6 +101,59 @@ def test_provider_throttling_falls_back_to_the_stored_page():
     assert bilibili.open_source(SimpleNamespace(app_user_id=7), "item-public", timestamp=5) == (
         f"https://www.bilibili.com/video/{BV}?p=3&t=5"
     )
+
+
+@pytest.mark.parametrize("code", ["bilibili_rate_limited", "bilibili_busy", "bilibili_unavailable"])
+def test_every_transient_provider_failure_falls_back_to_the_stored_page(code):
+    public = Public(error=BilibiliPublicError(code))
+    bilibili, _gate = service(public, row=(BV, CID, 3))
+
+    assert bilibili.open_source(SimpleNamespace(app_user_id=7), "item-public", timestamp=5) == (
+        f"https://www.bilibili.com/video/{BV}?p=3&t=5"
+    )
+
+
+@pytest.mark.parametrize("code", ["source_unavailable", "bilibili_limit_exceeded", "bilibili_invalid_url"])
+def test_non_transient_failure_never_opens_a_possibly_different_part(code):
+    public = Public(error=BilibiliPublicError(code))
+    bilibili, _gate = service(public, row=(BV, CID, 3))
+
+    with pytest.raises(BilibiliPublicError) as caught:
+        bilibili.open_source(SimpleNamespace(app_user_id=7), "item-public")
+    assert caught.value.error_code == code
+
+
+def test_vanished_cid_does_not_fall_back_to_the_stored_page():
+    # The cached part map no longer lists CID 123: resolve_part reports
+    # source_unavailable, and opening stored page 3 would show another part.
+    class Remapped(Public):
+        def get_parts(self, bvid: str) -> BilibiliPartMap:
+            self.calls += 1
+            return BilibiliPartMap(bvid, "video", (BilibiliPart(bvid, "100", 1, "P1"), BilibiliPart(bvid, "999", 2, "P2")))
+
+    bilibili, _gate = service(Remapped(), row=(BV, CID, 3))
+
+    with pytest.raises(BilibiliPublicError) as caught:
+        bilibili.open_source(SimpleNamespace(app_user_id=7), "item-public")
+    assert caught.value.error_code == "source_unavailable"
+
+
+def test_tenant_admission_rate_limit_falls_back_without_an_upstream_call():
+    public = Public()
+    bilibili, gate = service(public, row=(BV, CID, 3), admit_error=BilibiliPublicError("bilibili_rate_limited"))
+
+    assert bilibili.open_source(SimpleNamespace(app_user_id=7), "item-public", timestamp=9) == (
+        f"https://www.bilibili.com/video/{BV}?p=3&t=9"
+    )
+    assert public.calls == 0 and gate.upstream_calls == 0
+
+
+def test_admission_outage_without_a_stored_page_stays_fail_closed():
+    bilibili, _gate = service(Public(), row=(BV, CID, None), admit_error=BilibiliPublicError("bilibili_rate_limited"))
+
+    with pytest.raises(BilibiliPublicError) as caught:
+        bilibili.open_source(SimpleNamespace(app_user_id=7), "item-public")
+    assert caught.value.error_code == "bilibili_rate_limited"
 
 
 def test_failure_without_a_stored_page_stays_fail_closed():

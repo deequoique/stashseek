@@ -168,6 +168,120 @@ def test_public_http_429_does_not_emit_provider_body_or_exception_text(monkeypat
     assert output.getvalue() == b""
 
 
+PROXY = "http://127.0.0.1:18080"
+
+
+def run_public_child(monkeypatch, payload, opener=None):
+    """Run fetch_public.main() on ``payload``; return (exit code, stdout, handlers)."""
+    seen = []
+
+    class Response:
+        status = 200
+        headers = {}
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def read(self, maximum):
+            return b"{}"
+
+    class DefaultOpener:
+        def open(self, request, *, timeout):
+            return Response()
+
+    def build(*handlers):
+        seen.extend(handlers)
+        return opener or DefaultOpener()
+
+    monkeypatch.setattr(fetch_public, "build_opener", build)
+    monkeypatch.setattr(fetch_public.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(json.dumps(payload).encode())))
+    output = io.BytesIO()
+    monkeypatch.setattr(fetch_public.sys, "stdout", SimpleNamespace(buffer=output))
+    return fetch_public.main(), output.getvalue(), seen
+
+
+def favorites_payload(**extra):
+    return {"endpoint": "favorites", "params": {"media_id": FID, "pn": "1", "ps": "20"}, **extra}
+
+
+def test_parent_writes_the_configured_proxy_into_the_child_payload_only(monkeypatch):
+    calls = []
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        return SimpleNamespace(returncode=0, stdout=b"{}")
+    monkeypatch.setattr(subprocess, "run", run)
+    params = {"media_id": FID, "pn": "1", "ps": "20"}
+    BoundedPublicHTTP(proxy_url=PROXY).get_json("favorites", params)
+    BoundedPublicHTTP().get_json("favorites", params)
+    with_proxy, without_proxy = (json.loads(call[1]["input"]) for call in calls)
+    assert with_proxy == {"endpoint": "favorites", "params": params, "proxy": PROXY}
+    assert without_proxy == {"endpoint": "favorites", "params": params, "proxy": None}
+    # The proxy never reaches argv or the environment of the child.
+    assert PROXY not in " ".join(calls[0][0]) and "env" not in calls[0][1]
+
+
+def test_public_client_builders_pass_the_proxy_to_the_http_boundary():
+    from app.bilibili.public import build_public_client
+    assert BilibiliPublicClient(proxy_url=PROXY)._http._proxy_url == PROXY
+    assert build_public_client(PROXY)._http._proxy_url == PROXY
+    assert build_public_client()._http._proxy_url is None
+    sentinel = object()
+    assert BilibiliPublicClient(sentinel, proxy_url=PROXY)._http is sentinel
+
+
+@pytest.mark.parametrize("proxy", [PROXY, "http://localhost:18080", "http://[::1]:18080", PROXY + "/"])
+def test_public_child_routes_only_through_a_valid_loopback_proxy(monkeypatch, proxy):
+    code, output, handlers = run_public_child(monkeypatch, favorites_payload(proxy=proxy))
+    assert (code, output) == (0, b"{}")
+    proxy_handlers = [handler for handler in handlers if isinstance(handler, fetch_public.ProxyHandler)]
+    assert len(proxy_handlers) == 1 and proxy_handlers[0].proxies == {"http": proxy, "https": proxy}
+
+
+def test_public_child_without_a_proxy_keeps_ignoring_the_ambient_proxy_environment(monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://203.0.113.9:3128")
+    for payload in (favorites_payload(), favorites_payload(proxy=None)):
+        code, _output, handlers = run_public_child(monkeypatch, payload)
+        assert code == 0
+        proxy_handlers = [handler for handler in handlers if isinstance(handler, fetch_public.ProxyHandler)]
+        assert [handler.proxies for handler in proxy_handlers] == [{}]
+
+
+@pytest.mark.parametrize("proxy", [
+    "http://203.0.113.9:3128",
+    "http://proxy.example.com:18080",
+    "https://127.0.0.1:18080",
+    "socks5://127.0.0.1:18080",
+    "http://user:pass@127.0.0.1:18080",
+    "http://user@127.0.0.1:18080",
+    "http://127.0.0.1",
+    "http://127.0.0.1:99999",
+    "http://127.0.0.1:18080/path",
+    "http://127.0.0.1:18080/?a=b",
+    "http://127.0.0.1:18080/#frag",
+    " http://127.0.0.1:18080",
+    "",
+    "127.0.0.1:18080",
+    18080,
+    ["http://127.0.0.1:18080"],
+])
+def test_public_child_rejects_any_non_loopback_or_malformed_proxy_before_network(monkeypatch, proxy):
+    code, output, handlers = run_public_child(
+        monkeypatch, favorites_payload(proxy=proxy),
+        opener=SimpleNamespace(open=lambda *args, **kwargs: pytest.fail("network must not be reached")),
+    )
+    assert (code, output) == (1, b"")
+    assert handlers == []
+
+
+@pytest.mark.parametrize("status,expected", [(412, 3), (429, 3), (403, 1), (500, 1)])
+def test_public_child_maps_provider_risk_control_statuses_to_fixed_exits(monkeypatch, status, expected):
+    class Opener:
+        def open(self, request, **kwargs):
+            raise HTTPError(request.full_url, status, "private provider detail", {}, io.BytesIO(b"private body"))
+    code, output, _handlers = run_public_child(monkeypatch, favorites_payload(proxy=PROXY), opener=Opener())
+    assert (code, output) == (expected, b"")
+
+
 def test_preview_caps_are_explicit_and_do_not_walk_unseen_pages():
     value = response(20)
     value["data"]["has_more"] = True

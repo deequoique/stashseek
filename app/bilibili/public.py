@@ -173,13 +173,20 @@ class BoundedPublicHTTP:
     The repository-owned child sends only a fixed endpoint/validated parameters,
     bounds its response before printing and never prints provider error text.
     No thread can continue making requests after a request deadline.
+
+    ``proxy_url`` is the credential-free loopback egress (``US_VIDEO_PROXY_URL``).
+    It travels in the child's stdin payload, never its argv or environment, and
+    the child re-validates it before use. ``None`` keeps the direct route.
     """
+
+    def __init__(self, proxy_url: str | None = None) -> None:
+        self._proxy_url = proxy_url
 
     def get_json(self, endpoint: str, params: dict[str, str]) -> dict:
         try:
             completed = subprocess.run(
                 [sys.executable, "-m", "app.bilibili.fetch_public"],
-                input=json.dumps({"endpoint": endpoint, "params": params}).encode(),
+                input=json.dumps({"endpoint": endpoint, "params": params, "proxy": self._proxy_url}).encode(),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 timeout=PUBLIC_DEADLINE_SECONDS,
@@ -197,8 +204,8 @@ class BoundedPublicHTTP:
 
 
 class BilibiliPublicClient:
-    def __init__(self, http=None) -> None:
-        self._http = http or BoundedPublicHTTP()
+    def __init__(self, http=None, *, proxy_url: str | None = None) -> None:
+        self._http = http or BoundedPublicHTTP(proxy_url)
 
     def get_parts(self, bvid: str) -> BilibiliPartMap:
         if not valid_bvid(bvid):
@@ -291,6 +298,10 @@ class BilibiliPublicClient:
             page, has_more, page == MAX_FAVORITES_PAGES and has_more, tuple(items))
 
 
-def build_public_client() -> BilibiliPublicClient:
-    """Worker-only low-level public client; browser gates are service-owned."""
-    return BilibiliPublicClient()
+def build_public_client(proxy_url: str | None = None) -> BilibiliPublicClient:
+    """Low-level public client; browser gates are service-owned.
+
+    ``proxy_url`` routes discovery through the loopback video egress; ``None``
+    keeps the direct route.
+    """
+    return BilibiliPublicClient(proxy_url=proxy_url)

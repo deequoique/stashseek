@@ -12,8 +12,8 @@
 系统用户，不进入 `notebook-agent.env`、数据库、日志或命令行。数据库、Redis、MinIO、
 Embedding、邮件、Web、MCP 和 Caddy 都不走这个代理。
 
-tinyproxy 只放行 HTTPS CONNECT 443，且目的主机必须匹配过滤文件里的七条锚定规则：
-`youtube.com`、`googlevideo.com`、`bilibili.com`、`hdslb.com`、`bilivideo.com`、
+tinyproxy 只放行 HTTPS CONNECT 443，且目的主机必须匹配过滤文件里的八条锚定规则：
+`youtube.com`、`googlevideo.com`、`bilibili.com`、`b23.tv`、`hdslb.com`、`bilivideo.com`、
 `bilivideo.cn`，以及 Bilibili 的 Akamai 镜像 `upos-*.akamaized.net`（只放行 `upos-`
 前缀，不开放整个 `akamaized.net`）。其余目的地一律 403，所以服务器上其他进程即使
 连到这个端口，也花不到代理流量。TLS 是端到端的，
@@ -203,6 +203,12 @@ sudo journalctl -u notebook-agent-youtube-egress --since today
 `scripts/youtube-home-egress` 里内嵌的同一份规则），重新安装并重启 egress 服务。
 `b23.tv` 也在规则内，用于展开手机 App 分享的短链；漏掉它会让 B 站分享链接在
 数据中心出口上解析失败。
+
+公开收藏夹与分 P 发现（`BILIBILI_PUBLIC_ENABLED`）访问的 `api.bilibili.com`，以及分 P
+字幕抽取子进程，现在同样经 `US_VIDEO_PROXY_URL` 出口；`api.bilibili.com` 已被现有的
+`(^|\.)bilibili\.com$` 规则覆盖，不需要新增主机。但生产主机上的 tinyproxy 过滤文件由
+主机管理、不随部署更新，必须确认其中也有仓库过滤文件新增的 `(^|\.)b23\.tv$` 一行；
+缺了它，短链解析会在数据中心出口上失败。
 
 ## 故障处理
 

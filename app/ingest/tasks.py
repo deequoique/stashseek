@@ -510,7 +510,7 @@ def process_item(
         elif pin is not None:
             # HTTP admission signed the stable CID. Resolve its *current* page,
             # but do not write even metadata until actual extraction attests it.
-            public_client = public_client or build_public_client()
+            public_client = public_client or build_public_client(settings.us_video_proxy_url)
             try:
                 before = public_client.get_parts(pin[0])
                 part = before.resolve_part(pin[1])
@@ -521,6 +521,7 @@ def process_item(
                 connector = BilibiliConnector(
                     max_transcript_bytes=settings.ingest_max_raw_transcript_bytes,
                     fetch_timeout_seconds=settings.bilibili_fetch_timeout_seconds,
+                    proxy_url=settings.us_video_proxy_url,
                 )
             fetch_part = getattr(connector, "fetch_part", None)
             if fetch_part is None:

@@ -178,6 +178,10 @@ def test_source_resolves_current_cid_position_and_keeps_bounded_local_time(syste
     with pytest.raises(BilibiliPublicError, match="not_found"):
         system.service.open_source(system.foreign, result.item_public_id)
     system.public.parts = (BilibiliPart(BV, "101", 1),)
+    # Source clicks reuse a short-lived part map; expire it so this models the
+    # provider dropping the CID. A vanished CID must raise, never open the
+    # stored page (that would be a different part).
+    system.service._parts_cache.clear()
     with pytest.raises(BilibiliPublicError, match="source_unavailable"):
         system.service.open_source(system.scope, result.item_public_id)
 

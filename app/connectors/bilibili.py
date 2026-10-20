@@ -3,7 +3,8 @@
 The connector never persists or supplies Bilibili cookies. yt-dlp resolves
 public metadata and any server-visible official subtitle into an in-memory SRT
 payload; login-only subtitles are handed to the browser-companion path.  When a
-loopback egress proxy is configured, only the yt-dlp child is routed through it.
+loopback egress proxy is configured, only the yt-dlp children (metadata and the
+isolated part-extraction child) are routed through it.
 """
 
 from __future__ import annotations
@@ -45,10 +46,17 @@ DEFAULT_MAX_TRANSCRIPT_BYTES = 5_000_000
 DEFAULT_FETCH_TIMEOUT_SECONDS = 30.0
 
 
-def _bounded_part_process(args, *, input: bytes, timeout: float, max_output: int):
-    """Bound both child output streams while enforcing a whole-process deadline."""
+def _bounded_part_process(args, *, input: bytes, timeout: float, max_output: int, env=None):
+    """Bound both child output streams while enforcing a whole-process deadline.
 
-    child = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    ``env`` is the optional child-only proxy environment; ``None`` inherits the
+    worker environment. The child's stderr is bounded but never returned: it
+    reports failures through its exit code alone.
+    """
+
+    child = subprocess.Popen(
+        args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
+    )
     assert child.stdin is not None and child.stdout is not None and child.stderr is not None
     deadline = time.monotonic() + timeout
     output = bytearray()
@@ -203,9 +211,12 @@ class BilibiliConnector:
                                   "max_bytes": self._max_transcript_bytes,
                                   "timeout": self._fetch_timeout_seconds}).encode("utf-8"),
                 timeout=self._fetch_timeout_seconds, max_output=maximum,
+                env=self._child_environment(),
             )
         except subprocess.TimeoutExpired:
-            raise TransientFetchError("bilibili_fetch_timeout") from None
+            raise TransientFetchError(
+                "bilibili_proxy_timeout" if self._proxy_url is not None else "bilibili_fetch_timeout"
+            ) from None
         except OSError:
             raise SourceUnavailableError() from None
         if result.returncode == 20:
