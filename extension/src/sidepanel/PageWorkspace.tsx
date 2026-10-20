@@ -5,13 +5,19 @@ import type { PanelDeps } from "./deps";
 import { PanelLogin } from "./PanelLogin";
 import { PrivacyLink } from "./PrivacyLink";
 import { QaThread } from "./QaThread";
-import { isActiveCollect } from "./useCollect";
+import { type CollectButtonState, collectButtonState } from "./useCollect";
 import { questionBlock, usePageQa, type VideoSession } from "./usePageQa";
 
 const MAX_QUESTION_CHARS = 4000;
 const SUGGESTIONS = ["这个视频讲了什么？", "刚才说的是什么意思？"];
 
 const PLATFORM_LABEL = { youtube: "YouTube", bilibili: "哔哩哔哩" } as const;
+
+const COLLECT_BUTTON_LABEL: Record<CollectButtonState, string> = {
+  idle: "收藏视频",
+  saving: "收藏中…",
+  saved: "已收藏",
+};
 
 interface PageWorkspaceProps {
   deps: PanelDeps;
@@ -66,7 +72,7 @@ export function PageWorkspace({ deps, paired, pageQa, transcriptionPlatforms, on
   const asking = session?.asking === true;
   const willTranscribe = session !== null && transcriptionPlatforms.includes(session.platform);
   const caption = session ? captionLine(session, willTranscribe) : null;
-  const collecting = session?.thread.some(isActiveCollect) === true;
+  const collectState = session ? collectButtonState(session.thread) : "idle";
 
   return (
     <div className="sp-shell">
@@ -108,10 +114,10 @@ export function PageWorkspace({ deps, paired, pageQa, transcriptionPlatforms, on
             <button
               className="button button--primary button--wide sp-collect-button"
               type="button"
-              disabled={collecting}
+              disabled={collectState !== "idle"}
               onClick={controller.collect}
             >
-              {collecting ? "收藏中…" : "收藏视频"}
+              {COLLECT_BUTTON_LABEL[collectState]}
             </button>
             {connecting ? (
               <div className="sp-connect">

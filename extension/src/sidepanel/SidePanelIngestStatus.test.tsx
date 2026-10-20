@@ -27,7 +27,7 @@ const FETCH_FAILED: IngestReason = { code: "transient_fetch_failed", category: "
 const LOGIN_REQUIRED: IngestReason = { code: "bilibili_login_required", category: "login_required", retry_useful: false };
 
 const sleep = (ms: number) => act(async () => { await new Promise((resolve) => { setTimeout(resolve, ms); }); });
-const collectButton = () => screen.getByRole("button", { name: /^收藏(视频|中…)$/ });
+const collectButton = () => screen.getByRole("button", { name: /^(收藏视频|收藏中…|已收藏)$/ });
 const rows = () => within(screen.getByRole("list", { name: "整理步骤" }));
 const row = (text: string) => rows().getByText(text).closest("li") as HTMLElement;
 const card = () => within(screen.getByRole("region", { name: "收藏还在，整理没有完成" }));

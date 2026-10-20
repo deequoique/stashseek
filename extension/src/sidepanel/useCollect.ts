@@ -51,6 +51,19 @@ export function isActiveCollect(entry: { kind: string; phase?: string; retryStat
   return entry.kind === "collect" && (entry.phase !== "done" || entry.retryState === "pending");
 }
 
+export type CollectButtonState = "idle" | "saving" | "saved";
+
+/**
+ * What the 「收藏视频」 button is doing. The save is over as soon as the server has queued the item:
+ * the processing that follows is shown by the card in the thread, so the button only says "saved"
+ * while the item is followed, instead of staying "saving" until every stage has finished.
+ */
+export function collectButtonState(thread: readonly { kind: string; phase?: string; retryState?: string }[]): CollectButtonState {
+  const active = thread.find(isActiveCollect);
+  if (!active) return "idle";
+  return active.phase === "tracking" ? "saved" : "saving";
+}
+
 function youtubeUrl(videoKey: string): string | null {
   const id = /^youtube:([A-Za-z0-9_-]{11})$/.exec(videoKey)?.[1];
   return id ? `https://www.youtube.com/watch?v=${id}` : null;

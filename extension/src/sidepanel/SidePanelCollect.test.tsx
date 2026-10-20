@@ -41,7 +41,7 @@ async function renderPanel(env: FakeEnvironment) {
   return user;
 }
 
-const collectButton = () => screen.getByRole("button", { name: /^收藏(视频|中…)$/ });
+const collectButton = () => screen.getByRole("button", { name: /^(收藏视频|收藏中…|已收藏)$/ });
 const collectSteps = () => within(screen.getByRole("list", { name: "收藏步骤" }));
 const stepItem = (text: string) => collectSteps().getByText(text).closest("li") as HTMLElement;
 /** The ingest progress card shown once the server has the item. */
@@ -80,10 +80,11 @@ describe("收藏视频 on the capture path", () => {
     expect(env.worker.saveCapture.mock.calls[0]?.[0]).toBe(await env.worker.readPage.mock.results[0]?.value);
     expect(env.worker.readPage).toHaveBeenCalledOnce();
     expect(env.submitBatch).not.toHaveBeenCalled();
-    expect(collectButton()).toBeDisabled();
-    expect(collectButton()).toHaveTextContent("收藏中…");
 
     expect(await screen.findByRole("heading", { name: "已经保存，不必等在这里" })).toBeInTheDocument();
+    // The server has the item: the save itself is over, even though the stages still run.
+    expect(collectButton()).toBeDisabled();
+    expect(collectButton()).toHaveTextContent("已收藏");
     expect(screen.getByText("现在可以继续看视频，关闭插件也不影响处理。")).toBeInTheDocument();
     expect(screen.getByText("已读取页面字幕（2 段）")).toBeInTheDocument();
     expect(progressRow("保存视频链接")).toHaveClass("is-done");
@@ -110,6 +111,40 @@ describe("收藏视频 on the capture path", () => {
 
     await user.click(screen.getByRole("button", { name: "在工作区查看" }));
     expect(env.tabs.openUrl).toHaveBeenCalledWith("chrome-extension://test/workspace.html#/videos/item-1");
+  });
+
+  it("says saving only until the server answers, then saved while the item is still being processed", async () => {
+    const env = makeEnvironment();
+    const item = feed(env);
+    let answer: (result: { lifecycle: string; status: string; item_public_id: string }) => void = () => {};
+    env.worker.saveCapture.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    const user = await renderPanel(env);
+    await screen.findByText(CAPTION_LINE);
+
+    await user.click(collectButton());
+
+    await waitFor(() => expect(env.worker.saveCapture).toHaveBeenCalledOnce());
+    expect(collectButton()).toBeDisabled();
+    expect(collectButton()).toHaveTextContent("收藏中…");
+    expect(screen.getByText("正在提交")).toBeInTheDocument();
+
+    await act(async () => { answer({ lifecycle: "queued", status: "accepted", item_public_id: "item-1" }); });
+
+    // Queued on the server: the button says saved at once instead of waiting for chunking and embedding.
+    await waitFor(() => expect(collectButton()).toHaveTextContent("已收藏"));
+    expect(collectButton()).toBeDisabled();
+    expect(screen.getByRole("heading", { name: "已经保存，不必等在这里" })).toBeInTheDocument();
+    expect(progressRow("排队中")).toHaveClass("is-pending");
+    expect(screen.queryByText("已收藏到资料库。")).not.toBeInTheDocument();
+
+    item.item = libraryItem({ stage: "chunking" });
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
+    expect(collectButton()).toHaveTextContent("已收藏");
+
+    item.item = libraryItem({ lifecycle: "ready", stage: "ready", body_searchable: true });
+    await waitFor(() => expect(screen.getByText("已收藏到资料库。")).toBeInTheDocument());
+    expect(collectButton()).toBeEnabled();
+    expect(collectButton()).toHaveTextContent("收藏视频");
   });
 
   it("keeps caption text out of everything it persists", async () => {
@@ -752,7 +787,7 @@ describe("收藏视频 on Bilibili", () => {
 
     await waitFor(() => expect(env.worker.saveCapture).toHaveBeenCalledOnce());
     expect(env.submitBatch).not.toHaveBeenCalled();
-    expect(collectButton()).toHaveTextContent("收藏中…");
+    await waitFor(() => expect(collectButton()).toHaveTextContent("已收藏"));
   });
 
   it("imports a caption-less part 1 by its canonical URL", async () => {
