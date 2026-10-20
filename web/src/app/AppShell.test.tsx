@@ -3,10 +3,22 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type * as BrowserCompanionModule from "./browserCompanion";
+
+const extensionContext = vi.hoisted(() => ({ active: false }));
+
+vi.mock("./browserCompanion", async (importOriginal) => ({
+  ...(await importOriginal<typeof BrowserCompanionModule>()),
+  isExtensionContext: () => extensionContext.active,
+}));
+
 import { AppShell, COMMUNITY_NOTICE_STORAGE_KEY } from "./AppShell";
 
 describe("application shell", () => {
-  beforeEach(() => window.localStorage.clear());
+  beforeEach(() => {
+    window.localStorage.clear();
+    extensionContext.active = false;
+  });
 
   it("keeps one quiet top bar and exposes an explicit logout", async () => {
     const onLogout = vi.fn();
@@ -46,6 +58,38 @@ describe("application shell", () => {
     );
     await user.click(screen.getByRole("button", { name: "退出登录" }));
     expect(onLogout).toHaveBeenCalledOnce();
+  });
+
+  it("exposes the Chrome Web Store install entry in the top bar outside the extension", () => {
+    render(
+      <MemoryRouter>
+        <AppShell loginChannel="email" onLogout={() => undefined}>
+          <h1>我的资料库</h1>
+        </AppShell>
+      </MemoryRouter>,
+    );
+
+    const install = screen.getByRole("link", { name: "在 Chrome 应用商店安装搜藏助手插件" });
+    expect(install).toHaveAttribute(
+      "href",
+      "https://chromewebstore.google.com/detail/jeemllapbelpglmpnhjfamcnoibpeail",
+    );
+    expect(install).toHaveAttribute("target", "_blank");
+    expect(install).toHaveAttribute("rel", "noreferrer");
+    expect(install).toHaveTextContent("Chrome 插件");
+  });
+
+  it("hides the install entry inside the extension workspace", () => {
+    extensionContext.active = true;
+    render(
+      <MemoryRouter>
+        <AppShell loginChannel="email" onLogout={() => undefined}>
+          <h1>我的资料库</h1>
+        </AppShell>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole("link", { name: "在 Chrome 应用商店安装搜藏助手插件" })).not.toBeInTheDocument();
   });
 
   it("shows first-level community details and persists announcement dismissal", async () => {

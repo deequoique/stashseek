@@ -194,6 +194,9 @@ h2 { line-height: 1.1; }
 .community-menu summary { color: #1599d4; }
 .community-menu summary svg, .topbar__external-link svg { width: 1.3rem; height: 1.3rem; fill: currentColor; }
 .topbar__external-link { color: var(--ink); text-decoration: none; }
+.topbar__install { height: 44px; display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 0.45rem; padding: 0 0.95rem; border-radius: 999px; background: var(--ink); color: #fff; font-size: 0.78rem; font-weight: 800; text-decoration: none; }
+.topbar__install svg { width: 1.15rem; height: 1.15rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.topbar__install:hover { background: var(--green); }
 .account-menu summary:hover, .community-menu summary:hover, .topbar__external-link:hover { border-color: rgba(49, 94, 83, 0.42); background: rgba(251, 248, 241, 0.7); }
 .account-popover { position: absolute; top: calc(100% + 0.7rem); right: 0; width: 13rem; padding: 1rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--paper); box-shadow: var(--shadow); }
 .account-popover strong { display: block; margin-bottom: 1rem; }
@@ -379,6 +382,8 @@ h2 { line-height: 1.1; }
 .companion-device { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--line); }
 .companion-device:first-of-type { margin-top: 1rem; }
 .companion-device p { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.82rem; }
+.companion-offline { margin-top: 0.9rem; font-size: 0.82rem; }
+.companion-offline a { color: var(--green); font-weight: 800; }
 
 .page-container,
 .login-page,
@@ -815,6 +820,8 @@ h2 { line-height: 1.1; }
 @media (max-width: 699px) {
   .wordmark > span { display: none; }
   .topbar__actions { gap: 0.35rem; }
+  .topbar__install { width: 44px; padding: 0; }
+  .topbar__install span { display: none; }
   .community-popover { position: fixed; top: calc(68px + 0.7rem); right: 1rem; left: 1rem; width: auto; }
   .community-notice__inner { align-items: start; gap: 0.65rem; padding-block: 0.75rem; }
   .community-notice__icon { margin-top: 0.1rem; }
@@ -968,7 +975,8 @@ h2 { line-height: 1.1; }
   text-decoration: none;
 }
 .showcase-nav__actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.65rem; }
-.showcase-nav__companion { min-height: 44px; display: inline-flex; align-items: center; padding: 0 0.9rem; border: 1px solid rgba(255, 255, 255, 0.28); color: white; font-family: var(--showcase-mono); font-size: 0.76rem; font-weight: 800; letter-spacing: 0.04em; text-decoration: none; }
+.showcase-nav__login { min-height: 44px; display: inline-flex; align-items: center; padding: 0 0.7rem; color: rgba(255, 255, 255, 0.82); font-size: 0.82rem; font-weight: 700; text-decoration: none; }
+.showcase-nav__install { min-height: 44px; display: inline-flex; align-items: center; gap: 0.5rem; padding: 0 1.05rem; background: var(--showcase-signal); color: var(--showcase-ink); font-size: 0.8rem; font-weight: 800; letter-spacing: 0.02em; text-decoration: none; white-space: nowrap; transition: background 160ms ease; }
 
 .showcase-hero {
   position: relative;
@@ -1038,6 +1046,8 @@ h2 { line-height: 1.1; }
   line-height: 1.85;
 }
 .showcase-hero__actions { display: flex; flex-wrap: wrap; gap: 0.8rem; margin-top: 2.5rem; }
+.showcase-hero__install-meta { max-width: 39rem; margin: 1.25rem 0 0; color: rgba(255, 255, 255, 0.55); font-size: 0.78rem; line-height: 1.8; }
+.showcase-hero__install-meta a { color: rgba(255, 255, 255, 0.82); font-weight: 700; text-decoration: underline; text-underline-offset: 0.2rem; }
 .showcase-button {
   min-height: 50px;
   display: inline-flex;
@@ -1655,6 +1665,7 @@ h2 { line-height: 1.1; }
 .showcase-cta { display: grid; justify-items: center; padding: clamp(6rem, 13vw, 11rem) 1rem; background: var(--showcase-signal); text-align: center; }
 .showcase-cta .showcase-overline { color: #566414; }
 .showcase-cta h2 { max-width: 7em; margin: 1.5rem 0 2.5rem; font-size: clamp(3rem, 7vw, 7rem); line-height: 1; }
+.showcase-cta__login { min-height: 44px; display: inline-flex; align-items: center; margin-top: 1rem; color: var(--showcase-ink); font-size: 0.9rem; font-weight: 800; text-decoration: underline; text-underline-offset: 0.25rem; }
 .showcase-cta__note { margin-top: 1.5rem !important; color: #596419; font-size: 0.67rem; font-weight: 700; letter-spacing: 0.04em; }
 .showcase-footer {
   min-height: 112px;
@@ -1675,7 +1686,8 @@ h2 { line-height: 1.1; }
 .showcase-footer__links svg { width: 1rem; height: 1rem; fill: currentColor; }
 
 @media (hover: hover) and (pointer: fine) {
-  .showcase-nav nav a:hover { color: var(--showcase-signal); }
+  .showcase-nav nav a:hover, .showcase-nav__login:hover { color: var(--showcase-signal); }
+  .showcase-nav__install:hover { background: #e2ff7d; }
   .showcase-button:hover { transform: translateY(-2px); }
   .showcase-button--signal:hover { background: #e2ff7d; }
   .showcase-button--line:hover { border-color: #fff; background: #fff; color: var(--showcase-ink); }
@@ -1719,10 +1731,12 @@ h2 { line-height: 1.1; }
 }
 
 @media (max-width: 700px) {
-  .showcase-nav { min-height: 68px; }
+  .showcase-nav { min-height: 68px; gap: 0.75rem; }
+  .showcase-nav__actions { gap: 0.2rem; }
   .showcase-brand > span:last-child { font-size: 0.62rem; }
   .showcase-nav__cta { font-size: 0.7rem; }
-  .showcase-nav__companion { padding-inline: 0.7rem; font-size: 0.66rem; }
+  .showcase-nav__login { padding-inline: 0.55rem; font-size: 0.76rem; }
+  .showcase-nav__install { gap: 0.4rem; padding-inline: 0.8rem; font-size: 0.74rem; }
   .showcase-hero { display: block; padding-top: calc(7.75rem + env(safe-area-inset-top)); }
   .showcase-kicker { justify-content: space-between; gap: 0.5rem; margin-bottom: 2.5rem !important; }
   .showcase-kicker span:first-child::before { width: 1.2rem; }
@@ -1840,4 +1854,8 @@ h2 { line-height: 1.1; }
   .showcase-footer { grid-template-columns: 1fr auto; padding: 1.5rem 1rem calc(1.5rem + env(safe-area-inset-bottom)); }
   .showcase-footer p { grid-column: 1 / -1; grid-row: 2; justify-items: start; }
   .showcase-footer__links { flex-wrap: wrap; justify-content: flex-end; }
+}
+
+@media (max-width: 420px) {
+  .showcase-nav .showcase-brand > span:last-child { display: none; }
 }
