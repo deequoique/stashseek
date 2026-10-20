@@ -120,11 +120,31 @@ Components are plain function components. Pages orchestrate queries and mutation
 - Keep raw HTML and optional Markdown extensions disabled. Override model-authored
   links and images to inert text; only the separate server-owned citation DTO
   may create clickable source anchors.
-- Remove the deterministic appended text-source block before Markdown parsing,
-  then render structured citation cards as adjacent semantic content.
-- Citation cards show the server-owned title, link, and timestamp by default;
-  subtitle/excerpt text remains inside a collapsed native `<details>` block and
-  is expanded only by the user's keyboard or pointer action.
+- Remove the deterministic appended text-source block before Markdown parsing.
+- Inline citation chips (`extension/src/chat/citationChips.tsx`, task
+  `10-20-inline-citation-chips`): the web API rewrites each in-text citation
+  marker to `[^n]`, where `n` is the 1-based position of the citation in that
+  answer's public `citations` list. `remarkCitationChips` walks the mdast and
+  turns `[^n]` text into a link node tagged `data-cite`; it never touches
+  `code`, `inlineCode`, `link` or `linkReference` subtrees. `MarkdownAnswer`
+  renders a tagged link as `CitationChip` only when `1 <= n <= citations.length`;
+  any other `[^n]` stays literal text, and untagged (model-authored) links stay
+  inert `<span>`s. The `components` object is module-level so chips are not
+  remounted on every streamed delta.
+- `CitationChip` is a real `<a target="_blank" rel="noreferrer">` to the
+  server-owned URL, labelled `引用 n：《title》 m:ss`, with a `role="tooltip"`
+  sibling (title · time or 标题与简介 · first 120 excerpt characters) shown on
+  hover and `:focus-visible`. Its visible text is `[n]` (brackets at
+  `font-size: 0`) so copied text keeps the number.
+- The per-answer toggle `引用 N` uses `aria-pressed` = "chips shown" (default
+  true). Collapsing sets `data-cites-hidden="true"` on the answer: chips are
+  zero-sized but remain in the text (copy still yields `[n]`), get
+  `aria-hidden="true"` and `tabindex="-1"`, and their tooltips are suppressed.
+  Citations not referenced in the text render once after the answer as a
+  `另见` row of chips. There is no separate citation list any more.
+- Streaming: concatenate each `section_started.citations` in arrival order to
+  build the answer's list; the `completed` response's `citations` is in the
+  same order, so numbers never shift.
 - Scope answer typography beneath `.chat-markdown`. Plain historical text must
   remain readable without migration.
 

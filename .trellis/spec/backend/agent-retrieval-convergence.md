@@ -740,3 +740,109 @@ ranked = filter_first_vector_rank(db, candidates, id_column="id",
                                    embedding_column="embedding",
                                    query_vector=query_vector, k=k)
 ```
+
+## Scenario: browser citation marker numbering
+
+### 1. Scope / Trigger
+
+Apply this contract whenever the web API (`app/api/conversation_routes.py`)
+returns answer text to the browser: the JSON answer, the SSE stream, the
+`/turns` history and the sidebar preview. Origin: task
+`10-20-inline-citation-chips` (2026-10-20). The browser renders in-text
+citations as inline chips, but the public citation DTO deliberately carries no
+internal row identifiers, so the server must express each marker as a position
+in the public list.
+
+### 2. Signatures
+
+```python
+# app/web/citation_markers.py (pure, no database)
+MARKER_RE = re.compile(r"\[S(\d+)\]")
+def position_ordinals(segment_ids: Iterable[int | None]) -> dict[int, int]   # id -> 1-based list position
+def renumber_markers(text: str, ordinals: Mapping[int, int]) -> str          # [S<id>] -> [^n]; unknown id: marker (and one leading space) removed
+class MarkerNumbering:                                                       # streaming accumulator
+    def extend(self, citations: Sequence[Citation]) -> list[int]
+    ordinals: Mapping[int, int]
+    def rewrite(self, delta: str) -> str
+    def ordered(self, values, *, key=None) -> list                            # numbered first (by number), then the rest in input order
+
+# app/api/conversation_routes.py
+browser_citations_with_sources(values, session) -> list[tuple[Citation, ConversationCitationResponse]]  # kept order
+project_answer(answer, session, numbering: MarkerNumbering | None = None) -> ConversationResponse
+_safe_citation_rows(sources) -> list[tuple[int | None, ConversationCitationResponse]]
+```
+
+### 3. Contracts
+
+- The wire marker is `[^n]`; `n` is the 1-based position of the citation in
+  the `citations` array of the same response. The number is never a separate
+  field and never an internal ID. `[1]` was rejected because model prose can
+  contain it; `[^` is not Markdown without remark-gfm and old clients show it
+  as plain text.
+- Numbering only counts citations that survive `project_browser_sources`
+  (unsafe URL, missing fields). A marker whose citation was dropped is deleted
+  together with one preceding space, so numbers stay contiguous.
+- JSON answer and `completed` response: ordinals come from the final public
+  list. Streaming: one `MarkerNumbering` per request; `section_started`
+  extends it with that section's retained citations in order (sections never
+  share a segment, enforced by the existing validator), `text_delta` is
+  rewritten per delta (safe because `_StreamingTextGuard` never splits a
+  marker), and the `completed` list is `numbering.ordered(...)`, so the
+  numbers the browser assigned while streaming match the final list.
+  Citations never referenced in the text come last.
+- History (`/turns`): ordinals come from the persisted `sources` rows that
+  survive `_safe_citation_rows` (legacy rows without `segment_id` cannot be
+  numbered, so their markers are removed). Page-Q&A threads are renumbered the
+  same way. The sidebar preview has no citation list and only strips markers.
+- Persisted `assistant_text`, the `来源：` block (also rewritten, the browser
+  strips it), MCP and LangBot text are unchanged and still use `[S<id>]`.
+- No log or diagnostic field carries the text or the identifiers.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| citation filtered out of the public list | its markers removed, remaining numbers contiguous |
+| section citation filtered during streaming | existing `section_started` validator already aborts the stream (lengths differ) |
+| legacy history row without `segment_id` | markers removed; no internal ID reaches the browser |
+| same segment cited twice | same `[^n]` both times |
+| marker for an id not in any list | removed |
+
+### 5. Good / Base / Bad Cases
+
+- Good: two streamed sections with two citations each produce `[^1]…[^4]` in
+  deltas and a four-element `completed.citations` in the same order.
+- Base: a non-streamed answer with three citations returns `[^1]`–`[^3]` and
+  the same three citations.
+- Bad: renumber from the internal `answer.citations` order before projection
+  (misaligned after a drop), expose `segment_id` to the browser, or rewrite
+  MCP/LangBot text.
+
+### 6. Tests Required
+
+- `tests/test_citation_markers.py`: single/multiple/repeated markers, removal
+  with leading space, `来源：` block rewritten, `extend` continuity across two
+  batches, `ordered` keeps unreferenced citations last.
+- `tests/test_conversation_streaming.py`: section numbering, `completed`
+  order, filtered citation on the JSON route, compat whole-answer path, no
+  `[S` in `completed.response.text`.
+- `tests/test_conversation_list_queries.py`: history with a filtered row and a
+  title row, legacy rows without `segment_id`, sidebar preview.
+- `tests/test_mcp_server.py` still sees `[S<id>]`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+ordinals = {c.segment_id: i + 1 for i, c in enumerate(answer.citations)}   # before projection
+return ConversationResponse(text=answer.text, citations=browser_citations(answer.citations, session))
+```
+
+#### Correct
+
+```python
+retained = browser_citations_with_sources(answer.citations, session)
+ordinals = position_ordinals(c.segment_id for c, _ in retained)
+return ConversationResponse(text=renumber_markers(answer.text, ordinals), citations=[r for _, r in retained])
+```

@@ -339,3 +339,90 @@ async def test_public_transcript_keeps_completed_order_and_rejects_foreign_threa
         "保留的问题", "第二个问题",
     ]
     assert foreign.status_code == missing.status_code == 404
+
+
+def _stored_source(segment_id: int, *, url: str | None = None, **extra) -> dict:
+    return {
+        "item_id": 7,
+        "segment_id": segment_id,
+        "title": f"来源{segment_id}",
+        "excerpt": f"字幕{segment_id}",
+        "url": url or f"https://example.test/video?t={segment_id}",
+        "start_sec": float(segment_id),
+        **extra,
+    }
+
+
+@pytest.mark.asyncio
+async def test_history_markers_are_renumbered_by_public_citation_position():
+    app, engine = _runtime(1)
+    stored = [
+        _stored_source(11),
+        _stored_source(12, url="ftp://bad.example/x"),  # dropped by the projection
+        _stored_source(13, start_sec=None, kind="title"),
+        _stored_source(14),
+    ]
+    text = (
+        "答 [S11] [S12] [S13]\n\n又 [S14] [S11]\n\n来源：\n- 视频\n"
+        "  - [S11] https://example.test/video?t=11 — 字幕11\n"
+        "  - [S14] https://example.test/video?t=14 — 字幕14"
+    )
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "UPDATE conversation_turn SET assistant_text=?, sources=? WHERE id=1",
+            (text, json.dumps(stored)),
+        )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://app.example.test"
+    ) as client:
+        response = await client.get("/api/v1/conversations/thread-1/turns")
+    assert response.status_code == 200
+    turn = response.json()["turns"][0]
+    assert [value["title"] for value in turn["citations"]] == ["来源11", "来源13", "来源14"]
+    assert turn["assistant_text"].startswith("答 [^1] [^2]\n\n又 [^3] [^1]")
+    assert "[S" not in turn["assistant_text"]
+    assert "  - [^3] https://example.test/video?t=14 — 字幕14" in turn["assistant_text"]
+    assert all(set(value) == {"title", "excerpt", "url", "start_sec"} for value in turn["citations"])
+    # Persisted text is untouched: the numbering is a pure projection.
+    with engine.connect() as connection:
+        assert connection.exec_driver_sql(
+            "SELECT assistant_text FROM conversation_turn WHERE id=1"
+        ).scalar_one() == text
+    engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_history_without_stored_segment_ids_never_leaks_markers():
+    app, engine = _runtime(1)
+    legacy = {key: value for key, value in _stored_source(21).items() if key != "segment_id"}
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "UPDATE conversation_turn SET assistant_text=?, sources=? WHERE id=1",
+            ("旧回答 [S21] 结尾", json.dumps([legacy])),
+        )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://app.example.test"
+    ) as client:
+        response = await client.get("/api/v1/conversations/thread-1/turns")
+    turn = response.json()["turns"][0]
+    assert turn["assistant_text"] == "旧回答 结尾"
+    assert len(turn["citations"]) == 1
+    engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_conversation_preview_strips_internal_markers():
+    app, engine = _runtime(1)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "UPDATE conversation_turn SET assistant_text=? WHERE id=1",
+            ("结论 [S31] [S32] 补充 [S31]",),
+        )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://app.example.test"
+    ) as client:
+        response = await client.get("/api/v1/conversations?limit=5")
+    assert response.status_code == 200
+    preview = response.json()["items"][0]["preview"]
+    assert preview == "结论 补充"
+    engine.dispose()

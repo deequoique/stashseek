@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -596,7 +597,12 @@ def test_end_to_end_turn_is_persisted_in_history_and_leaks_no_cue_text(caplog):
     [turn] = transcript["turns"]
     assert turn["user_text"] == "What does the speaker say?"
     assert turn["status"] == PAGE_QA_STATUS_GROUNDED
-    assert turn["assistant_text"] == final["text"]
+    # The history route is a Web projection: internal ``[S<n>]`` markers become
+    # ``[^position]`` against the returned citation list (the live panel stream
+    # keeps ``[S<n>]``, which the side panel strips itself).
+    assert "[S" not in turn["assistant_text"]
+    assert turn["assistant_text"].startswith("The speaker explains it [^1] and the rate [^2].")
+    assert turn["assistant_text"] == re.sub(r"\[S(\d+)\]", r"[^\1]", final["text"])
     assert len(turn["citations"]) == 2
 
     # Privacy: no log record anywhere carries cue text; the response never

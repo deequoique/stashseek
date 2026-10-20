@@ -27,6 +27,7 @@ import {
 } from "./ExecutionTimeline";
 import { assistantTextWithoutSourceList } from "./answerText";
 import { MarkdownAnswer } from "./MarkdownAnswer";
+import { CitationToggle, UnreferencedChips } from "./citationChips";
 import { capabilitiesQueryOptions, conversationHistoryQueryOptions, conversationTurnsQueryOptions } from "./conversationQueries";
 
 interface ChatPageProps {
@@ -56,6 +57,8 @@ interface NewConversationResult {
   response: ConversationResponse;
 }
 
+const PENDING_CITE_KEY = "pending";
+
 interface PendingSection {
   sectionId: string;
   status: "grounded" | "unsupported";
@@ -71,13 +74,6 @@ function displayTime(value: string): string {
   });
 }
 
-function startTime(value: number | null | undefined): string | null {
-  if (value === null || value === undefined) return null;
-  const minutes = Math.floor(value / 60);
-  const seconds = Math.floor(value % 60).toString().padStart(2, "0");
-  return `${minutes}:${seconds}`;
-}
-
 function markdownPreviewText(text: string): string {
   return text
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -87,7 +83,7 @@ function markdownPreviewText(text: string): string {
     .replace(/__([^_]+)__/g, "$1")
     .replace(/~~([^~]+)~~/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
-    .replace(/\s*\[S\d+\]/g, "")
+    .replace(/\s*\[(?:S|\^)\d+\]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -137,27 +133,6 @@ function activityCopy(event: ConversationStreamEvent): string {
   return event.activity ? (ACTIVITY_COPY[event.activity] ?? "正在处理…") : "正在处理…";
 }
 
-function CitationList({ citations }: { citations: ConversationCitation[] }) {
-  if (!citations.length) return null;
-  return (
-    <ol className="chat-citations">
-      {citations.map((citation, citationIndex) => (
-        <li key={`${citation.url}:${citation.start_sec ?? ""}:${citationIndex}`}>
-          <a href={citation.url} target="_blank" rel="noreferrer">
-            <span className="chat-citation-index">{String(citationIndex + 1).padStart(2, "0")}</span>
-            <span className="chat-citation-copy"><strong>{citation.title}</strong></span>
-            {startTime(citation.start_sec) ? <span className="chat-citation-time">{startTime(citation.start_sec)} ↗</span> : <span className="chat-citation-time">打开 ↗</span>}
-          </a>
-          <details className="chat-citation-excerpt">
-            <summary>展开字幕依据</summary>
-            <p>{citation.excerpt}</p>
-          </details>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
 export function ChatPage({
   loadCapabilities,
   fetchHistory,
@@ -185,6 +160,8 @@ export function ChatPage({
   const [confirmingThreadId, setConfirmingThreadId] = useState<string | null>(null);
   const [positionedTurn, setPositionedTurn] = useState<{ threadId: string; index: number; minHeight: number; turnKey?: string | null } | null>(null);
   const [historyOpenIntent, setHistoryOpenIntent] = useState<{ threadId: string } | null>(null);
+  // Answers whose inline citation chips the reader collapsed, keyed per turn.
+  const [hiddenCiteKeys, setHiddenCiteKeys] = useState<ReadonlySet<string>>(() => new Set());
   const attemptedEmptyBootstrap = useRef(false);
   const pendingQuestionRef = useRef<string | null>(null);
   const pendingAnswerRef = useRef<string>("");
@@ -380,6 +357,7 @@ export function ChatPage({
           return;
         }
         const durableTurn = latest?.turns?.[durableIndex];
+        if (durableTurn) adoptPendingCitationState(`${durableTurn.created_at}:${durableTurn.user_text}`);
         if (durableTurn && pendingThreadId === selectedThreadId) {
           // Another tab may have appended turns; anchor this exact turn.
           setPositionedTurn({
@@ -441,6 +419,17 @@ export function ChatPage({
     },
   });
 
+  // The collapse choice made on the streamed answer follows it into history.
+  function adoptPendingCitationState(turnKey: string) {
+    setHiddenCiteKeys((current) => {
+      if (!current.has(PENDING_CITE_KEY)) return current;
+      const next = new Set(current);
+      next.delete(PENDING_CITE_KEY);
+      next.add(turnKey);
+      return next;
+    });
+  }
+
   async function retryPendingSync(): Promise<void> {
     const pendingThreadId = pendingThreadIdRef.current;
     if (!pendingThreadId) return;
@@ -465,6 +454,7 @@ export function ChatPage({
         return;
       }
       const durableTurn = latest?.turns?.[durableIndex];
+      if (durableTurn) adoptPendingCitationState(`${durableTurn.created_at}:${durableTurn.user_text}`);
       if (durableTurn && pendingThreadId === selectedThreadId) {
         setPositionedTurn({
           ...questionPosition(pendingThreadId, durableIndex),
@@ -670,7 +660,21 @@ export function ChatPage({
     setPendingSyncError(false);
     setPendingActivity("正在准备回答…");
     setPendingStatus("streaming");
+    setHiddenCiteKeys((current) => {
+      if (!current.has(PENDING_CITE_KEY)) return current;
+      const next = new Set(current);
+      next.delete(PENDING_CITE_KEY);
+      return next;
+    });
     sendMessage.mutate({ conversationId: selectedConversationId, text });
+  }
+
+  function toggleCitations(key: string) {
+    setHiddenCiteKeys((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
   }
 
   function deleteSelectedConversation(threadId: string) {
@@ -689,6 +693,13 @@ export function ChatPage({
   // A page-Q&A thread belongs to the video page it was asked on: read-only here.
   const selectedIsPageThread = transcript.data?.page_qa === true
     || historyItems.find((item) => item.thread_id === selectedThreadId)?.page_qa === true;
+  // Streamed sections announce disjoint citation lists; the server numbers
+  // markers over their concatenation, which the terminal response repeats.
+  const pendingAllCitations = pendingSections.length > 0
+    ? pendingSections.flatMap((section) => section.citations)
+    : pendingCitations;
+  const pendingCitesHidden = hiddenCiteKeys.has(PENDING_CITE_KEY);
+  const pendingAnswerText = assistantTextWithoutSourceList(pendingAnswer, pendingAllCitations.length > 0);
   const pageThreadLink = turns.flatMap((turn) => turn.citations ?? []).find((citation) => citation.url)?.url;
   const suggestedQuestions = Array.from(new Set([
     ...historyItems
@@ -902,35 +913,60 @@ export function ChatPage({
               </div>
             ) : null}
             <ol className="chat-turns" aria-label="对话内容">
-              {turns.map((turn, turnIndex) => (
-                <li
-                  key={`${turn.created_at}:${turn.user_text}`}
-                  className={`chat-turn${isPositionedTurn(turnIndex, turn) ? " chat-turn--current" : ""}`}
-                  style={isPositionedTurn(turnIndex, turn) ? { minHeight: positionedTurn?.minHeight } : undefined}
-                >
-                  <article className="chat-message chat-message--user" ref={isPositionedTurn(turnIndex, turn) ? questionRef : undefined}>
-                    <header><p className="eyebrow">问题 {String(turnIndex + 1).padStart(2, "0")}</p><time dateTime={turn.created_at}>{displayTime(turn.created_at)}</time></header>
-                    <p className="chat-question-text">{turn.user_text}</p>
-                  </article>
-                  <article className={`chat-message chat-message--assistant chat-message--${turn.status}`}>
-                    <header className="chat-answer-heading"><p className="eyebrow"><i aria-hidden="true" />{selectedIsPageThread ? "视频页回答" : "资料库回答"}</p>{(turn.citations?.length ?? 0) > 0 ? <span>依据 {turn.citations?.length}</span> : null}</header>
-                    {turn.status === "not_found" ? <p className="chat-answer-state">没有在当前资料库中找到足够依据。</p> : null}
-                    {turn.status === "failed" ? <p className="chat-answer-state">这次检索未能完成。</p> : null}
-                    <MarkdownAnswer>{assistantTextWithoutSourceList(turn.assistant_text, (turn.citations?.length ?? 0) > 0)}</MarkdownAnswer>
-                    {(turn.citations?.length ?? 0) > 0 ? (
-                      <section className="chat-evidence" aria-label="回答来源">
-                        <div className="chat-evidence__heading"><p>依据 {turn.citations?.length}</p><span>可跳转原视频，字幕默认折叠</span></div>
-                        <CitationList citations={turn.citations ?? []} />
-                      </section>
-                    ) : null}
-                  </article>
-                </li>
-              ))}
+              {turns.map((turn, turnIndex) => {
+                const turnKey = `${turn.created_at}:${turn.user_text}`;
+                const turnCitations = turn.citations ?? [];
+                const answerText = assistantTextWithoutSourceList(turn.assistant_text, turnCitations.length > 0);
+                const citesHidden = hiddenCiteKeys.has(turnKey);
+                return (
+                  <li
+                    key={turnKey}
+                    className={`chat-turn${isPositionedTurn(turnIndex, turn) ? " chat-turn--current" : ""}`}
+                    style={isPositionedTurn(turnIndex, turn) ? { minHeight: positionedTurn?.minHeight } : undefined}
+                  >
+                    <article className="chat-message chat-message--user" ref={isPositionedTurn(turnIndex, turn) ? questionRef : undefined}>
+                      <header><p className="eyebrow">问题 {String(turnIndex + 1).padStart(2, "0")}</p><time dateTime={turn.created_at}>{displayTime(turn.created_at)}</time></header>
+                      <p className="chat-question-text">{turn.user_text}</p>
+                    </article>
+                    <article
+                      className={`chat-message chat-message--assistant chat-message--${turn.status}`}
+                      data-cites-hidden={citesHidden ? "true" : undefined}
+                    >
+                      <header className="chat-answer-heading">
+                        <p className="eyebrow"><i aria-hidden="true" />{selectedIsPageThread ? "视频页回答" : "资料库回答"}</p>
+                        {turnCitations.length > 0 ? (
+                          <CitationToggle
+                            count={turnCitations.length}
+                            hidden={citesHidden}
+                            onToggle={() => toggleCitations(turnKey)}
+                          />
+                        ) : null}
+                      </header>
+                      {turn.status === "not_found" ? <p className="chat-answer-state">没有在当前资料库中找到足够依据。</p> : null}
+                      {turn.status === "failed" ? <p className="chat-answer-state">这次检索未能完成。</p> : null}
+                      <MarkdownAnswer citations={turnCitations} citesHidden={citesHidden}>{answerText}</MarkdownAnswer>
+                      <UnreferencedChips citations={turnCitations} text={answerText} hidden={citesHidden} />
+                    </article>
+                  </li>
+                );
+              })}
               {visiblePendingQuestion ? (
                 <li className={`chat-turn${positionedTurn?.threadId === selectedThreadId && !positionedTurn.turnKey ? " chat-turn--current" : ""}`} style={positionedTurn?.threadId === selectedThreadId && !positionedTurn.turnKey ? { minHeight: positionedTurn.minHeight } : undefined}>
                   <article className="chat-message chat-message--user" ref={questionRef}><p className="eyebrow">你的问题</p><p>{pendingQuestion}</p></article>
-                  <article className={`chat-message chat-message--assistant chat-message--${pendingStatus}`}>
-                    <p className="eyebrow">资料库助手</p>
+                  <article
+                    className={`chat-message chat-message--assistant chat-message--${pendingStatus}`}
+                    data-cites-hidden={pendingCitesHidden ? "true" : undefined}
+                  >
+                    {pendingAllCitations.length > 0 ? (
+                      <header className="chat-answer-heading">
+                        <p className="eyebrow">资料库助手</p>
+                        <CitationToggle
+                          count={pendingAllCitations.length}
+                          hidden={pendingCitesHidden}
+                          onToggle={() => toggleCitations(PENDING_CITE_KEY)}
+                        />
+                      </header>
+                    ) : <p className="eyebrow">资料库助手</p>}
                     <p aria-live="polite" role={pendingStatus === "failed" ? "alert" : "status"}>{pendingActivity}</p>
                     <ExecutionTimeline
                       steps={pendingExecutionSteps}
@@ -939,12 +975,11 @@ export function ChatPage({
                     />
                     {pendingSections.map((section) => (
                       <section className="chat-pending-section" key={section.sectionId} aria-label={section.status === "unsupported" ? "证据不足部分" : "正在生成回答部分"}>
-                        <MarkdownAnswer>{section.text}</MarkdownAnswer>
-                        <CitationList citations={section.citations} />
+                        <MarkdownAnswer citations={pendingAllCitations} citesHidden={pendingCitesHidden}>{section.text}</MarkdownAnswer>
                       </section>
                     ))}
-                    {pendingAnswer ? <MarkdownAnswer>{pendingAnswer}</MarkdownAnswer> : null}
-                    <CitationList citations={pendingCitations} />
+                    {pendingAnswer ? <MarkdownAnswer citations={pendingAllCitations} citesHidden={pendingCitesHidden}>{pendingAnswerText}</MarkdownAnswer> : null}
+                    {pendingAnswer ? <UnreferencedChips citations={pendingAllCitations} text={pendingAnswerText} hidden={pendingCitesHidden} /> : null}
                   </article>
                 </li>
               ) : null}

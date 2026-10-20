@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import aliased
 
-from app.agent.types import AgentAnswer
+from app.agent.types import AgentAnswer, Citation
 from app.agent.streaming import AgentStreamEvent, AgentPlanItem
 from app.agent.autonomy import TodoValidationError, TurnTodoItem
 from app.api.library_schemas import ErrorResponse
@@ -46,6 +46,11 @@ from app.models import AppUser, ChannelIdentity, ConversationThread, Conversatio
 from app.page_qa import is_page_qa_conversation
 from app.web.auth import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
 from app.web_auth import AuthenticatedWebSession
+from app.web.citation_markers import (
+    MarkerNumbering,
+    position_ordinals,
+    renumber_markers,
+)
 from app.web.source_projection import project_browser_sources
 
 _MAX_CONVERSATION_ID = 128
@@ -640,7 +645,17 @@ def build_conversation_router(
             session_identity_resolver=session_identity_resolver,
         )
 
-    def browser_citations(values, session: object) -> list[ConversationCitationResponse]:
+    def browser_citations_with_sources(
+        values, session: object
+    ) -> list[tuple[Citation, ConversationCitationResponse]]:
+        """Project citations, keeping each public row next to its source.
+
+        The projection may drop a citation (unsafe link, missing field), so the
+        output is not position-aligned with the input.  Callers that number
+        answer markers need to know exactly which inputs were kept.
+        """
+
+        values = list(values)
         sources = [value.model_dump() for value in values]
         if not sources:
             return []
@@ -651,13 +666,36 @@ def build_conversation_router(
                 sources,
                 bilibili_public_enabled=bilibili_public_enabled,
             )
-        return [ConversationCitationResponse(**value) for value in projected if value is not None]
+        return [
+            (value, ConversationCitationResponse(**row))
+            for value, row in zip(values, projected, strict=True)
+            if row is not None
+        ]
 
-    def project_answer(answer: AgentAnswer, session: object) -> ConversationResponse:
+    def project_answer(
+        answer: AgentAnswer,
+        session: object,
+        numbering: MarkerNumbering | None = None,
+    ) -> ConversationResponse:
+        """Project an answer for the browser, renumbering ``[S<id>]`` markers.
+
+        A streamed answer passes the ``MarkerNumbering`` it built from the
+        ``section_started`` events so the final list keeps the ordinals the
+        browser has already seen.  The final text is renumbered from the final
+        list positions, which equal those ordinals unless a numbered citation
+        is missing from the final answer; the response is then still
+        self-consistent.
+        """
+
+        retained = browser_citations_with_sources(answer.citations, session)
+        if numbering is not None:
+            numbering.extend([citation for citation, _ in retained])
+            retained = numbering.ordered(retained, key=lambda pair: pair[0])
+        ordinals = position_ordinals(citation.segment_id for citation, _ in retained)
         return ConversationResponse(
             status=answer.status,
-            text=answer.text,
-            citations=browser_citations(answer.citations, session),
+            text=renumber_markers(answer.text, ordinals),
+            citations=[row for _, row in retained],
             media_citations=_safe_media_citations(answer.media_citations),
             action_results=[_safe_result(value) for value in answer.action_results],
             thread_id=answer.thread_id,
@@ -675,16 +713,20 @@ def build_conversation_router(
             return [_safe_result(item) for item in value]
         return value
 
-    def _safe_citations(value: object) -> list[ConversationCitationResponse]:
+    def _safe_citation_rows(
+        value: object,
+    ) -> list[tuple[int | None, ConversationCitationResponse]]:
         """Project persisted JSON through the same public citation boundary.
 
         ``ConversationTurn.sources`` is intentionally flexible storage for the
         Agent runtime.  Do not return it directly: historical rows can contain
         internal retrieval identifiers alongside the user-facing citation.
+        Each public row is paired with its segment ID, used only server-side
+        to renumber answer markers; the ID never reaches the response.
         """
 
         value = text_source_payloads(value)
-        citations: list[ConversationCitationResponse] = []
+        citations: list[tuple[int | None, ConversationCitationResponse]] = []
         for source in value:
             title = source.get("title")
             excerpt = source.get("excerpt")
@@ -692,12 +734,16 @@ def build_conversation_router(
             if not all(isinstance(item, str) for item in (title, excerpt, url)):
                 continue
             start_sec = source.get("start_sec")
+            segment_id = source.get("segment_id")
             citations.append(
-                ConversationCitationResponse(
-                    title=title,
-                    excerpt=excerpt,
-                    url=url,
-                    start_sec=float(start_sec) if isinstance(start_sec, (int, float)) else None,
+                (
+                    segment_id if type(segment_id) is int else None,
+                    ConversationCitationResponse(
+                        title=title,
+                        excerpt=excerpt,
+                        url=url,
+                        start_sec=float(start_sec) if isinstance(start_sec, (int, float)) else None,
+                    ),
                 )
             )
         return citations
@@ -731,7 +777,13 @@ def build_conversation_router(
         assistant_text: str | None,
     ) -> ConversationHistoryItemResponse:
         prompt = user_text.strip() if isinstance(user_text, str) else ""
-        answer = assistant_text.strip() if isinstance(assistant_text, str) else ""
+        # The sidebar preview has no citation list to resolve a marker
+        # against, so internal ``[S<id>]`` markers are simply removed.
+        answer = (
+            renumber_markers(assistant_text, {}).strip()
+            if isinstance(assistant_text, str)
+            else ""
+        )
         return ConversationHistoryItemResponse(
             thread_id=thread.public_id,
             conversation_id=thread.external_conversation_id,
@@ -923,9 +975,16 @@ def build_conversation_router(
                 bilibili_public_enabled=bilibili_public_enabled,
             ))
             turn_sources = [
-                [value for _ in group if (value := next(projected_sources)) is not None]
+                [
+                    # The projected row carries no segment ID; keep the
+                    # persisted one beside it for server-side marker numbering.
+                    {**value, "segment_id": source.get("segment_id")}
+                    for source in group
+                    if (value := next(projected_sources)) is not None
+                ]
                 for group in source_groups
             ]
+            turn_citation_rows = [_safe_citation_rows(sources) for sources in turn_sources]
             return ConversationTurnsResponse(
                 thread_id=thread.public_id,
                 conversation_id=thread.external_conversation_id,
@@ -933,10 +992,13 @@ def build_conversation_router(
                 turns=[
                     ConversationTurnResponse(
                         user_text=turn.user_text,
-                        assistant_text=turn.assistant_text,
+                        assistant_text=renumber_markers(
+                            turn.assistant_text,
+                            position_ordinals(segment_id for segment_id, _ in rows),
+                        ),
                         status=turn.answer_status,
                         error_code=turn.error_code,
-                        citations=_safe_citations(sources),
+                        citations=[citation for _, citation in rows],
                         media_citations=_safe_media_citations(
                             decode_sources(turn.sources).media
                         ),
@@ -945,7 +1007,7 @@ def build_conversation_router(
                         else [],
                         created_at=turn.created_at,
                     )
-                    for turn, sources in zip(turns, turn_sources, strict=True)
+                    for turn, rows in zip(turns, turn_citation_rows, strict=True)
                 ],
             )
 
@@ -1138,8 +1200,10 @@ def build_conversation_router(
                     reason=reason,
                 )
 
-            def project_citations(values) -> list[ConversationCitationResponse]:
-                return browser_citations(values, session)
+            # One numbering per streamed answer: ``section_started`` assigns
+            # ordinals in public order, deltas and the final response reuse
+            # them, so a marker always resolves to the same citation.
+            numbering = MarkerNumbering()
 
             def project_plan(values: tuple[AgentPlanItem, ...]) -> list[ConversationPlanItem]:
                 return [
@@ -1190,7 +1254,9 @@ def build_conversation_router(
                         channel.handle(envelope),
                         timeout=float(getattr(settings, "agent_timeout_seconds", 30.0)),
                     )
-                    projected = _safe_stream_response(project_answer(answer, session))
+                    projected = _safe_stream_response(
+                        project_answer(answer, session, numbering)
+                    )
                     if projected.status == "failed":
                         yield emit(
                             next_event(
@@ -1379,13 +1445,17 @@ def build_conversation_router(
                             section_citation_ids.update(internal.citation_ids)
                             open_section_id = internal.section_id
                             open_section_status = internal.status
+                            section_rows = browser_citations_with_sources(
+                                internal.citations, session
+                            )
+                            numbering.extend([citation for citation, _ in section_rows])
                             yield emit(
                                 next_event(
                                     "section_started",
                                     section_id=internal.section_id,
                                     status=internal.status,
                                     citation_ids=internal.citation_ids,
-                                    citations=project_citations(internal.citations),
+                                    citations=[row for _, row in section_rows],
                                 )
                             )
                         elif internal.type == "text_delta":
@@ -1402,7 +1472,7 @@ def build_conversation_router(
                                     next_event(
                                         "text_delta",
                                         section_id=internal.section_id,
-                                        text=internal.text,
+                                        text=numbering.rewrite(internal.text),
                                     )
                                 )
                         elif internal.type == "section_completed":
@@ -1443,7 +1513,7 @@ def build_conversation_router(
                             if open_section_id is not None:
                                 raise ValueError("completed event has an open section")
                             projected = _safe_stream_response(
-                                project_answer(internal.answer, session)
+                                project_answer(internal.answer, session, numbering)
                             )
                             if section_aborted and projected.status != "failed":
                                 raise ValueError("aborted stream cannot complete successfully")

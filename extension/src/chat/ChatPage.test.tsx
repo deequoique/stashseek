@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -297,8 +300,13 @@ describe("AI search chat page", () => {
     await waitFor(() => expect(screen.getAllByText("先明确你要验证的假设。")).toHaveLength(2));
     expect(screen.queryByText(/来源：/)).not.toBeInTheDocument();
     expect(screen.queryByText(/\[S42\]/)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /访谈方法/ })).toHaveAttribute("href", "https://example.test/video");
-    expect(screen.getByText(/1:05/)).toBeInTheDocument();
+    // No marker in the text: the citation stays reachable as an "另见" chip.
+    const chip = screen.getByRole("link", { name: "引用 1：《访谈方法》 1:05" });
+    expect(chip).toHaveAttribute("href", "https://example.test/video");
+    expect(chip.closest(".chat-cite-more")).not.toBeNull();
+    expect(screen.getByRole("tooltip")).toHaveTextContent("从开放问题开始。");
+    expect(screen.queryByText("展开字幕依据")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "回答来源" })).not.toBeInTheDocument();
   });
 
   it("renders a compact plain-text sidebar preview without Markdown markers", async () => {
@@ -306,14 +314,14 @@ describe("AI search chat page", () => {
       fetchHistory: vi.fn().mockResolvedValue({
         items: [{
           ...history.items![0],
-          preview: "## 演讲大纲\n\n- **开场**：介绍 `樟宜机场`。 [S42]",
+          preview: "## 演讲大纲\n\n- **开场**：介绍 `樟宜机场`。 [S42] [^3]",
         }],
         next_cursor: null,
       }),
     });
 
     expect(await screen.findByText("演讲大纲 开场：介绍 樟宜机场。")).toBeInTheDocument();
-    expect(screen.queryByText(/##|\*\*|`|\[S42\]/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/##|\*\*|`|\[S42\]|\[\^3\]/)).not.toBeInTheDocument();
   });
 
   it("sends a question through the selected durable conversation and prevents duplicate submit", async () => {
@@ -1086,7 +1094,7 @@ describe("AI search chat page", () => {
     });
   });
 
-  it("renders citation-first sections with collapsed excerpts while streaming", async () => {
+  it("renders citation-first sections as inline chips while streaming", async () => {
     const user = userEvent.setup();
     let release: () => void = () => undefined;
     const sendStream = vi.fn(async (
@@ -1106,7 +1114,7 @@ describe("AI search chat page", () => {
       });
       onEvent({
         type: "text_delta", request_id: "request-section", message_id: "new-id", sequence: 3,
-        section_id: "section-1", text: "分段答案", activity: null, response: null,
+        section_id: "section-1", text: "分段答案[^1]", activity: null, response: null,
         error_code: null, message: null,
       });
       await new Promise<void>((resolve) => { release = resolve; });
@@ -1119,11 +1127,11 @@ describe("AI search chat page", () => {
         type: "completed", request_id: "request-section", message_id: "new-id", sequence: 5,
         activity: "completed", text: null,
         response: {
-          status: "ok", text: "分段答案", citations: [{ title: "来源视频", excerpt: "字幕内容", url: "https://example.test/video", start_sec: 11 }],
+          status: "ok", text: "分段答案[^1]", citations: [{ title: "来源视频", excerpt: "字幕内容", url: "https://example.test/video", start_sec: 11 }],
           action_results: [], thread_id: "thread-1", error_code: null,
         }, error_code: null, message: "回答已完成",
       });
-      return { status: "ok", text: "分段答案", citations: [], action_results: [], thread_id: "thread-1", error_code: null };
+      return { status: "ok", text: "分段答案[^1]", citations: [], action_results: [], thread_id: "thread-1", error_code: null };
     });
     renderPage({ sendStream });
 
@@ -1132,11 +1140,11 @@ describe("AI search chat page", () => {
     await user.type(input, "分段问题");
     await user.click(screen.getByRole("button", { name: /发送问题/ }));
     expect(await screen.findByText("分段答案")).toBeInTheDocument();
-    expect(screen.getByText("来源视频")).toBeInTheDocument();
     const pendingSection = screen.getByRole("region", { name: "正在生成回答部分" });
-    const excerptSummary = within(pendingSection).getByText("展开字幕依据");
-    expect(excerptSummary).toBeInTheDocument();
-    expect(excerptSummary.closest("details")).not.toHaveAttribute("open");
+    const chip = within(pendingSection).getByRole("link", { name: "引用 1：《来源视频》 0:11" });
+    expect(chip).toHaveAttribute("href", "https://example.test/video");
+    expect(within(pendingSection).getByRole("tooltip")).toHaveTextContent("字幕内容");
+    expect(screen.queryByText("展开字幕依据")).not.toBeInTheDocument();
     release();
   });
 });
@@ -1218,5 +1226,272 @@ describe("page Q&A threads in the workspace", () => {
 
     await waitFor(() => expect(reset).toHaveBeenCalledWith("new-id"));
     expect(await screen.findByRole("textbox", { name: "向资料库提问" })).toBeEnabled();
+  });
+});
+
+describe("inline citation chips in the workspace chat", () => {
+  const citedCitations = [
+    { title: "访谈方法", excerpt: "从开放问题开始。", url: "https://example.test/video", start_sec: 65 },
+    { title: "调研计划", excerpt: "先写下假设。", url: "https://example.test/plan", start_sec: 3 },
+    { title: "标题视频", excerpt: "标题与简介正文", url: "https://example.test/title", start_sec: null },
+  ];
+  const citedTurns: ConversationTurns = {
+    thread_id: "thread-1",
+    conversation_id: "conversation-1",
+    turns: [{
+      user_text: "怎样做访谈？",
+      assistant_text: "先问开放问题[^1]，再写假设[^2][^1]。\n\n来源：\n- 访谈方法\n  - [^1] https://example.test/video — 从开放问题开始。",
+      status: "ok",
+      error_code: null,
+      citations: citedCitations,
+      action_results: [],
+      created_at: "2026-08-10T10:00:00Z",
+    }],
+  };
+  const emptyTurns: ConversationTurns = { thread_id: "thread-1", conversation_id: "conversation-1", turns: [] };
+  const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+  let styleElement: HTMLStyleElement | null = null;
+
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, writable: true, value: vi.fn() });
+    // jsdom does not load the app stylesheet; install the real one so the
+    // collapse rule is exercised rather than mirrored in the test.
+    styleElement = document.createElement("style");
+    styleElement.textContent = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
+    document.head.appendChild(styleElement);
+  });
+  afterEach(() => {
+    styleElement?.remove();
+    if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScrollIntoView);
+    else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    vi.unstubAllGlobals();
+  });
+
+  it("places a chip at each marker, lists unmarked citations once, and drops the evidence list", async () => {
+    renderPage({ fetchTurns: vi.fn().mockResolvedValue(citedTurns) });
+
+    const first = await screen.findAllByRole("link", { name: "引用 1：《访谈方法》 1:05" });
+    // Citation 1 is marked twice; the source block is stripped, not rendered.
+    expect(first).toHaveLength(2);
+    expect(first.every((link) => link.closest(".chat-cite-more") === null)).toBe(true);
+    // A chip never splits across lines, including on a narrow phone viewport.
+    const wrap = window.getComputedStyle(first[0]!.closest(".chat-cite-wrap") as HTMLElement);
+    expect(wrap.whiteSpace).toBe("nowrap");
+    expect(wrap.display).toBe("inline-block");
+    const second = screen.getByRole("link", { name: "引用 2：《调研计划》 0:03" });
+    expect(second).toHaveAttribute("href", "https://example.test/plan");
+    // Citation 3 is never marked, so it appears only in the "另见" row.
+    const more = document.querySelector(".chat-cite-more");
+    expect(more).toHaveTextContent("另见");
+    const alsoSee = within(more as HTMLElement).getAllByRole("link");
+    expect(alsoSee).toHaveLength(1);
+    expect(alsoSee[0]).toHaveAccessibleName("引用 3：《标题视频》 标题与简介");
+    expect(alsoSee[0]).toHaveAttribute("href", "https://example.test/title");
+    expect(screen.queryByText(/来源：/)).not.toBeInTheDocument();
+    expect(screen.queryByText("展开字幕依据")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "回答来源" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/可跳转原视频，字幕默认折叠/)).not.toBeInTheDocument();
+  });
+
+  it("omits the 另见 row when every citation is marked", async () => {
+    renderPage({
+      fetchTurns: vi.fn().mockResolvedValue({
+        ...citedTurns,
+        turns: [{ ...citedTurns.turns![0]!, assistant_text: "甲[^1] 乙[^2] 丙[^3]", citations: citedCitations }],
+      }),
+    });
+
+    expect(await screen.findByRole("link", { name: /引用 3：/ })).toBeInTheDocument();
+    expect(document.querySelector(".chat-cite-more")).toBeNull();
+  });
+
+  it("collapses and restores the chips with the 引用 N toggle, keeping [n] in the text", async () => {
+    const user = userEvent.setup();
+    renderPage({ fetchTurns: vi.fn().mockResolvedValue(citedTurns) });
+
+    const toggle = await screen.findByRole("button", { name: "引用 3" });
+    const article = toggle.closest("article") as HTMLElement;
+    const chip = within(article).getAllByRole("link", { name: "引用 2：《调研计划》 0:03" })[0]!;
+    // Pressed means "citations are shown".
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(toggle).toHaveAttribute("title", "隐藏引用按钮");
+    expect(article).not.toHaveAttribute("data-cites-hidden");
+    expect(chip).toBeVisible();
+    expect(chip).not.toHaveAttribute("aria-hidden");
+    expect(chip).not.toHaveAttribute("tabindex");
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(toggle).toHaveAttribute("title", "显示引用按钮");
+    expect(article).toHaveAttribute("data-cites-hidden", "true");
+    // Visually collapsed to nothing, yet still in the text so a copy keeps "[n]".
+    expect(window.getComputedStyle(chip).fontSize).toMatch(/^0(px)?$/);
+    expect(chip.textContent).toBe("[2]");
+    expect(document.body.textContent).toContain("[1]");
+    expect(document.body.textContent).toContain("[2]");
+    expect(article).toHaveTextContent("先问开放问题");
+    // Out of the accessibility tree and the tab order.
+    expect(chip).toHaveAttribute("aria-hidden", "true");
+    expect(chip).toHaveAttribute("tabindex", "-1");
+    expect(within(article).queryByRole("link")).toBeNull();
+    const more = article.querySelector(".chat-cite-more") as HTMLElement;
+    expect(more).toHaveAttribute("aria-hidden", "true");
+    expect(more).toHaveTextContent("[3]");
+    expect(window.getComputedStyle(more).fontSize).toMatch(/^0(px)?$/);
+    expect(window.getComputedStyle(article.querySelector(".chat-cite__tip") as HTMLElement).display).toBe("none");
+    for (let step = 0; step < 6; step += 1) {
+      await user.tab();
+      expect(document.activeElement?.classList.contains("chat-cite")).toBe(false);
+    }
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(article).not.toHaveAttribute("data-cites-hidden");
+    expect(chip).toBeVisible();
+    expect(chip).not.toHaveAttribute("aria-hidden");
+    expect(chip).not.toHaveAttribute("tabindex");
+    expect(window.getComputedStyle(chip).fontSize).not.toMatch(/^0(px)?$/);
+    await user.tab();
+    expect(document.activeElement?.classList.contains("chat-cite")).toBe(true);
+  });
+
+  it("collapses each answer independently", async () => {
+    const user = userEvent.setup();
+    renderPage({
+      fetchTurns: vi.fn().mockResolvedValue({
+        ...citedTurns,
+        turns: [
+          citedTurns.turns![0]!,
+          { ...citedTurns.turns![0]!, user_text: "第二个问题", created_at: "2026-08-10T11:00:00Z" },
+        ],
+      }),
+    });
+
+    const toggles = await screen.findAllByRole("button", { name: "引用 3" });
+    expect(toggles).toHaveLength(2);
+    await user.click(toggles[0]!);
+    expect(toggles[0]!.closest("article")).toHaveAttribute("data-cites-hidden", "true");
+    expect(toggles[1]!.closest("article")).not.toHaveAttribute("data-cites-hidden");
+  });
+
+  it("shows no toggle or chips for an answer without citations", async () => {
+    renderPage({
+      fetchTurns: vi.fn().mockResolvedValue({
+        ...turns,
+        turns: [{
+          user_text: "没有答案的问题", assistant_text: "没有依据。[^1]", status: "not_found", error_code: null,
+          citations: [], action_results: [], created_at: "2026-10-15T08:00:00Z",
+        }],
+      }),
+    });
+
+    expect(await screen.findByText("没有在当前资料库中找到足够依据。")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^引用/ })).not.toBeInTheDocument();
+    expect(document.querySelector(".chat-cite, .chat-cite-more")).toBeNull();
+  });
+
+  it("numbers streamed sections over their concatenated citations and keeps the numbers at completion", async () => {
+    const user = userEvent.setup();
+    let releaseSecond: () => void = () => undefined;
+    let releaseComplete: () => void = () => undefined;
+    const base = { request_id: "request-two", message_id: "new-id", activity: null, text: null, response: null, error_code: null, message: null };
+    const first = [citedCitations[0]!, citedCitations[1]!];
+    const second = [citedCitations[2]!];
+    const sendStream = vi.fn(async (
+      _conversationId: string,
+      _input: { message_id: string; text: string },
+      onEvent: (event: ConversationStreamEvent) => void,
+    ) => {
+      onEvent({ ...base, type: "section_started", sequence: 1, section_id: "section-1", status: "grounded", citation_ids: [1, 2], citations: first });
+      onEvent({ ...base, type: "text_delta", sequence: 2, section_id: "section-1", text: "第一段[^1][^2]" });
+      onEvent({ ...base, type: "section_completed", sequence: 3, section_id: "section-1", status: "grounded" });
+      await new Promise<void>((resolve) => { releaseSecond = resolve; });
+      onEvent({ ...base, type: "section_started", sequence: 4, section_id: "section-2", status: "grounded", citation_ids: [3], citations: second });
+      onEvent({ ...base, type: "text_delta", sequence: 5, section_id: "section-2", text: "第二段[^3]" });
+      await new Promise<void>((resolve) => { releaseComplete = resolve; });
+      onEvent({ ...base, type: "section_completed", sequence: 6, section_id: "section-2", status: "grounded" });
+      onEvent({
+        ...base, type: "completed", sequence: 7, activity: "completed",
+        response: {
+          status: "ok", text: "第一段[^1][^2]\n\n第二段[^3]\n\n来源：\n- 标题视频", citations: citedCitations,
+          action_results: [], thread_id: "thread-1", error_code: null,
+        },
+      });
+      return new Promise<ConversationResponse>(() => undefined);
+    });
+    renderPage({ sendStream, fetchTurns: vi.fn().mockResolvedValue(emptyTurns) });
+
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.type(input, "两段问题");
+    await user.click(screen.getByRole("button", { name: /发送问题/ }));
+
+    expect(await screen.findByRole("link", { name: "引用 2：《调研计划》 0:03" })).toHaveAttribute("href", "https://example.test/plan");
+    expect(screen.getByRole("button", { name: "引用 2" })).toHaveAttribute("aria-pressed", "true");
+    releaseSecond();
+    // The third citation belongs to the second section, so the toggle counts all three.
+    const third = await screen.findByRole("link", { name: "引用 3：《标题视频》 标题与简介" });
+    expect(third).toHaveAttribute("href", "https://example.test/title");
+    expect(third.closest("section")).toHaveAccessibleName("正在生成回答部分");
+    expect(screen.getByRole("button", { name: "引用 3" })).toBeInTheDocument();
+    releaseComplete();
+
+    await waitFor(() => expect(screen.queryByRole("region", { name: "正在生成回答部分" })).not.toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "引用 1：《访谈方法》 1:05" })).toHaveAttribute("href", "https://example.test/video");
+    expect(screen.getByRole("link", { name: "引用 3：《标题视频》 标题与简介" })).toHaveAttribute("href", "https://example.test/title");
+    expect(screen.queryByText(/来源：/)).not.toBeInTheDocument();
+    expect(document.querySelector(".chat-cite-more")).toBeNull();
+  });
+
+  it("keeps a collapsed streamed answer collapsed after it becomes durable history", async () => {
+    const user = userEvent.setup();
+    const answer = "最终答案[^1]";
+    const durable: ConversationTurns = {
+      thread_id: "thread-1",
+      conversation_id: "conversation-1",
+      turns: [{
+        user_text: "流式问题", assistant_text: answer, status: "ok", error_code: null,
+        citations: [citedCitations[0]!], action_results: [], created_at: "2026-08-10T10:01:00Z",
+      }],
+    };
+    let fetchCount = 0;
+    const fetchTurns = vi.fn().mockImplementation(() => {
+      fetchCount += 1;
+      return Promise.resolve(fetchCount === 1 ? emptyTurns : durable);
+    });
+    const response: ConversationResponse = {
+      status: "ok", text: answer, citations: [citedCitations[0]!], action_results: [], thread_id: "thread-1", error_code: null,
+    };
+    let releaseSend: () => void = () => undefined;
+    const sendStream = vi.fn(async (
+      _conversationId: string,
+      _input: { message_id: string; text: string },
+      onEvent: (event: ConversationStreamEvent) => void,
+    ) => {
+      onEvent({
+        type: "completed", request_id: "request-adopt", message_id: "new-id", sequence: 1, activity: "completed",
+        text: null, response, error_code: null, message: null,
+      });
+      await new Promise<void>((resolve) => { releaseSend = resolve; });
+      return response;
+    });
+    renderPage({ fetchTurns, sendStream });
+
+    const input = await screen.findByRole("textbox", { name: "向资料库提问" });
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.type(input, "流式问题");
+    await user.click(screen.getByRole("button", { name: /发送问题/ }));
+
+    const pendingToggle = await screen.findByRole("button", { name: "引用 1" });
+    await user.click(pendingToggle);
+    expect(pendingToggle.closest("article")).toHaveAttribute("data-cites-hidden", "true");
+    releaseSend();
+
+    await waitFor(() => expect(fetchCount).toBe(2));
+    await waitFor(() => expect(screen.queryByText("资料库助手")).not.toBeInTheDocument());
+    const articles = Array.from(document.querySelectorAll("article.chat-message--assistant"));
+    const last = articles[articles.length - 1] as HTMLElement;
+    expect(within(last).getByRole("button", { name: "引用 1" })).toHaveAttribute("aria-pressed", "false");
+    expect(last).toHaveAttribute("data-cites-hidden", "true");
   });
 });
