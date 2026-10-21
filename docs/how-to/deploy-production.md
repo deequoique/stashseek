@@ -76,6 +76,10 @@ corepack pnpm --dir extension lint
 corepack pnpm --dir extension build
 ```
 
+`extension/dist` 同时是网页版的静态目录（`index.html` 为入口），由 `WEB_STATIC_DIR`（默认
+`extension/dist`）指向；受限生产入口会在 release 目录里自动完成这次构建，并创建
+`web/dist -> ../extension/dist` 兼容链接，详见 [OVHcloud + Caddy 生产部署](../operations/production/ovh-caddy.md)。
+
 保留 release 的 commit、Alembic schema head、`extension/dist` 和 app entrypoint 清单；不要
 在多个 release 之间复用可变 `.venv` 或覆盖 active release。
 

@@ -17,6 +17,15 @@
   public, login-free routes owned by `app/api/privacy.py`. `create_app`
   registers them before any SPA catch-all, so they work whether or not a
   `static_dir` is mounted.
+- The website and the extension workspace are one React bundle:
+  `build_api_app` mounts `WEB_STATIC_DIR` (default `extension/dist`, produced
+  by `corepack pnpm build` in `extension/`, which emits `index.html`,
+  `workspace.html` and `sidepanel.html`) as the SPA when `WEB_SERVE_STATIC` is
+  on (the default) or `mount_static=True`; `mount_static=False` keeps an
+  API-only app. `_mount_spa` fails fast when the directory has no
+  `index.html`. The deploy script builds the bundle in the release directory
+  and links `web/dist -> ../extension/dist` so a host unit that still names
+  `web/dist` keeps working (task `10-21-web-entry-restore`).
 - The page is bilingual static HTML in `app/static/privacy/` with one external
   stylesheet. No inline `<style>`, `style=`, `<script>` or event handler: the
   CSP is `script-src 'self'; style-src 'self'`.

@@ -2,7 +2,7 @@
 
 canonical Web app 由 `app.api.app` 组合，固定 API prefix 为 `/api/v1`。生产
 `build_web_app` 同时提供认证、资料库、对话和浏览器伴侣路由；设置
-API-only runtime 永远不挂载静态客户端；插件工作区从 `extension/dist` 独立构建和分发。OpenAPI 与交互文档位于：
+`WEB_SERVE_STATIC=true`（默认）时同一进程把 `WEB_STATIC_DIR`（默认 `extension/dist`，由插件工作区构建产出）作为网页版挂载；仅 API 部署把它设为 `false`，不挂载任何静态客户端。OpenAPI 与交互文档位于：
 
 ```text
 GET /api/v1/openapi.json
@@ -252,4 +252,4 @@ ingestion limits 约束；签名字幕 URL、Cookie、SAML、Kaltura KS、授权
   proxy；不允许 wildcard `*`。
 - combined Web/MCP ASGI dispatcher 先按 `MCP_PATH` 选 MCP。Web cookie 不会
   认证 MCP，MCP Bearer 不会认证 Web。
-- API-only runtime 不提供客户端 fallback；`/api/*` 未知路由仍返回 JSON 404。
+- `WEB_SERVE_STATIC=false` 时不提供客户端 fallback；开启时非 `/api/*` 路径回退到 `index.html`，`/api/*` 未知路由在两种模式下都返回 JSON 404。

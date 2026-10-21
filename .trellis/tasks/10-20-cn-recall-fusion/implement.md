@@ -86,7 +86,7 @@ case "$DATABASE_URL" in postgresql+psycopg://*@ep-falling-fog-*) ;; *) echo "not
 - [x] `.trellis/tasks/10-18-stashseek-search-api/prd.md` 搜索-2 加一句：RRF 融合函数和配置由 `10-20-cn-recall-fusion` 提供，新接口复用。
 - [x] 运行 `trellis-check`（规范一致性、测试、lint）。
 - [x] 按路径提交到 dev：`git commit -- app/retrieval app/agent app/ingest app/cli.py app/config.py app/bootstrap.py evals/meeting_gold tests .env.example .trellis/spec/backend .trellis/tasks/10-20-cn-recall-fusion .trellis/tasks/10-18-stashseek-search-api/prd.md`。
-- [ ] 发布：按现有流程开 release 分支合并到 main，部署后在生产主机执行 `python -m app.cli reindex --dry-run` 看数量，再执行 `reindex`，然后补 `research/tenant211-compare.md` 的部署后结果。运维备注：`reindex` 只处理未归档条目，归档条目恢复后需要再跑一次才有标题行和中文 `fts`。
+- [ ] 发布（2026-10-21 起由 `10-21-release-readiness` / `10-21-release-smoke` 承接，dev 整体合 main）：部署后在生产主机执行 `python -m app.cli reindex --dry-run` 看数量，再执行 `reindex`，然后补 `research/tenant211-compare.md` 的部署后结果。运维备注：`reindex` 只处理未归档条目，归档条目恢复后需要再跑一次才有标题行和中文 `fts`。
 
 ## 风险文件与回滚点
 

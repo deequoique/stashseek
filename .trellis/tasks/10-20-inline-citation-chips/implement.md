@@ -56,7 +56,7 @@ case "$DATABASE_URL" in postgresql+psycopg://*@ep-falling-fog-*) ;; *) echo "not
 - [x] 运行 `trellis-check`。
 - [x] 按路径提交到 dev：`git add`/`git commit --` 用数组展开路径（zsh 不自动分词），路径限定在 `app/web/citation_markers.py app/api/conversation_routes.py tests/test_citation_markers.py tests/test_conversation_streaming.py tests/test_web_api.py extension/src/chat extension/src/styles.css .trellis/spec/backend/agent-retrieval-convergence.md .trellis/spec/frontend/component-guidelines.md .trellis/tasks/10-20-inline-citation-chips`。
 
-## 5. 发布到线上网页
+## 5. 发布到线上网页（2026-10-21 起由父任务 `10-21-release-readiness` 承接：dev 整体合 main，不再单独移植到 `web/`）
 
 - [ ] 从 main 切 `release/inline-citation-chips`，把后端投影改动（`app/web/citation_markers.py`、`conversation_routes.py` 及测试）和前端改动移植到 `web/src/chat/`、`web/src/styles.css`（main 的 `ChatPage.tsx` 比 dev 旧，按 diff 手工移植，不要整文件覆盖）。
 - [ ] 开 PR 合并 main，部署由 Production gate 放行；上线后在浏览器核对 `stashseek.deequoique.tech` 的聊天页。

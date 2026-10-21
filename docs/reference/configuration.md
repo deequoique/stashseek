@@ -286,8 +286,8 @@ QQ 登录。首次外部授权需要验证邮箱并明确绑定到该邮箱的�
 | `SMTP_TIMEOUT_SECONDS` | `10` | `EMAIL_PROVIDER=smtp` 的网络 timeout |
 | `WEB_TRUSTED_PROXY_HOSTS` | 空 | 允许提供 `X-Forwarded-For` 的明确 proxy peer |
 | `WEB_HOST` / `WEB_PORT` | `127.0.0.1` / `8000` | 独立 `web-server` listener |
-| `WEB_SERVE_STATIC` | `false` | 已弃用；API-only runtime 不提供静态客户端 |
-| `WEB_STATIC_DIR` | 未使用 | 保留旧配置读取兼容性，不由 API runtime 挂载 |
+| `WEB_SERVE_STATIC` | `true` | 由同一个 ASGI 进程提供网页版（SPA）：`/` 与前端路由返回 `index.html`，`/assets/*` 来自静态目录；`/api/*` 的未知路径仍返回 JSON 404，`/privacy` 仍是隐私页。设为 `false` 则只提供 API |
+| `WEB_STATIC_DIR` | `extension/dist` | 网页静态目录（相对运行时工作目录），默认是插件工作区构建产物，必须含 `index.html`；缺失时服务启动失败，不会静默降级为只有 API。旧值 `web/dist` 在 release 目录里是指向 `extension/dist` 的兼容链接 |
 | `WEB_FORWARDED_ALLOW_IPS` | `127.0.0.1` | uvicorn 可信 forwarded-header 来源；不能是 `*` |
 | `WEB_PUBLISH_BUDGET_SECONDS` | `5` | Web 保存/重试 publish budget |
 | `CHANNEL_LINK_TTL_SECONDS` | `600` | Web compatibility link token 的有效期 |

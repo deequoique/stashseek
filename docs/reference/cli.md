@@ -114,7 +114,8 @@ title_rows_updated=… title_rows_skipped=… failed=… dry_run=…` 与 `item=
 ```
 
 `gateway-server` 必须使用 loopback 和 `CHANNEL_GATEWAY_SECRET`。`web-server`
-读取 `WEB_*` 配置并只提供 API；`WEB_SERVE_STATIC` 仅为旧配置兼容保留，不会挂载客户端。MCP
+读取 `WEB_*` 配置；`WEB_SERVE_STATIC=true` 时同时提供 `WEB_STATIC_DIR`（默认
+`extension/dist`，需先 `corepack pnpm --dir extension build`）里的网页版，否则只提供 API。MCP
 支持的 transport 只有 `stdio` 和 `streamable-http`；stdio 的 stdout 必须
 保持 MCP protocol bytes，诊断写 stderr/private log。
 

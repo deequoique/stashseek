@@ -754,7 +754,8 @@ class Settings:
         default_factory=lambda: _env_bool("WEB_SERVE_STATIC", True)
     )
     web_static_dir: str = field(
-        # Retained for config-file compatibility; API-only runtime never reads it.
+        # Built web app served as the SPA when WEB_SERVE_STATIC is on; the
+        # extension workspace build produces it and it must contain index.html.
         default_factory=lambda: _env("WEB_STATIC_DIR", "extension/dist") or "extension/dist"
     )
     web_publish_budget_seconds: float = field(

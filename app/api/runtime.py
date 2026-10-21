@@ -63,11 +63,16 @@ def build_api_app(
 ):
     """Wire concrete services while keeping test doubles explicit and local.
 
-    The returned ASGI app is API-only. The browser extension is the user-facing
-    client; no React bundle is built or mounted here.
+    The same React bundle serves the browser extension workspace and the
+    website: when ``WEB_SERVE_STATIC`` is on (the default) the built
+    ``WEB_STATIC_DIR`` (``extension/dist``) is mounted as the SPA, and
+    ``mount_static`` overrides the setting for tests and API-only runtimes.
     """
 
     settings = settings or get_settings()
+    serve_static = (
+        settings.web_serve_static if mount_static is None else mount_static
+    )
     if not settings.web_cookie_secure:
         raise ValueError("WEB_COOKIE_SECURE must stay enabled for __Host- cookies")
     factory = session_factory or get_session_factory()
@@ -201,7 +206,7 @@ def build_api_app(
         save_enabled=True,
         bilibili_public_enabled=bilibili_public_enabled,
         web_login_channels=public_login_channels,
-        static_dir=None,
+        static_dir=settings.web_static_dir if serve_static else None,
     )
 
 
