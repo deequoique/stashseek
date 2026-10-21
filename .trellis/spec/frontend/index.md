@@ -30,7 +30,7 @@ The frontend is a mobile-first React and TypeScript application under `extension
 
 - Supported content: server-saved YouTube/Bilibili videos, capability-gated public
   Bilibili favorites and explicit parts, plus optional browser-companion captures
-  from YouTube, Bilibili and NTULearn/Kaltura.
+  from YouTube and Bilibili.
 - Supported routes: `/login`, `/login/external`, `/library`, `/videos/:id`, protected
   `/account/link`, and protected `/account/browser-companion`.
 - The first-empty Agent message is static copy and must never call an LLM.

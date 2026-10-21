@@ -227,7 +227,7 @@ export function AddVideosDialog({
             <small className="url-count" data-over-limit={urls.length > 10}>{urls.length} / 10</small>
           </span>
           <p className="field-help" id="url-draft-help">粘贴链接或 BV 号后按 Enter；可直接粘贴 B 站分享文字，也可以混合粘贴多行。</p>
-          <p className="field-help">支持 BV 号及 YouTube、Bilibili 普通视频链接。NTULearn 或服务器暂时无法读取的视频，可以在视频页面打开搜藏助手侧边栏收藏，详见<a href="/account/browser-companion">浏览器伴侣</a>。</p>
+          <p className="field-help">支持 BV 号及 YouTube、Bilibili 普通视频链接。服务器暂时无法读取的视频，可以在视频页面打开搜藏助手侧边栏收藏，详见<a href="/account/browser-companion">浏览器伴侣</a>。</p>
           <div className="url-token-input">
             {urls.length > 0 ? (
               <ol className="url-tag-list" aria-label="已添加的视频">

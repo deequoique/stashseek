@@ -65,7 +65,7 @@ describe("browser companion account page", () => {
     const offline = screen.getByRole("link", { name: "下载离线安装包" });
     expect(offline).toHaveAttribute(
       "href",
-      "/assets/stashseek-chat-browser-companion-production-0.2.1.zip",
+      "/assets/stashseek-chat-browser-companion-production-0.2.2.zip",
     );
     expect(offline).toHaveAttribute("download");
     expect(await screen.findByText("目前没有已连接的插件。")).toBeInTheDocument();

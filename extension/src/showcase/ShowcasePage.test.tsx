@@ -133,7 +133,7 @@ describe("ShowcasePage", () => {
     const offline = screen.getByRole("link", { name: "下载离线安装包" });
     expect(offline).toHaveAttribute(
       "href",
-      "/assets/stashseek-chat-browser-companion-production-0.2.1.zip",
+      "/assets/stashseek-chat-browser-companion-production-0.2.2.zip",
     );
     expect(offline).toHaveAttribute("download");
     expect(screen.queryByRole("link", { name: "下载浏览器插件" })).not.toBeInTheDocument();
