@@ -29,14 +29,25 @@
 
 ## 跨子任务验收
 
-- [ ] release 分支的 PR 上 `extension-api-contract` 工作流全绿。
-- [ ] 部署后：网页版（登录、视频库、聊天、视频详情）、插件（工作区、侧边栏）、API、MCP 都可用；`/privacy` 可访问；`/api/*` 不被 SPA 吞。
-- [ ] 生产 Alembic 版本到达 release 头；`reindex --dry-run` 数量符合预期后执行 `reindex`，`research/tenant211-compare.md` 补上部署后结果（`10-20-cn-recall-fusion`）。
-- [ ] 多模态和 WeMM 开关在生产保持关闭；生产没有 WeMM 的表（或为空且不被引用）。
-- [ ] 回滚方案写在 `10-21-release-smoke` 里：切回上一个 release 目录与 Alembic 降级顺序。
+- [x] release 分支的 PR 上 `extension-api-contract` 工作流全绿。 —— PR #36：`deterministic-extension-gates` SUCCESS；`deploy-production` 在 PR 上按设计跳过，合并后在 main 运行并由用户放行
+- [x] 部署后：网页版（登录、视频库、聊天、视频详情）、插件（工作区、侧边栏）、API、MCP 都可用；`/privacy` 可访问；`/api/*` 不被 SPA 吞。 —— 2026-10-21 已核对：`/`、`#/login` 表单、`/privacy`、`/api/v1/health`、`/api/v1/does-not-exist` 为 JSON 404、离线包下载、聊天页构建块含引用按钮代码；**未在生产实测**登录后的视频库/聊天/视频详情、插件侧边栏、MCP（需邮箱验证码与访问令牌），用户知悉后归档。见 `10-21-release-smoke/research/smoke-2026-10-21.md`
+- [x] 生产 Alembic 版本到达 release 头；`reindex --dry-run` 数量符合预期后执行 `reindex`，`research/tenant211-compare.md` 补上部署后结果（`10-20-cn-recall-fusion`）。 —— `alembic current` = `f8a9b0c1d2e3 (head)`，`alembic check` 无差异；干跑 114 / 122 / 0 失败，正式执行同数，再干跑 0 / 0 / 0 跳过 122；对比文档已补「部署后复核」，429/430 四个查询全进池
+- [x] 多模态和 WeMM 开关在生产保持关闭；生产没有 WeMM 的表（或为空且不被引用）。 —— 生产环境文件无 `MULTIMODAL_*`/`WEMM_*` 键（默认关闭）；媒体表迁移从未进入 main，`alembic check` 报 No new upgrade operations，库里没有模型之外的表
+- [x] 回滚方案写在 `10-21-release-smoke` 里：切回上一个 release 目录与 Alembic 降级顺序。 —— `10-21-release-smoke/research/rollback.md`
 
 ## 不在范围
 
 - 更换 WeMM 的 embedding 模型本身（另立任务）。
 - 新功能开发。
 - 主机单元的长期整理（只做让本次发布不出事的最小改动）。
+
+## 子任务状态（2026-10-21 归档时）
+
+| 子任务 | 提交 | 状态 |
+|---|---|---|
+| `10-21-web-entry-restore` | dev `d4bc689` | 完成，随 PR #36 上线 |
+| `10-21-wemm-quarantine` | dev `8b7c12a` | 完成，随 PR #36 上线 |
+| `10-21-ci-green` | dev `90c55a4` | 完成，PR #36 CI 全绿 |
+| `10-21-release-smoke` | 合并 `457e6e7`/`b6123be`，PR #36 → main `4eefa34`，生产已部署并补索引 | 完成；主机单元 `WEB_STATIC_DIR` 一次性改动用户决定暂不做（兼容链接可用） |
+
+发布后：`origin/main` 已合回 dev（`d6c91ca`）；插件 0.2.3 发布包另立任务 `10-21-ext-0-2-3-release`（dev `ac7fafb`）。
