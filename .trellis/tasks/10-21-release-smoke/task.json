@@ -3,7 +3,7 @@
   "name": "release-smoke",
   "title": "完整栈冒烟与 release 分支合并",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

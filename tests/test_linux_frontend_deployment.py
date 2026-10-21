@@ -70,3 +70,18 @@ def test_deploy_builds_the_frontend_before_the_release_is_marked_built():
     build_block = script[script.index(install) : script.index(marker)]
     assert "|| true" not in build_block
     assert 'mkdir -p "$release_dir/web"' in script
+
+
+def test_deploy_publishes_the_offline_extension_package_with_the_web_assets():
+    """The website's download links point at /assets/<package>.zip; the zip is
+    kept outside extension/ (so the store package never contains itself) and
+    copied into the built assets after the build, before the release is
+    marked built."""
+
+    script = _text("deploy/scripts/notebook-agent-deploy")
+    link = 'ln -sfn ../extension/dist "$release_dir/web/dist"'
+    guard = 'compgen -G "$release_dir/deploy/offline-extension/*.zip"'
+    copy = '"$release_dir/extension/dist/assets/"'
+    marker = 'touch "$release_dir/.release-built"'
+    assert script.index(link) < script.index(guard) < script.index(copy) < script.index(marker)
+    assert 'mkdir -p "$release_dir/extension/dist/assets"' in script

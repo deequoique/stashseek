@@ -6,7 +6,7 @@
 
 ## Overview
 
-The frontend is a mobile-first React and TypeScript application under `web/`. It is a private video library, not a chat client. FastAPI owns authentication, tenant selection, lifecycle projection, validation, and the OpenAPI contract. React owns presentation, local interaction state, and cached server state.
+The frontend is a mobile-first React and TypeScript application under `extension/` (one workspace builds the Chrome extension pages and the website entry, see `extension/index.html`). It is a private video library, not a chat client. FastAPI owns authentication, tenant selection, lifecycle projection, validation, and the OpenAPI contract. React owns presentation, local interaction state, and cached server state.
 
 ---
 

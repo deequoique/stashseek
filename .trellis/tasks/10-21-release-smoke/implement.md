@@ -3,19 +3,19 @@
 主会话亲自操作涉及生产和推送的步骤；本地冒烟与合并解决可派 `trellis-implement`（派发提示第一行 `Active task: .trellis/tasks/10-21-release-smoke`）。
 
 ## 0. 前置
-- [ ] 子任务 1、2、3 已提交 dev；`git log --oneline -5 dev` 核对。
-- [ ] 测试分支环境变量（只连 Neon 测试分支）；本地 Redis/MinIO 在跑（`redis-cli ping`、`curl localhost:9000/minio/health/live`）。
-- [ ] `cd extension && corepack pnpm build` 产出 `dist/index.html`。
+- [x] 子任务 1、2、3 已提交 dev；`git log --oneline -5 dev` 核对。
+- [x] 测试分支环境变量（只连 Neon 测试分支）；本地 Redis/MinIO 在跑（`redis-cli ping`、`curl localhost:9000/minio/health/live`）。
+- [x] `cd extension && corepack pnpm build` 产出 `dist/index.html`。
 
 ## 1. 本地完整栈冒烟（R1）
-- [ ] 起完整栈（profile 或分别起），网页版 8766 或 profile 端口。
-- [ ] 按 R1 的 7 项逐条做，每项记结果、截图或日志到 `research/smoke-<date>.md`；失败项先修（回到对应子任务）再继续。
-- [ ] `python -m app.cli reindex --dry-run` 与实际执行一次（测试分支），记录数量与幂等结果。
+- [x] 起完整栈（profile 或分别起），网页版 8766 或 profile 端口。
+- [x] 按 R1 的 7 项逐条做，每项记结果、截图或日志到 `research/smoke-<date>.md`；失败项先修（回到对应子任务）再继续。
+- [x] `python -m app.cli reindex --dry-run` 与实际执行一次（测试分支），记录数量与幂等结果。
 
 ## 2. release 分支（R2）
-- [ ] `git fetch origin main && git worktree add ../release-dev-sync origin/main -b release/2026-10-dev-sync`，在 worktree 里 `git merge dev`，按 `design.md` 第 1 节解决 33 个冲突；`git diff dev --stat` 核对只剩预期差异。
-- [ ] 在 worktree 里：`corepack pnpm install --frozen-lockfile`，子任务 3 的全套命令（`check:api`、`typecheck`、`lint`、`test`、`build`、`run audit`），`alembic heads`，CI 的 pytest 子集（干净环境）；全部退出 0。
-- [ ] 写 `research/rollback.md`（R4），请用户过目。
+- [x] `git fetch origin main && git worktree add ../release-dev-sync origin/main -b release/2026-10-dev-sync`，在 worktree 里 `git merge dev`，按 `design.md` 第 1 节解决 33 个冲突；`git diff dev --stat` 核对只剩预期差异。
+- [x] 在 worktree 里：`corepack pnpm install --frozen-lockfile`，子任务 3 的全套命令（`check:api`、`typecheck`、`lint`、`test`、`build`、`run audit`），`alembic heads`，CI 的 pytest 子集（干净环境）；全部退出 0。
+- [x] 写 `research/rollback.md`（R4），请用户过目。
 - [ ] **征得用户同意后**：`git push -u origin release/2026-10-dev-sync`，`gh pr create` 到 main（正文：七项变更、三条迁移、一次性主机步骤、回滚方案）；用 ccd_pr 工具绑定并读 CI。
 - [ ] CI 全绿后由用户合并、放行 Production gate。
 
