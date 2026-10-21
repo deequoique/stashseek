@@ -33,8 +33,10 @@ def test_web_and_ingest_completion_branches_converge_on_one_merge_head():
     assert script.get_heads() == ["f8a9b0c1d2e3"]
     assert script.get_revision("f8a9b0c1d2e3").down_revision == "e2f3a4b5c6d7"
     assert script.get_revision("e2f3a4b5c6d7").down_revision == "cff884c74a1e"
-    assert script.get_revision("cff884c74a1e").down_revision == "c9d0e1f2a3b4"
-    assert script.get_revision("c9d0e1f2a3b4").down_revision == "d04fdae36884"
+    # The WeMM media-table migration (c9d0e1f2a3b4) was removed from the chain;
+    # the stage-table migration now follows the HNSW drop directly.
+    assert script.get_revision("cff884c74a1e").down_revision == "d04fdae36884"
+    assert "c9d0e1f2a3b4" not in {r.revision for r in script.walk_revisions()}
     assert script.get_revision("d04fdae36884").down_revision == "b8c9d0e1f2a3"
     assert script.get_revision("b8c9d0e1f2a3").down_revision == "f1a2b3c4d5e6"
     assert script.get_revision("f1a2b3c4d5e6").down_revision == "b2c3d4e5f6a7"

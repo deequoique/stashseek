@@ -1,23 +1,29 @@
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import replace
 
 import pytest
 from pydantic_ai import RunContext
+from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RunUsage
 
 from app.agent.media import MediaCandidate, MediaCandidateManifest
-from app.agent.runtime import AgentDeps, build_agent
+from app.agent.runtime import AgentDeps, KnowledgeAgent, build_agent
 from app.agent.types import (
+    AgentRequest,
     Citation,
     UnifiedRetrievalCandidate,
     UnifiedRetrievalResult,
 )
 from app.bootstrap import build_multimodal_embedding_provider
+from app.channels.types import TenantContext
 from app.config import Settings
 from app.ingest.wemm_local import WemmLocalEmbedder
+from scripts import export_web_openapi
 
 
 class _FakeWemmModel:
@@ -224,3 +230,78 @@ def test_inspect_media_is_hidden_when_rollout_flag_is_off_even_with_manifest():
 
     assert tool.prepare(context, tool.tool_def) is None
     assert deps.media_inspection_calls == 0
+
+
+MEDIA_TOOL_NAMES = frozenset({"search_media", "inspect_media"})
+
+
+@pytest.mark.asyncio
+async def test_agent_exposes_no_media_tool_when_rollout_flags_are_off():
+    """The model must never be offered a media tool in the default configuration.
+
+    Uses the real ``KnowledgeAgent`` and records the tool definitions that
+    reach the provider on the first request, i.e. after every ``prepare``
+    gate has run, so a registered-but-hidden tool is not counted as exposed.
+    """
+
+    settings = Settings()
+    assert settings.multimodal_retrieval_enabled is False
+    assert settings.wemm_enabled is False
+    offered: set[str] = set()
+
+    def model(_messages, info):
+        offered.update(tool.name for tool in info.function_tools)
+        return ModelResponse(parts=[TextPart("hello")])
+
+    request = AgentRequest(
+        question="hello",
+        tenant=TenantContext(1, 1, "telegram", "bot", "user"),
+        thread_db_id=1,
+        thread_public_id="thread",
+        message_id="message",
+        request_id="request",
+    )
+
+    # The media collaborators are wired in on purpose: only the rollout flags
+    # may keep the media tools away from the model.
+    await KnowledgeAgent(
+        FunctionModel(model),
+        replace(settings, agent_timeout_seconds=2),
+        lambda _request: object(),
+        media_search_service=object(),
+        media_evidence_adapter=object(),
+        vision_service=object(),
+    ).run(request)
+
+    # Control: the capture saw the normal tool surface, not an empty list.
+    assert "search_segments" in offered
+    assert offered.isdisjoint(MEDIA_TOOL_NAMES)
+
+
+def test_search_media_is_registered_only_when_rollout_flag_is_on():
+    service = object()
+
+    off = build_agent("test", media_search_service=service)
+    on = build_agent(
+        "test", multimodal_retrieval_enabled=True, media_search_service=service
+    )
+
+    assert "search_media" not in set(off._function_toolset.tools)
+    # Control: the same wiring does register the tool once the flag is on.
+    assert "search_media" in set(on._function_toolset.tools)
+
+
+def test_exported_openapi_has_no_media_path():
+    document = json.loads(export_web_openapi.rendered_schema())
+
+    # Control: the export really lists the public API surface.
+    assert any(path.startswith("/api/v1/") for path in document["paths"])
+    assert [path for path in document["paths"] if "media" in path.lower()] == []
+
+
+def test_orm_metadata_declares_no_media_tables():
+    # Media tables and media ingestion are redone with the replacement
+    # embedding model; until then nothing may create or write them.
+    from app.models import Base
+
+    assert [name for name in Base.metadata.tables if name.startswith("media_")] == []

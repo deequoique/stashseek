@@ -137,6 +137,16 @@ tenant 的 active、未归档、ready items。Agent runtime 会在每个 model s
 - 旧对话历史不能扩大当前 URL 的访问边界；其他租户、删除条目和无证据条目
   永远不会作为 fallback。
 
+### 多模态（WeMM）检索尚未上线
+
+图片、视频帧的向量检索依赖 WeMM embedding，而 WeMM 会更换 embedding 模型。
+因此媒体表（`media_asset`、`media_embedding`）、对应迁移和媒体入库代码已从
+当前版本摘除，会在更换模型的任务里重做；代码里只保留不依赖数据表的检索接口
+层（`app/retrieval/media.py`、`app/agent/media.py`）。
+`MULTIMODAL_RETRIEVAL_ENABLED` 与 `WEMM_ENABLED` 默认关闭：此时 Agent 的工具
+集不含 `search_media`、`inspect_media`，API 没有媒体路径，入库也不会写任何
+媒体表。上面描述的检索仍然只覆盖文本内容。
+
 ## 从 evidence 到回答
 
 一旦检索成功且有 candidates，系统使用无 retrieval/action tool 的结构化

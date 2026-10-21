@@ -447,23 +447,60 @@ def test_model_tool_schemas_never_expose_trusted_identifiers():
         }.isdisjoint(properties)
 
 
-def test_bounded_autonomy_instructions_never_name_an_unregistered_tool():
-    """The system prompt must not steer the model toward a tool that isn't
+@pytest.mark.asyncio
+async def test_bounded_autonomy_instructions_never_name_an_unregistered_tool():
+    """With the rollout flags off the model is never steered toward a media tool.
 
-    registered. A prior release-port draft left a stale ``search_media``
-    mention in the retrieval-tool list (that tool belongs to the in-progress
-    multimodal feature and is not wired up by ``register_retrieval_tools``
-    in this build), which would prompt the model to attempt calling a
-    nonexistent tool.
+    The media tools are *registered* on every Agent (``inspect_media`` stays in
+    the toolset and hides itself through its ``prepare`` gate), so the check is
+    made on the *effective* surface: the tool definitions and instructions that
+    actually reach the provider after every ``prepare`` gate has run. A prior
+    release-port draft left a stale ``search_media`` mention in the
+    retrieval-tool list, which would prompt the model to call a tool that is
+    not offered.
     """
 
     from app.agent.agent_builder import BOUNDED_AUTONOMY_INSTRUCTIONS
 
-    agent = build_agent(TestModel())
-    registered_tools = set(agent._function_toolset.tools)
-    for candidate in ("search_media", "inspect_media"):
-        assert candidate not in registered_tools
-        assert candidate not in BOUNDED_AUTONOMY_INSTRUCTIONS
+    media_tools = {"search_media", "inspect_media"}
+    settings = Settings()
+    assert settings.multimodal_retrieval_enabled is False
+    assert settings.wemm_enabled is False
+    offered: set[str] = set()
+    instructions: list[str] = []
+
+    def model(_messages, info):
+        offered.update(tool.name for tool in info.function_tools)
+        instructions.append(info.instructions or "")
+        return ModelResponse(parts=[TextPart("hello")])
+
+    # The media collaborators are wired in on purpose: only the rollout flags
+    # may keep the media tools away from the model.
+    await KnowledgeAgent(
+        FunctionModel(model),
+        replace(settings, agent_timeout_seconds=2),
+        lambda _request: object(),
+        media_search_service=object(),
+        media_evidence_adapter=object(),
+        vision_service=object(),
+    ).run(request())
+
+    # Control: the capture saw the normal tool surface and the real prompt.
+    assert "search_segments" in offered
+    assert instructions and BOUNDED_AUTONOMY_INSTRUCTIONS in instructions[0]
+    # Registered-but-hidden is expected for inspect_media; it must not be offered.
+    assert offered.isdisjoint(media_tools)
+    # The media-specific dynamic instruction is absent from the provider prompt.
+    assert "visual content questions" not in instructions[0]
+    assert "inspect_media" not in instructions[0]
+    # The only static mention of a media tool is the passive "any retrieval
+    # tool" completion rule; no line may tell the model to call one.
+    mentions = [
+        line
+        for line in BOUNDED_AUTONOMY_INSTRUCTIONS.splitlines()
+        if any(name in line for name in media_tools)
+    ]
+    assert all("等任何检索工具" in line for line in mentions), mentions
 
 
 def test_runtime_facade_exports_supported_surface():

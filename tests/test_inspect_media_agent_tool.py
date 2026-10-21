@@ -22,6 +22,7 @@ from app.agent.runtime import AgentDeps, build_agent
 
 TENANT_ID = 7
 RUN_ID = "run-1"
+ITEM_ID = 1
 
 
 def _candidate(
@@ -37,6 +38,7 @@ def _candidate(
         media_id=media_id,
         tenant_id=tenant_id,
         run_id=run_id,
+        item_id=ITEM_ID,
         content_hash=content_hash,
         model_version=model_version,
         prompt_version=prompt_version,
@@ -68,6 +70,7 @@ class _VisionService:
     def _result(request: MediaInspectionRequest) -> MediaInspectionResult:
         return MediaInspectionResult(
             tenant_id=request.tenant_id,
+            item_id=request.item_id,
             run_id=request.run_id,
             media_id=request.media_id,
             content_hash=request.content_hash,
@@ -107,11 +110,11 @@ class _MediaEvidenceAdapter:
     def publish_evidence(self, candidate, inspection):
         self.published.append((candidate.media_id, inspection))
         return MediaEvidence(
-            evidence_id=f"M-{candidate.media_id}",
+            evidence_id=f"M{candidate.media_id}",
             candidate=candidate,
             inspection=inspection,
             title="Test media",
-            location="library://test-media",
+            location=f"https://example.test/{candidate.media_id}",
         )
 
 
@@ -119,10 +122,10 @@ def _tool_and_context(
     *,
     manifest=None,
     vision_service=None,
-    active_tenant_id=None,
-    active_retrieval_run_id=None,
+    active_tenant_id=TENANT_ID,
+    active_retrieval_run_id=RUN_ID,
     media_evidence_adapter=None,
-    multimodal_retrieval_enabled=False,
+    multimodal_retrieval_enabled=True,
 ):
     agent = build_agent("test")
     tool = agent._function_toolset.tools["inspect_media"]
@@ -173,6 +176,7 @@ def test_inspect_media_accepts_only_current_run_manifest_ids_and_passes_provenan
     assert service.calls == [
         MediaInspectionRequest(
             tenant_id=TENANT_ID,
+            item_id=ITEM_ID,
             run_id=RUN_ID,
             media_id="media-1",
             content_hash="hash-1",
@@ -260,7 +264,12 @@ def test_inspect_media_invokes_injected_service_and_returns_structured_evidence(
         "status": "ok",
         "evidence": [
             {
+                "evidence_id": "Mmedia-1",
                 "media_id": "media-1",
+                "item_id": ITEM_ID,
+                "content_hash": "hash-1",
+                "title": "Test media",
+                "location": "https://example.test/media-1",
                 "relevant": True,
                 "confidence": 0.875,
                 "evidence": ["evidence for find the document"],
@@ -271,7 +280,12 @@ def test_inspect_media_invokes_injected_service_and_returns_structured_evidence(
                 "end_sec": 18.0,
             },
             {
+                "evidence_id": "Mmedia-2",
                 "media_id": "media-2",
+                "item_id": ITEM_ID,
+                "content_hash": "hash-1",
+                "title": "Test media",
+                "location": "https://example.test/media-2",
                 "relevant": True,
                 "confidence": 0.875,
                 "evidence": ["evidence for find the document"],
@@ -334,6 +348,9 @@ def test_inspect_media_cache_key_includes_scope_and_provider_dimensions(
         tenant_id=second_candidate.tenant_id,
         run_id=second_candidate.run_id,
     )
+    # The active scope follows the manifest so only the cache key differs.
+    deps.active_tenant_id = second_candidate.tenant_id
+    deps.active_retrieval_run_id = second_candidate.run_id
     second = tool.function(context, "same question", ["media-1"])
 
     assert first["status"] == second["status"] == "ok"
@@ -369,7 +386,10 @@ def test_inspect_media_cache_key_includes_scope_and_provider_dimensions(
         "invalid-time-range",
     ],
 )
-def test_inspect_media_maps_wrong_or_unbounded_results_to_safe_failure(updates):
+def test_inspect_media_drops_wrong_or_unbounded_results_without_evidence(updates):
+    # A result that fails provenance or bounds validation is discarded for that
+    # candidate: no evidence is published or cached, and the call itself stays
+    # a successful, empty observation rather than a provider failure.
     def result_factory(request):
         return replace(_VisionService._result(request), **updates)
 
@@ -380,14 +400,12 @@ def test_inspect_media_maps_wrong_or_unbounded_results_to_safe_failure(updates):
 
     result = tool.function(context, "inspect this", ["media-1"])
 
-    assert result == {
-        "status": "error",
-        "error": {"category": "provider_failure", "code": "vision_failed"},
-        "evidence": [],
-    }
+    assert result == {"status": "ok", "evidence": [], "reason": None}
+    assert deps.media_evidence == {}
+    assert deps.media_inspection_cache.values == {}
     assert [observation.outcome for observation in deps.tool_observations] == [
         "started",
-        "failed",
+        "succeeded",
     ]
 
 

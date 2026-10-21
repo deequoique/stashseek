@@ -81,11 +81,19 @@ API key、完整 DSN、MCP URL capability、浏览器 Bearer 或 HMAC secret 写
 
 ### 可选本地 WeMM 运行时
 
+> **状态（2026-10-21）**：WeMM 会更换 embedding 模型，所以媒体表
+> （`media_asset`、`media_embedding`）、建表迁移和媒体入库代码已从当前版本
+> 摘除，会在更换模型的任务里重做；现在只保留检索接口层
+> （`app/retrieval/media.py`、`app/agent/media.py`）和下面的配置项。
+> `MULTIMODAL_RETRIEVAL_ENABLED` 与 `WEMM_ENABLED` 默认且应保持 `false`，
+> 生产环境不需要新增任何键。两个开关关闭时，Agent 不会拿到 `search_media`
+> 或 `inspect_media`，导出的 OpenAPI 也没有媒体路径，数据库里没有媒体表。
+
 WeMM 适配器是对上游 WeMM-Embedding **本地** Sentence Transformers 用法的
 薄封装，不是官方 WeMM HTTP API 客户端；当前项目没有配置或声称存在可用的
 托管 WeMM 服务，也不读取 `WEMM_ENDPOINT` 或 `WEMM_API_KEY`。它保留现有
-Zhipu `vector(1536)` 文本空间不变，默认新建 `1024` 维 WeMM 空间，不会自动
-改写旧向量。
+Zhipu `vector(1536)` 文本空间不变；适配器配置默认使用 `1024` 维 WeMM 空间，
+但当前没有对应的数据表，也不会改写旧向量。
 
 启用时，`WEMM_REVISION` 必须是显式配置的 40 字符不可变模型 commit SHA；不能
 使用 branch 或 floating tag。构造

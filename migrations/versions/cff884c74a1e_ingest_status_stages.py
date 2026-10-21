@@ -1,7 +1,7 @@
 """add enrichment stage table and ASR hand-off marker for ingest status
 
 Revision ID: cff884c74a1e
-Revises: c9d0e1f2a3b4
+Revises: d04fdae36884
 Create Date: 2026-10-19
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 
 
 revision: str = "cff884c74a1e"
-down_revision: Union[str, Sequence[str], None] = "c9d0e1f2a3b4"
+down_revision: Union[str, Sequence[str], None] = "d04fdae36884"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
