@@ -84,7 +84,7 @@ describe("external login continuation", () => {
     const submit = screen.getByRole("button", { name: "验证并绑定" });
     await user.click(submit); await user.click(submit);
     expect(verify).toHaveBeenCalledOnce();
-    const signal = verify.mock.calls[0][1] as AbortSignal;
+    const signal = verify.mock.calls[0]![1] as AbortSignal;
     view.unmount();
     expect(signal.aborted).toBe(true);
     await act(async () => { finish(session); });

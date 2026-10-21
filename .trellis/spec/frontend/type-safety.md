@@ -83,8 +83,10 @@ export type LibraryLifecycle = LibraryItem["lifecycle"];
 ### 1. Scope / Trigger
 
 Use when exporting browser contracts on supported Python versions. CI uses
-Python 3.11 while local development may use 3.13; their standard HTTP 422 phrase
-can differ even with the same FastAPI and Starlette versions.
+Python 3.11 while local development may use 3.13; their standard HTTP 413 and
+422 phrases can differ even with the same FastAPI and Starlette versions (3.13
+renamed both). Any route that declares `responses={413: {"model": ...}}` without
+a `description` inherits that default.
 
 ### 2. Signatures
 
@@ -94,7 +96,9 @@ inert exporter consumed by `generate:api` and `check:api`.
 ### 3. Contracts
 
 Normalize only a 422 response description equal to `Unprocessable Entity` or
-`Unprocessable Content` to the existing contract's `Unprocessable Entity`.
+`Unprocessable Content` to the existing contract's `Unprocessable Entity`, and a
+413 description equal to `Request Entity Too Large` or `Content Too Large` to
+`Request Entity Too Large` (`STANDARD_PHRASES` in the exporter).
 Retain custom descriptions, schema contents and every other status. Always
 regenerate both tracked files using the exporter, never edit generated text.
 This is documentation normalization, not a runtime response/error change.
@@ -103,8 +107,8 @@ This is documentation normalization, not a runtime response/error change.
 
 | Input | Export result |
 | --- | --- |
-| Either standard 422 phrase | Same canonical description and identical contract |
-| Custom 422 description | Preserve verbatim |
+| Either standard 413 or 422 phrase | Same canonical description and identical contract |
+| Custom 413/422 description | Preserve verbatim |
 | Other response/status/schema | Preserve |
 
 ### 5. Good / Base / Bad Cases

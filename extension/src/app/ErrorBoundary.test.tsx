@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ErrorBoundary, isChunkLoadError, RouteErrorBoundary } from "./ErrorBoundary";
 
-function Boom({ message }: { message: string }) {
+function Boom({ message }: { message: string }): never {
   throw new Error(message);
 }
 

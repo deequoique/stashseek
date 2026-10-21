@@ -32,19 +32,19 @@ PR 到 main 时 `.github/workflows/extension-api-contract.yml` 全绿，并且�
 
 ## 验收标准
 
-- [ ] AC1 在 dev 上用 Node 22 依次跑 `pnpm check:api`、`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build`、`pnpm run audit`，全部退出 0。
-- [ ] AC2 不读本地 `.env` 的环境下，CI 的 pytest 子集和 `alembic heads` 全绿；`pytest --collect-only` 无错误。
-- [ ] AC3 `tsconfig.test.json`、`eslint` 配置没有被放宽。
+- [x] AC1 在 dev 上用 Node 22 依次跑 `pnpm check:api`、`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build`、`pnpm run audit`，全部退出 0。
+- [x] AC2 不读本地 `.env` 的环境下，CI 的 pytest 子集和 `alembic heads` 全绿；`pytest --collect-only` 无错误。
+- [x] AC3 `tsconfig.test.json`、`eslint` 配置没有被放宽。
 - [ ] AC4 开一个指向 main 的草稿 PR（标题注明 draft，不合并）让工作流跑一次，全绿后记录运行链接到 `research/`；是否保留该 PR 作为 release PR 的前身由用户决定。
 - [ ] AC5 按路径提交到 dev。
 
 ## 执行清单
 
-- [ ] 0 前置：Node 22 + `corepack pnpm`；确认子任务 1、2 已提交。
-- [ ] 1 `pnpm lint` 三处；`pnpm typecheck` 按文件修完，逐文件跑 `pnpm exec tsc -p tsconfig.test.json --noEmit` 看余量。
-- [ ] 2 413 描述固定 + `pnpm generate:api`；检查 `git diff extension/src/api/openapi.json extension/src/api/schema.d.ts` 只有预期变化。
-- [ ] 3 干净环境跑 CI 的 pytest 子集与 `alembic heads`（方法写进 `research/`）。
-- [ ] 4 全套命令跑一遍（AC1）；`trellis-check`；按路径提交。
+- [x] 0 前置：Node 22 + `corepack pnpm`；确认子任务 1、2 已提交。
+- [x] 1 `pnpm lint` 三处；`pnpm typecheck` 按文件修完，逐文件跑 `pnpm exec tsc -p tsconfig.test.json --noEmit` 看余量。
+- [x] 2 413 描述固定 + `pnpm generate:api`；检查 `git diff extension/src/api/openapi.json extension/src/api/schema.d.ts` 只有预期变化。
+- [x] 3 干净环境跑 CI 的 pytest 子集与 `alembic heads`（方法写进 `research/`）。
+- [x] 4 全套命令跑一遍（AC1）；`trellis-check`；按路径提交。
 - [ ] 5 草稿 PR 跑 CI（需要 `gh pr create --draft`，先征得用户同意再推送分支）。
 
 ## 不在范围

@@ -3,7 +3,7 @@
   "name": "ci-green",
   "title": "修复 CI：插件类型检查与 lint 全绿",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

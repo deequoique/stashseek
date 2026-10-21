@@ -37,7 +37,7 @@ describe("same-origin API client", () => {
     const input = { selections: [{ part_ref: "signed-proof", allow_legacy_overlap: false }], why_saved: null };
     await submitBilibiliParts(input, "same-operation", signal);
     await submitBilibiliParts(input, "same-operation", signal);
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/bilibili/parts:preview");
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/v1/bilibili/parts:preview");
     for (const [path, init] of fetchMock.mock.calls.slice(1)) {
       expect(path).toBe("/api/v1/bilibili/parts:batch");
       expect(new Headers(init?.headers).get("Idempotency-Key")).toBe("same-operation");
@@ -65,15 +65,15 @@ describe("same-origin API client", () => {
       expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe("flow-csrf");
       expect(init?.credentials).toBe("same-origin");
     }
-    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ email: "reader@example.test", code: "123456", confirm_binding: true });
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/auth/external/pending/challenges");
-    expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/auth/external/pending/verify");
-    expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/auth/external/pending");
+    expect(JSON.parse(String(fetchMock.mock.calls[1]![1]?.body))).toEqual({ email: "reader@example.test", code: "123456", confirm_binding: true });
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/v1/auth/external/pending/challenges");
+    expect(fetchMock.mock.calls[1]![0]).toBe("/api/v1/auth/external/pending/verify");
+    expect(fetchMock.mock.calls[2]![0]).toBe("/api/v1/auth/external/pending");
     await requestJson("/api/v1/protected", { method: "POST", body: "{}" });
-    expect(new Headers(fetchMock.mock.calls[3][1]?.headers).get("X-CSRF-Token")).toBe("session-csrf");
+    expect(new Headers(fetchMock.mock.calls[3]![1]?.headers).get("X-CSRF-Token")).toBe("session-csrf");
     document.cookie = "__Host-kb_external_csrf=; Path=/; Secure; Max-Age=0";
     await requestExternalLoginCode("reader@example.test");
-    expect(new Headers(fetchMock.mock.calls[4][1]?.headers).has("X-CSRF-Token")).toBe(false);
+    expect(new Headers(fetchMock.mock.calls[4]![1]?.headers).has("X-CSRF-Token")).toBe(false);
   });
 
   it("uses the cookie session endpoints outside chrome-extension", async () => {
@@ -108,8 +108,8 @@ describe("same-origin API client", () => {
     setUnauthorizedHandler(onUnauthorized);
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "expired", provider: null, expires_at: null }), { status: 200 }));
     await getExternalLoginPending();
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/auth/external/pending");
-    expect(fetchMock.mock.calls[0][1]?.body).toBeUndefined();
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/v1/auth/external/pending");
+    expect(fetchMock.mock.calls[0]![1]?.body).toBeUndefined();
     const controller = new AbortController(); controller.abort();
     await expect(probeLoginSession(controller.signal)).rejects.toMatchObject({ name: "AbortError" });
     expect(onUnauthorized).not.toHaveBeenCalled();

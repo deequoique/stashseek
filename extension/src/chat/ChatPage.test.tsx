@@ -200,10 +200,10 @@ describe("AI search chat page", () => {
 
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalledOnce());
     const questions = view.container.querySelectorAll(".chat-question-text");
-    expect([...questions].map((question) => question.textContent)).toEqual(multipleTurns.turns!.map((turn) => turn.user_text));
-    expect(scrollIntoView.mock.contexts.at(-1)).toBe(questions[1].closest("article"));
+    expect(Array.from(questions).map((question) => question.textContent)).toEqual(multipleTurns.turns!.map((turn) => turn.user_text));
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(questions[1]!.closest("article"));
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "instant", block: "start", inline: "nearest" });
-    expect(questions[1].closest("li")).toHaveClass("chat-turn--current");
+    expect(questions[1]!.closest("li")).toHaveClass("chat-turn--current");
   });
 
   it("reopens A → B → A and the selected row without pulling back on background refetch", async () => {
@@ -235,7 +235,7 @@ describe("AI search chat page", () => {
     fireEvent.scroll(transcript);
     fetchTurns.mockResolvedValueOnce(refreshedTurns);
     await act(async () => { await client.refetchQueries({ queryKey: ["conversation", "thread-1"], exact: true }); });
-    await waitFor(() => expect([...transcript.querySelectorAll(".chat-question-text")].map((question) => question.textContent)).toEqual(refreshedTurns.turns!.map((turn) => turn.user_text)));
+    await waitFor(() => expect(Array.from(transcript.querySelectorAll(".chat-question-text")).map((question) => question.textContent)).toEqual(refreshedTurns.turns!.map((turn) => turn.user_text)));
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
@@ -284,7 +284,7 @@ describe("AI search chat page", () => {
     expect(within(screen.getByRole("list", { name: "对话内容" })).queryByText("A 的新问题")).not.toBeInTheDocument();
     const minHeight = bQuestion!.parentElement!.style.minHeight;
     scrollIntoView.mockClear();
-    if (outcome === "success") finish({ status: "ok", text: "A 的新回答", thread_id: "thread-1", citations: turns.turns![0].citations, action_results: [], error_code: null });
+    if (outcome === "success") finish({ status: "ok", text: "A 的新回答", thread_id: "thread-1", citations: turns.turns![0]!.citations, action_results: [], error_code: null });
     else fail(new Error("send failed"));
     await waitFor(() => expect(input).toBeEnabled());
     expect(view.container.querySelector(".chat-turn--current .chat-message--user")).toBe(bQuestion);
@@ -513,7 +513,7 @@ describe("AI search chat page", () => {
 
     const input = await screen.findByRole("textbox", { name: "向资料库提问" });
     await waitFor(() => expect(input).toBeEnabled());
-    const question = turns.turns![0].user_text;
+    const question = turns.turns![0]!.user_text;
     await user.type(input, `${question}{Enter}`);
     expect(scrollIntoView).toHaveBeenCalled();
     expect(scrollIntoView.mock.contexts.at(-1)).toBe(view.container.querySelector(".chat-turn--current .chat-message--user"));
@@ -541,7 +541,7 @@ describe("AI search chat page", () => {
     await waitFor(() => expect(input).toBeEnabled());
     expect(screen.getAllByText("最终回答")).toHaveLength(1);
     expect(scrollIntoView).toHaveBeenCalledOnce();
-    const durableTurn = view.container.querySelectorAll(".chat-turn")[1];
+    const durableTurn = view.container.querySelectorAll(".chat-turn")[1]!;
     expect(scrollIntoView.mock.contexts.at(-1)).toBe(durableTurn.querySelector(".chat-message--user"));
     expect(durableTurn).toHaveStyle({ minHeight });
   });

@@ -3973,7 +3973,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Content Too Large */
+            /** @description Request Entity Too Large */
             413: {
                 headers: {
                     [name: string]: unknown;

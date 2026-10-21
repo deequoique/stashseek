@@ -15,7 +15,7 @@ function turn(user: string, assistant: string, createdAt: string) {
 }
 
 function transcript(...turns: ReturnType<typeof turn>[]): ConversationTurns {
-  return { turns, next_cursor: null } as ConversationTurns;
+  return { conversation_id: "conversation-1", thread_id: "thread-1", turns };
 }
 
 describe("durable pending turn positioning", () => {

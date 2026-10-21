@@ -17,7 +17,9 @@ describe("loaded part selection", () => {
   it("rejects capacity atomically and ignores unavailable/unproven rows", () => {
     const items = Array.from({ length: 11 }, (_, index) => selected(index + 1));
     expect(addLoadedParts([], items)).toBeNull();
-    expect(addLoadedParts([items[0]], [{ ...items[1], part: { ...items[1].part, selectable: false } }])).toEqual([items[0]]);
+    const first = items[0]!;
+    const second = items[1]!;
+    expect(addLoadedParts([first], [{ ...second, part: { ...second.part, selectable: false } }])).toEqual([first]);
   });
   it("explicit refresh replaces only matching stable keys and clears changed compatibility consent", () => {
     const previous = { ...selected(1), allowLegacyOverlap: true };

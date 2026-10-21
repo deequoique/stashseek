@@ -11,8 +11,6 @@ import type {
   Capabilities,
   ChallengeStatus,
   ConsumeLinkTokenInput,
-  EmailChallengeInput,
-  EmailVerifyInput,
   ExternalLoginPending,
   ExternalLoginVerifyInput,
   LinkTokenInput,

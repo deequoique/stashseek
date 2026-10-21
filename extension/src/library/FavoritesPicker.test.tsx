@@ -76,7 +76,7 @@ describe("public favorites picker", () => {
     await user.click(screen.getByRole("checkbox", { name: /^父视频 2 · P2/ }));
     expect(screen.getByText("已选 2 / 10 个分 P")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "添加已选 2 个分 P" }));
-    expect(submit.mock.calls[0][0]).toEqual({ why_saved: "#课程", selections: [
+    expect(submit.mock.calls[0]![0]).toEqual({ why_saved: "#课程", selections: [
       { part_ref: "ref-BV1xx411c7mD-2", allow_legacy_overlap: false },
       { part_ref: "ref-BV1xx411c7mE-2", allow_legacy_overlap: false },
     ] });
@@ -121,7 +121,7 @@ describe("public favorites picker", () => {
     expect(screen.getByRole("button", { name: "添加已选 1 个分 P" })).toBeDisabled();
     await user.click(ack);
     await user.click(screen.getByRole("button", { name: "添加已选 1 个分 P" }));
-    expect(submit.mock.calls[0][0].selections[0].allow_legacy_overlap).toBe(true);
+    expect(submit.mock.calls[0]![0].selections[0].allow_legacy_overlap).toBe(true);
   });
 
   it("keeps partial results aligned to the frozen ordered rows and removes accepted selections", async () => {
@@ -150,8 +150,8 @@ describe("public favorites picker", () => {
     await act(async () => reject(new Error("unknown")));
     expect(screen.getByRole("button", { name: "预览收藏夹（清空原选择）" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "重新确认本次结果" }));
-    expect(submit.mock.calls[1][0]).toEqual(submit.mock.calls[0][0]);
-    expect(submit.mock.calls[1][1]).toBe(submit.mock.calls[0][1]);
+    expect(submit.mock.calls[1]![0]).toEqual(submit.mock.calls[0]![0]);
+    expect(submit.mock.calls[1]![1]).toBe(submit.mock.calls[0]![1]);
   });
 
   it("cancels old source reads and never lets a late list replace the new collection", async () => {
@@ -162,7 +162,7 @@ describe("public favorites picker", () => {
     const user = userEvent.setup();
     const field = screen.getByLabelText("公开 B 站收藏夹链接");
     await user.type(field, source); await user.click(screen.getByRole("button", { name: "预览收藏夹（清空原选择）" }));
-    const oldSignal = preview.mock.calls[0][1] as AbortSignal;
+    const oldSignal = preview.mock.calls[0]![1] as AbortSignal;
     await user.clear(field); await user.type(field, source.replace("4157547776", "4157547777"));
     await user.click(screen.getByRole("button", { name: "预览收藏夹（清空原选择）" }));
     await screen.findByRole("heading", { name: "新收藏夹" });
@@ -178,7 +178,7 @@ describe("public favorites picker", () => {
     const user = await read(); await expand(user);
     await user.click(screen.getByRole("checkbox", { name: /^父视频 1 · P1/ }));
     await user.click(screen.getByRole("button", { name: "添加已选 1 个分 P" }));
-    const signal = submit.mock.calls[0][2] as AbortSignal;
+    const signal = submit.mock.calls[0]![2] as AbortSignal;
     unmount(); expect(signal.aborted).toBe(true);
     await act(async () => resolve({ results: [] }));
     expect(submitted).not.toHaveBeenCalled();
@@ -205,9 +205,9 @@ describe("public favorites picker", () => {
 
   it("blocks locally expired proof until an explicit same-key refresh without selecting a replacement ordinal", async () => {
     const expired = parts(1);
-    expired.parts[0].expires_at = Math.floor(Date.now() / 1000) - 1;
+    expired.parts[0]!.expires_at = Math.floor(Date.now() / 1000) - 1;
     const fresh = parts(1);
-    fresh.parts[0] = { ...fresh.parts[0], page: 6, part_ref: "fresh-same-cid", expires_at: Math.floor(Date.now() / 1000) + 1800 };
+    fresh.parts[0] = { ...fresh.parts[0]!, page: 6, part_ref: "fresh-same-cid", expires_at: Math.floor(Date.now() / 1000) + 1800 };
     const preview = vi.fn().mockResolvedValueOnce(expired).mockResolvedValueOnce(fresh);
     const { submit } = mount({ previewParts: preview });
     const user = await read(); await expand(user);
@@ -217,6 +217,6 @@ describe("public favorites picker", () => {
     await user.click(screen.getByRole("button", { name: "刷新该视频当前页的分 P 凭据" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "添加已选 1 个分 P" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "添加已选 1 个分 P" }));
-    expect(submit.mock.calls[0][0].selections).toEqual([{ part_ref: "fresh-same-cid", allow_legacy_overlap: false }]);
+    expect(submit.mock.calls[0]![0].selections).toEqual([{ part_ref: "fresh-same-cid", allow_legacy_overlap: false }]);
   });
 });

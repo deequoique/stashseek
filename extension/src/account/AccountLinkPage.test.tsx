@@ -23,7 +23,6 @@ function renderPage(
 
 describe("Telegram account linking page", () => {
   it("lists linked third-party accounts and unlinks one", async () => {
-    const user = userEvent.setup();
     const loadIdentities = vi.fn().mockResolvedValue({ providers: ["microsoft", "qq"] });
     const unlinkIdentity = vi.fn().mockResolvedValue(undefined);
 

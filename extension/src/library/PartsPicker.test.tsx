@@ -56,7 +56,7 @@ describe("Bilibili part picker", () => {
     expect(consent).not.toBeChecked();
     await user.click(consent);
     await user.click(screen.getByRole("button", { name: "添加已选 1 个分 P" }));
-    expect(submit.mock.calls[0][0].selections[0].allow_legacy_overlap).toBe(true);
+    expect(submit.mock.calls[0]![0].selections[0].allow_legacy_overlap).toBe(true);
   });
 
   it("blocks an eleventh part without silently replacing earlier choices", async () => {
@@ -81,7 +81,7 @@ describe("Bilibili part picker", () => {
     await user.click(screen.getByRole("button", { name: "下一页" }));
     await user.click(await screen.findByRole("checkbox", { name: /^父视频 · P21/ }));
     await user.click(screen.getByRole("button", { name: "添加已选 2 个分 P" }));
-    expect(submit.mock.calls[0][0].selections.map((value: { part_ref: string }) => value.part_ref)).toEqual(["signed-1", "signed-21"]);
+    expect(submit.mock.calls[0]![0].selections.map((value: { part_ref: string }) => value.part_ref)).toEqual(["signed-1", "signed-21"]);
     const result = await screen.findByRole("list", { name: "分 P 添加结果" });
     expect(within(result).getAllByRole("listitem")[0]).toHaveTextContent("P1 课程 1已添加，等待整理");
     expect(screen.getByText("已选 1 / 10 个分 P")).toBeInTheDocument();
@@ -95,8 +95,8 @@ describe("Bilibili part picker", () => {
     await user.click(screen.getByRole("button", { name: "添加已选 1 个分 P" }));
     await user.click(await screen.findByRole("button", { name: "重新确认本次结果" }));
     expect(submit).toHaveBeenCalledTimes(2);
-    expect(submit.mock.calls[1][0]).toEqual(submit.mock.calls[0][0]);
-    expect(submit.mock.calls[1][1]).toBe(submit.mock.calls[0][1]);
+    expect(submit.mock.calls[1]![0]).toEqual(submit.mock.calls[0]![0]);
+    expect(submit.mock.calls[1]![1]).toBe(submit.mock.calls[0]![1]);
   });
 
   it("aborts disposal and ignores a late success instead of touching another account", async () => {
@@ -106,7 +106,7 @@ describe("Bilibili part picker", () => {
     const user = await previewVideo();
     await user.click(screen.getByRole("checkbox", { name: /父视频 · P2/ }));
     await user.click(screen.getByRole("button", { name: "添加已选 1 个分 P" }));
-    const signal = submit.mock.calls[0][2] as AbortSignal;
+    const signal = submit.mock.calls[0]![2] as AbortSignal;
     unmount();
     expect(signal.aborted).toBe(true);
     await act(async () => resolve({ results: [] }));

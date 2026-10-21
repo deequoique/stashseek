@@ -18,6 +18,12 @@ from app.api.auth_schemas import (
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "extension" / "src" / "api" / "openapi.json"
 
+# status -> (default phrases FastAPI may emit, canonical contract wording)
+STANDARD_PHRASES = {
+    "413": ({"Request Entity Too Large", "Content Too Large"}, "Request Entity Too Large"),
+    "422": ({"Unprocessable Entity", "Unprocessable Content"}, "Unprocessable Entity"),
+}
+
 
 def rendered_schema() -> str:
     # OpenAPI generation must use the production email composition while
@@ -43,17 +49,18 @@ def rendered_schema() -> str:
         web_login_channels=("email",),
     )
     document = app.openapi()
-    # Python's standard HTTP 422 phrase differs across supported versions.
-    # Keep the existing generated contract stable without changing custom text.
+    # Python's standard HTTP 413 and 422 phrases differ across supported
+    # versions (3.13 renamed both).  Keep the existing generated contract
+    # stable without changing custom text.
     for path in document["paths"].values():
         for operation in path.values():
             if not isinstance(operation, dict):
                 continue
-            response = operation.get("responses", {}).get("422")
-            if isinstance(response, dict) and response.get("description") in {
-                "Unprocessable Entity", "Unprocessable Content",
-            }:
-                response["description"] = "Unprocessable Entity"
+            responses = operation.get("responses", {})
+            for status, (aliases, canonical) in STANDARD_PHRASES.items():
+                response = responses.get(status)
+                if isinstance(response, dict) and response.get("description") in aliases:
+                    response["description"] = canonical
     # Keep compatibility request schemas available for channel integrations
     # without treating them as the extension workspace's login contract.  The
     # legacy channel UI remains an explicitly non-production compatibility path
