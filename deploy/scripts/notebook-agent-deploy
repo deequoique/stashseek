@@ -59,6 +59,14 @@ if [[ ! -d $release_dir ]]; then
   # Compatibility for hosts whose unit still points WEB_STATIC_DIR at web/dist.
   runuser -u notebook-agent -- mkdir -p "$release_dir/web"
   runuser -u notebook-agent -- ln -sfn ../extension/dist "$release_dir/web/dist"
+  # The offline extension package is served by the website's download links
+  # (/assets/*.zip); it lives outside extension/ so the store package never
+  # contains itself.
+  if compgen -G "$release_dir/deploy/offline-extension/*.zip" >/dev/null; then
+    runuser -u notebook-agent -- mkdir -p "$release_dir/extension/dist/assets"
+    runuser -u notebook-agent -- cp "$release_dir"/deploy/offline-extension/*.zip \
+      "$release_dir/extension/dist/assets/"
+  fi
   chmod 0755 "$release_dir/deploy/scripts/run-production-migrations"
   runuser -u notebook-agent -- touch "$release_dir/.release-built"
 elif [[ ! -f $release_dir/.release-built ]]; then
