@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "StashSeek Chat — 搜藏助手",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "在侧边栏就当前视频提问并跳转到原文时间点，也可以把字幕保存到资料库。",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqONjDWOzvzdKkhi9aQeUYek7QvDTPJMXNFAKI6X+IyWqLcN/jAMTM9eVJBJFrnYWXMW+fXEtCzS7X6vv+JD0ehTklMo2uXWdQ8n3bh8BlMAppdHwnQFbcXDkuKaMBZIcsHo1EoCeugBKtspEMHGyP96LCVeqfNwh6vA/eTzbFFb331hrJtnE5VAwt9jK/0XFXydBwoseiB3WAYxNKlX+LhPP+4JjpMcGztJJMeXyBIiGdJqX1fYKBBrJrrfrBvZcuz879DngU3rP2k3lJFr3nDqLONHRMR0ccQvUQQtmqyupNz/+yP95++oglc4YTJz2/mh6sn3/V7XgTfNRQXoIyQIDAQAB",
   "minimum_chrome_version": "114",
