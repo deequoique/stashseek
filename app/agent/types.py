@@ -3,15 +3,39 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Literal
 
 from typing_extensions import TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, StrictInt, model_validator
 
 from app.agent.answer_validation import NaturalAnswerValidationError, validate_natural_answer
 from app.agent.context import TurnContext
+from app.agent.media import validate_source_location
 from app.channels.types import TenantContext
+
+
+@dataclass(frozen=True)
+class UnifiedRetrievalCandidate:
+    """Provider-neutral candidate boundary for text and future media rows."""
+
+    candidate_id: str
+    kind: Literal["text", "media"]
+    score: float
+    item_id: int | None = None
+    segment_id: int | None = None
+    media_id: str | None = None
+    start_sec: float | None = None
+    end_sec: float | None = None
+
+
+@dataclass(frozen=True)
+class UnifiedRetrievalResult:
+    """Bounded retrieval result envelope without committing to DB schema."""
+
+    candidates: tuple[UnifiedRetrievalCandidate, ...] = ()
+    source: Literal["text", "multimodal"] = "text"
 
 
 class Citation(BaseModel):
@@ -25,7 +49,18 @@ class Citation(BaseModel):
     excerpt: str
     url: str
     start_sec: float | None = None
+    # ``title`` marks the per-item title-and-description row: it has no
+    # transcript time, and its excerpt is the title text, not a spoken quote.
+    # The default is omitted from serialized output so persisted and public
+    # text sources keep their untagged legacy shape (the persisted-source codec
+    # treats any other ``kind`` tag as non-text); only ``title`` is written.
+    kind: Literal["segment", "title"] = Field(
+        default="segment", exclude_if=lambda value: value == "segment"
+    )
     _retrieval_score: float | None = PrivateAttr(default=None)
+    # Set only by tenant-scoped database hydration, never public/model payloads.
+    # A mutable source URL/P ordinal cannot prove exact CID item identity.
+    _source_reference: tuple[str, str] | None = PrivateAttr(default=None)
 
     def __eq__(self, other: object) -> bool:
         """Keep private retrieval diagnostics out of the public source contract."""
@@ -33,6 +68,46 @@ class Citation(BaseModel):
         if not isinstance(other, Citation):
             return NotImplemented
         return self.model_dump() == other.model_dump()
+
+
+class MediaCitation(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    evidence_id: str
+    media_id: str
+    item_id: StrictInt
+    title: str = Field(min_length=1, max_length=360)
+    location: str
+    start_sec: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    end_sec: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    evidence: list[str] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> "MediaCitation":
+        if (
+            isinstance(self.item_id, bool)
+            or self.item_id <= 0
+            or not re.fullmatch(r"M[A-Za-z0-9_-]{1,128}", self.evidence_id)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", self.media_id)
+            or self.evidence_id != "M" + self.media_id
+        ):
+            raise ValueError("invalid media citation identity")
+        validate_source_location(self.location)
+        if not self.title.strip() or any(ord(char) < 32 or ord(char) == 127 for char in self.title):
+            raise ValueError("invalid media citation title")
+        if (self.start_sec is None) != (self.end_sec is None):
+            raise ValueError("incomplete media citation time range")
+        if self.start_sec is not None and self.end_sec < self.start_sec:
+            raise ValueError("invalid media citation time range")
+        if any(
+            not isinstance(value, str)
+            or not value.strip()
+            or len(value) > 360
+            or any(ord(char) < 32 for char in value)
+            for value in self.evidence
+        ):
+            raise ValueError("invalid media citation evidence")
+        return self
 
 
 class AgentAnswer(BaseModel):
@@ -44,6 +119,9 @@ class AgentAnswer(BaseModel):
     action_results: list[dict] = Field(default_factory=list)
     thread_id: str | None = None
     error_code: str | None = None
+    media_citations: list[MediaCitation] = Field(
+        default_factory=list, exclude_if=lambda value: not value
+    )
 
 
 class RetrievalToolPayload(TypedDict):
@@ -72,18 +150,19 @@ class GroundedSection(BaseModel):
     status: Literal["grounded", "unsupported"] = "grounded"
     text: str | None = Field(default=None, min_length=1)
     citation_ids: list[int] = Field(default_factory=list, max_length=8)
+    media_citation_ids: list[str] = Field(default_factory=list, max_length=8)
 
     @model_validator(mode="after")
     def validate_status_payload(self) -> "GroundedSection":
         if self.status == "grounded":
             if self.text is None or not self.text.strip():
                 raise ValueError("grounded section requires text")
-            if not self.citation_ids:
+            if not self.citation_ids and not self.media_citation_ids:
                 raise ValueError("grounded section requires citations")
             return self
         if self.text is not None:
             raise ValueError("unsupported section must not contain model text")
-        if self.citation_ids:
+        if self.citation_ids or self.media_citation_ids:
             raise ValueError("unsupported section must not contain citations")
         return self
 

@@ -1,0 +1,30 @@
+{
+  "id": "extension-page-qa",
+  "name": "extension-page-qa",
+  "title": "Extension page Q&A and web companion",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-10-15",
+  "completedAt": "2026-10-19",
+  "branch": "dev",
+  "base_branch": "dev",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-15-side-panel-page-qa",
+    "10-15-web-companion-build",
+    "10-17-bilibili-side-panel"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Archived 2026-10-19 at lane's request. Children side-panel-page-qa and bilibili-side-panel closed (PR #32, live checks not run); web-companion-build not started and detached as a standalone task. See prd.md 收尾记录.",
+  "meta": {}
+}

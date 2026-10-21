@@ -37,3 +37,5 @@
 | A new session's worktree is cut from `main` and lacks `dev`-only code | Cut it from `dev`; commit the needed pending work on `dev` first |
 | `git add -A` sweeps another task's uncommitted edits into the commit | Stage only this task's files and hunks |
 | Editing `main` directly to ship something faster | Change and verify it on `dev`, then let the user decide when to merge |
+| Running pytest or alembic inside `.claude/worktrees/<name>` and trusting the result | `app/config.py` calls `load_dotenv()`, which walks up and loads the main checkout's `.env` (production settings). `DATABASE_URL` stays safe only because it is exported first; every other key leaks in and skews tests. Run the suite from a copy outside the repo tree (`rsync` the worktree, symlink its `.venv`) |
+| Leaving the shared Neon test branch on a migration head that is not on `dev` yet | Other sessions' migrated-DB tests (`test_multiuser_integration`) then fail on missing columns. Downgrade back to the `dev` head after verifying, and upgrade again when the branch lands |

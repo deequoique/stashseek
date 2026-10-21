@@ -6,8 +6,11 @@ export type LoginChannel = Schemas["CapabilitiesResponse"]["web_login_channels"]
 export type LegacyLoginChannel = Schemas["ChallengeCreateRequest"]["target_channel"];
 export type LoginChallenge = Schemas["ChallengeCreateResponse"];
 export type ChallengeStatus = Schemas["ChallengeStatusResponse"];
-export type SessionInfo = Schemas["SessionResponse"];
+export type SessionInfo = Schemas["app__api__auth_schemas__SessionResponse"];
 export type Capabilities = Schemas["CapabilitiesResponse"];
+export type ExternalLoginProvider = Capabilities["external_login_providers"][number];
+export type ExternalLoginPending = Schemas["ExternalLoginPendingResponse"];
+export type ExternalLoginVerifyInput = Schemas["ExternalLoginVerifyRequest"];
 export type EmailChallengeInput = Schemas["EmailChallengeRequest"];
 export type EmailVerifyInput = Schemas["EmailVerifyRequest"];
 export type AcceptedResponse = Schemas["AcceptedResponse"];
@@ -25,10 +28,21 @@ export type PairingApproval = Schemas["PairingApprovalResponse"];
 export type BatchSubmitInput = Schemas["BatchSaveRequest"];
 export type BatchSubmitItem = Schemas["BatchItemResponse"];
 export type BatchSubmitResponse = Schemas["BatchSaveResponse"];
+export type BilibiliPartsPreviewInput = Schemas["BilibiliPartsPreviewRequest"];
+export type BilibiliPartsPreview = Schemas["BilibiliPartsPreviewResponse"];
+export type BilibiliPartPreview = Schemas["BilibiliPartPreview"];
+export type BilibiliPartsBatchInput = Schemas["BilibiliPartsBatchRequest"];
+export type BilibiliPartsBatchResponse = Schemas["BilibiliPartsBatchResponse"];
+export type BilibiliFavoritesPreviewInput = Schemas["BilibiliFavoritesPreviewRequest"];
+export type BilibiliFavoritesPreview = Schemas["BilibiliFavoritesPreviewResponse"];
+export type BilibiliFavoriteVideo = Schemas["BilibiliFavoriteVideo"];
 
 export type Chapter = Schemas["ChapterResponse"];
 export type LibraryItem = Schemas["LibraryItemResponse"];
 export type LibraryLifecycle = LibraryItem["lifecycle"];
+export type IngestStage = Schemas["IngestStageResponse"];
+export type IngestReason = Schemas["IngestReasonResponse"];
+export type IngestReasonCategory = IngestReason["category"];
 export type LibraryPageResponse = Schemas["LibraryPageResponse"];
 export type LibraryItemSummary = Pick<
   LibraryItem,
@@ -43,6 +57,9 @@ export type LibraryItemSummary = Pick<
   | "url"
   | "error_code"
   | "available_actions"
+  | "stages"
+  | "reason"
+  | "body_searchable"
 >;
 
 export type TranscriptBlock = Schemas["TranscriptBlockResponse"];

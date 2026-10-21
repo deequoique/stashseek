@@ -1,7 +1,7 @@
 # 升级与回滚
 
-目标是让 Python、前端和 schema 以可审计的 release 一起演进。生产回滚优先回滚
-应用 binary 和 `web/dist`，保留向前兼容的数据库 schema；不要把 migration downgrade
+目标是让 Python、插件客户端和 schema 以可审计的 release 一起演进。生产回滚优先回滚
+应用 binary 和 `extension/dist`，保留向前兼容的数据库 schema；不要把 migration downgrade
 当作普通发布撤销按钮。
 
 ## 1. 发布前冻结和备份
@@ -21,16 +21,16 @@ history 或回收站数据。
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
-corepack pnpm --dir web install --frozen-lockfile
-corepack pnpm --dir web check:api
-corepack pnpm --dir web test
-corepack pnpm --dir web typecheck
-corepack pnpm --dir web lint
-corepack pnpm --dir web build
+corepack pnpm --dir extension install --frozen-lockfile
+corepack pnpm --dir extension check:api
+corepack pnpm --dir extension test
+corepack pnpm --dir extension typecheck
+corepack pnpm --dir extension lint
+corepack pnpm --dir extension build
 ```
 
-保留 release manifest，至少记录 commit SHA、预期 schema head、`web/dist` 和入口命令。
-不要在 active release 上原地覆盖依赖或前端构建产物。
+保留 release manifest，至少记录 commit SHA、预期 schema head、`extension/dist` 和入口命令。
+不要在 active release 上原地覆盖依赖或插件客户端构建产物。
 
 ## 3. 运行迁移并启动兼容进程
 
@@ -51,7 +51,7 @@ corepack pnpm --dir web build
 4. loopback gateway；
 5. 通过 required-plugin readiness 后启动 LangBot adapters。
 
-检查 `/api/v1/health`、`/api/v1/capabilities`、SPA 路由、未知 API JSON 404、MCP
+检查 `/api/v1/health`、`/api/v1/capabilities`、扩展本地工作区、未知 API JSON 404、MCP
 `initialize/tools/list/tools/call`、资料库读写和一个时间戳引用。完成前不要重新开放
 写入或删除上一份 release。
 
@@ -68,13 +68,13 @@ corepack pnpm --dir web build
 如果 `restart` 报 migration、端口或依赖错误，保留现场并按[排查问题](troubleshoot.md)
 处理；不要删除 `.runtime/`、Compose volume 或 `.env.runtime` 以“重置”。
 
-## 5. 生产回滚应用和前端
+## 5. 生产回滚应用和插件客户端
 
 当新 release 的健康检查失败时：
 
 1. 隔离 public 写入口并停止新 release 的 owned units；
 2. 选择上一份已知良好的 release manifest，确认它仍存在且不是被删除的 active target；
-3. 将应用和 `web/dist` 一起切回同一个 release；
+3. 将应用和 `extension/dist` 一起切回同一个 release；
 4. 重新启动 worker、Beat、应用和 gateway，按同样的 smoke 顺序验证；
 5. 验证数据库 live schema 与旧 release 的兼容性后，才恢复渠道和 Web 写入。
 

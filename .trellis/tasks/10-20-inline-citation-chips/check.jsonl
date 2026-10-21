@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Verify markers are renumbered only in the web projection, MCP text is untouched and citation order defines the numbers"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Verify no answer text or identifiers reach logs"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Verify chip accessibility (link semantics, aria-label, tooltip, keyboard) and the toggle's aria-pressed"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify tests, type check and check:api ran under Node 22"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify streaming numbering, completed list order and history projection agree"}

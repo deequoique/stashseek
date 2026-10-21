@@ -1,0 +1,7 @@
+{
+  "protocol_version": "recognition-error.v1",
+  "error_code": "provider_credentials_missing",
+  "error_class": "ProviderCredentialsMissing",
+  "retryable": false,
+  "phase": "provider"
+}

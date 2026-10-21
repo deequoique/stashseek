@@ -12,6 +12,9 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.channels.types import ChannelEnvelope, TenantContext
+from app.channels.source_codec import encode_sources
+from app.channels.source_codec import text_source_payloads
+from app.agent.types import MediaCitation
 from app.models import (
     ConversationThread,
     ConversationTurn,
@@ -152,6 +155,7 @@ def save_completed_turn(
     answer_status: str = "legacy",
     error_code: str | None = None,
     action_results: Sequence[dict[str, Any]] = (),
+    media_citations: Sequence[MediaCitation] = (),
 ) -> ConversationTurn:
     existing = find_turn(db, thread.id, envelope.message_id)
     if existing is not None:
@@ -164,7 +168,7 @@ def save_completed_turn(
         message_id=envelope.message_id,
         user_text=envelope.text,
         assistant_text=assistant_text,
-        sources=list(sources),
+        sources=encode_sources(text_source_payloads(sources), media_citations),
         model_messages=serialized,
         answer_status=answer_status,
         error_code=error_code,

@@ -41,6 +41,26 @@ another user can authenticate in the same browser. Operation-specific 401s,
 such as an invalid verification code, stay in the owning form and must not
 trigger global session teardown.
 
+On successful login, capture only the public capabilities DTO and its original
+freshness timestamp, cancel/clear the old client, then seed the replacement with
+the canonical Session and that public snapshot. Never transfer private history.
+Background history preloading checks that its captured Session remains current
+before fetching a transcript; cancelled Session/history reads from a disposed
+client cannot affect the active account. Remount query observers on private
+client rotation so they cannot retain the previous QueryClient. Route components
+are loaded on demand, with auth hooks
+outside the protected-page Suspense boundary so chunk loading cannot postpone
+Session validation.
+
+External website login adds a clean anonymous `/login/external` route. Its
+expected unauthenticated Session probe uses `probeLoginSession()` and does not
+invoke protected-route global invalidation. `LoginRoute` discards prior private
+cache once, preserves only public capabilities/freshness, and remounts a fresh
+client without repeatedly treating new login observers as old private data. See
+[External Login](./external-login.md) for the complete probe, binding, uncertainty
+recovery and activation contract. This exception does not weaken the normal
+protected `session_invalid` handler.
+
 ---
 
 ## Server State
@@ -49,6 +69,10 @@ trigger global session teardown.
 - The API decides lifecycle and `available_actions`.
 - The client never persists queries to `localStorage`, `sessionStorage`, IndexedDB, or a service worker.
 - Add-video partial results remain in the open dialog while the library query is invalidated.
+- Favorites/part selections, signed refs, expiry, consent and frozen operation
+  attempts also stay only in the owning add-dialog/private-query lifetime. Source
+  changes discard that interaction; uncertain replay keeps its original payload,
+  key and proof expiry. There is no persistent or cross-tab import coordinator.
 - Transcript cursors are opaque and only passed back to the API.
 - Query cache contents are private tenant data and receive explicit teardown semantics.
 

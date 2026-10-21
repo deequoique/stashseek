@@ -1,0 +1,6 @@
+{"file":".trellis/tasks/08-18-bilibili-url-plugin/prd.md","reason":"Acceptance criteria and security constraints to verify."}
+{"file":".trellis/tasks/08-18-bilibili-url-plugin/design.md","reason":"Expected platform boundaries and rollback behavior."}
+{"file":".trellis/tasks/08-18-bilibili-url-plugin/research/feasibility-2026-08-18.md","reason":"Evidence-backed assumptions and unresolved smoke-test gates."}
+{"file":".trellis/spec/backend/browser-companion-capture.md","reason":"Capture contract and extension security validation."}
+{"file":".trellis/spec/backend/youtube-connector.md","reason":"Connector runtime and failure-classification validation."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend/OpenAPI and extension quality gates."}

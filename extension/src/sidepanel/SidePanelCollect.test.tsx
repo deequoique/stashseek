@@ -41,9 +41,16 @@ async function renderPanel(env: FakeEnvironment) {
   return user;
 }
 
-const collectButton = () => screen.getByRole("button", { name: /^收藏(视频|中…)$/ });
+const collectButton = () => screen.getByRole("button", { name: /^(收藏视频|收藏中…|已收藏)$/ });
 const collectSteps = () => within(screen.getByRole("list", { name: "收藏步骤" }));
 const stepItem = (text: string) => collectSteps().getByText(text).closest("li") as HTMLElement;
+/** The ingest progress card shown once the server has the item. */
+const progressSteps = () => within(screen.getByRole("list", { name: "整理步骤" }));
+const progressRow = (text: string) => progressSteps().getByText(text).closest("li") as HTMLElement;
+const unfinishedCard = () => within(screen.getByRole("region", { name: "收藏还在，整理没有完成" }));
+const NO_SPEECH = { code: "asr_no_speech", category: "no_speech", retry_useful: false } as const;
+const NO_TRANSCRIPTION = { code: "asr_disabled", category: "no_transcription", retry_useful: true } as const;
+const WORKSPACE_SEARCH = "chrome-extension://test/workspace.html#/library?focus=search";
 
 /** An environment whose page read fails, so 「收藏视频」 has to import by URL. */
 function failingReadEnvironment(options: Parameters<typeof makeEnvironment>[0] = {}) {
@@ -73,26 +80,28 @@ describe("收藏视频 on the capture path", () => {
     expect(env.worker.saveCapture.mock.calls[0]?.[0]).toBe(await env.worker.readPage.mock.results[0]?.value);
     expect(env.worker.readPage).toHaveBeenCalledOnce();
     expect(env.submitBatch).not.toHaveBeenCalled();
-    expect(collectButton()).toBeDisabled();
-    expect(collectButton()).toHaveTextContent("收藏中…");
 
-    await screen.findByText("排队等待处理");
-    expect(stepItem("已读取页面字幕（2 段）")).toHaveClass("is-completed");
-    expect(stepItem("已提交")).toHaveClass("is-completed");
-    expect(stepItem("排队等待处理")).toHaveClass("is-running");
-    expect(stepItem("排队等待处理")).toHaveTextContent("已用时 0 秒 · 预计还需约 2 分钟");
+    expect(await screen.findByRole("heading", { name: "已经保存，不必等在这里" })).toBeInTheDocument();
+    // The server has the item: the save itself is over, even though the stages still run.
+    expect(collectButton()).toBeDisabled();
+    expect(collectButton()).toHaveTextContent("已收藏");
+    expect(screen.getByText("现在可以继续看视频，关闭插件也不影响处理。")).toBeInTheDocument();
+    expect(screen.getByText("已读取页面字幕（2 段）")).toBeInTheDocument();
+    expect(progressRow("保存视频链接")).toHaveClass("is-done");
+    expect(progressRow("排队中")).toHaveClass("is-pending");
+    expect(progressRow("排队中")).toHaveTextContent("已用时 0 秒 · 预计还需约 2 分钟");
     expect(env.getItem).toHaveBeenCalledWith("item-1");
 
+    item.item = libraryItem({ stage: "fetching" });
+    await waitFor(() => expect(progressRow("读取字幕与内容")).toHaveClass("is-running"));
     item.item = libraryItem({ stage: "chunking" });
-    await waitFor(() => expect(stepItem("切分段落")).toHaveClass("is-running"));
-    expect(stepItem("排队等待处理")).toHaveClass("is-completed");
-    item.item = libraryItem({ stage: "embedding" });
-    await waitFor(() => expect(stepItem("生成检索向量")).toHaveClass("is-running"));
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
+    expect(screen.queryByText("已整理，可检索")).not.toBeInTheDocument();
 
-    item.item = libraryItem({ lifecycle: "ready", stage: "ready" });
-    await waitFor(() => expect(stepItem("完成，可以在资料库里搜索和提问")).toHaveClass("is-completed"));
+    item.item = libraryItem({ lifecycle: "ready", stage: "ready", body_searchable: true });
+    await waitFor(() => expect(progressRow("读取字幕与内容")).toHaveClass("is-done"));
+    expect(screen.getByText("已整理，可检索")).toBeInTheDocument();
     expect(screen.getByText("已收藏到资料库。")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("收藏视频 · 已完成").closest("details")).not.toHaveAttribute("open"));
     expect(collectButton()).toBeEnabled();
     expect(collectButton()).toHaveTextContent("收藏视频");
 
@@ -104,13 +113,47 @@ describe("收藏视频 on the capture path", () => {
     expect(env.tabs.openUrl).toHaveBeenCalledWith("chrome-extension://test/workspace.html#/videos/item-1");
   });
 
+  it("says saving only until the server answers, then saved while the item is still being processed", async () => {
+    const env = makeEnvironment();
+    const item = feed(env);
+    let answer: (result: { lifecycle: string; status: string; item_public_id: string }) => void = () => {};
+    env.worker.saveCapture.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    const user = await renderPanel(env);
+    await screen.findByText(CAPTION_LINE);
+
+    await user.click(collectButton());
+
+    await waitFor(() => expect(env.worker.saveCapture).toHaveBeenCalledOnce());
+    expect(collectButton()).toBeDisabled();
+    expect(collectButton()).toHaveTextContent("收藏中…");
+    expect(screen.getByText("正在提交")).toBeInTheDocument();
+
+    await act(async () => { answer({ lifecycle: "queued", status: "accepted", item_public_id: "item-1" }); });
+
+    // Queued on the server: the button says saved at once instead of waiting for chunking and embedding.
+    await waitFor(() => expect(collectButton()).toHaveTextContent("已收藏"));
+    expect(collectButton()).toBeDisabled();
+    expect(screen.getByRole("heading", { name: "已经保存，不必等在这里" })).toBeInTheDocument();
+    expect(progressRow("排队中")).toHaveClass("is-pending");
+    expect(screen.queryByText("已收藏到资料库。")).not.toBeInTheDocument();
+
+    item.item = libraryItem({ stage: "chunking" });
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
+    expect(collectButton()).toHaveTextContent("已收藏");
+
+    item.item = libraryItem({ lifecycle: "ready", stage: "ready", body_searchable: true });
+    await waitFor(() => expect(screen.getByText("已收藏到资料库。")).toBeInTheDocument());
+    expect(collectButton()).toBeEnabled();
+    expect(collectButton()).toHaveTextContent("收藏视频");
+  });
+
   it("keeps caption text out of everything it persists", async () => {
     const env = makeEnvironment();
     feed(env);
     const user = await renderPanel(env);
     await screen.findByText(CAPTION_LINE);
     await user.click(collectButton());
-    await screen.findByText("排队等待处理");
+    await screen.findByRole("list", { name: "整理步骤" });
 
     const stored = env.collectStore.entries.get(KEY_A);
     expect(stored).toMatchObject({ itemPublicId: "item-1", path: "capture", segments: 2, phase: "tracking" });
@@ -127,8 +170,8 @@ describe("收藏视频 on the capture path", () => {
     await user.click(collectButton());
 
     expect(await screen.findByText("这个视频已经在资料库里了。")).toBeInTheDocument();
-    expect(stepItem("已在资料库中")).toHaveClass("is-completed");
-    expect(screen.getByText("收藏视频 · 已在资料库中")).toBeInTheDocument();
+    expect(progressRow("读取字幕与内容")).toHaveClass("is-done");
+    expect(screen.getByText("已整理，可检索")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "在工作区查看" })).toBeInTheDocument();
     expect(env.submitBatch).not.toHaveBeenCalled();
   });
@@ -150,7 +193,6 @@ describe("收藏视频 on the capture path", () => {
     expect(env.worker.readPage).toHaveBeenCalledOnce();
     expect(env.submitBatch).not.toHaveBeenCalled();
   });
-
 });
 
 describe("收藏视频 falls back to the server URL import by itself", () => {
@@ -164,10 +206,10 @@ describe("收藏视频 falls back to the server URL import by itself", () => {
     expect(env.submitBatch.mock.calls[0]?.[0]).toEqual({ urls: [YT_A] });
     expect(env.worker.saveCapture).not.toHaveBeenCalled();
     expect(env.worker.readPage).toHaveBeenCalledOnce();
-    await screen.findByText("获取视频信息与字幕");
-    expect(stepItem("没能读取页面字幕，改用链接导入")).toHaveClass("is-skipped");
-    expect(stepItem("已提交")).toHaveClass("is-completed");
-    expect(stepItem("获取视频信息与字幕")).toHaveClass("is-running");
+    await screen.findByRole("list", { name: "整理步骤" });
+    expect(screen.getByText("没能读取页面字幕，改用链接导入")).toBeInTheDocument();
+    expect(progressRow("保存视频链接")).toHaveClass("is-done");
+    expect(progressRow("读取字幕与内容")).toHaveClass("is-running");
     expect(screen.queryByLabelText("邮箱地址")).not.toBeInTheDocument();
   });
 
@@ -193,14 +235,26 @@ describe("收藏视频 falls back to the server URL import by itself", () => {
     const user = await renderPanel(env);
     await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答");
     await user.click(collectButton());
-    await screen.findByText("获取视频信息与字幕");
+    await waitFor(() => expect(progressRow("读取字幕与内容")).toHaveClass("is-running"));
 
     item.item = libraryItem({ stage: "transcribing" });
-    await waitFor(() => expect(stepItem("语音转写中")).toHaveClass("is-running"));
-    expect(stepItem("获取视频信息与字幕")).toHaveClass("is-completed");
+    await waitFor(() => expect(progressRow("语音转写中")).toHaveClass("is-running"));
     item.item = libraryItem({ stage: "chunking" });
-    await waitFor(() => expect(stepItem("切分段落")).toHaveClass("is-running"));
-    expect(stepItem("语音转写中")).toHaveClass("is-completed");
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
+  });
+
+  it("shows speech transcription of a URL import, which only the body stage reports", async () => {
+    const env = failingReadEnvironment();
+    const item = feed(env, libraryItem({ stage: "fetching" }));
+    await collectAfterFailedRead(env);
+    await waitFor(() => expect(progressRow("读取字幕与内容")).toHaveClass("is-running"));
+
+    // `stage` keeps saying "fetching"; the durable marker is the body stage's detail.
+    item.item = libraryItem({ stage: "fetching", stages: [{ key: "body", status: "running", detail: "transcribing" }] });
+
+    await waitFor(() => expect(progressRow("语音转写中")).toHaveClass("is-running"));
+    // The estimate counts the transcription too, so it is minutes rather than seconds.
+    expect(progressRow("语音转写中")).toHaveTextContent(/预计还需约 \d+ 分钟/);
   });
 
   it("imports by URL when this device is not connected, and still offers to connect it", async () => {
@@ -299,7 +353,7 @@ describe("URL import results", () => {
 
     await collectAfterFailedRead(env);
 
-    await screen.findByText("获取视频信息与字幕");
+    await screen.findByRole("list", { name: "整理步骤" });
     expect(env.getItem).toHaveBeenCalledWith("item-5");
   });
 
@@ -321,7 +375,7 @@ describe("URL import results", () => {
     env.submitBatch.mockResolvedValueOnce(batchResponse({ status: "already_exists", item_public_id: "item-9", lifecycle: "processing" }));
 
     await collectAfterFailedRead(env);
-    await waitFor(() => expect(stepItem("切分段落")).toHaveClass("is-running"));
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
     item.item = libraryItem({ lifecycle: "ready", stage: "ready" });
 
     expect(await screen.findByText("这个视频已经在资料库里了。")).toBeInTheDocument();
@@ -391,38 +445,95 @@ describe("URL import results", () => {
 });
 
 describe("how an import ends", () => {
-  it("asks for action and links to the item", async () => {
+  it("shows why a caption-less video could not be transcribed, and keeps the link", async () => {
     const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage() } });
     const item = feed(env, libraryItem({ stage: "fetching" }));
     const user = await renderPanel(env);
     await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答");
     await user.click(collectButton());
-    await screen.findByText("获取视频信息与字幕");
+    await waitFor(() => expect(progressRow("读取字幕与内容")).toHaveClass("is-running"));
 
-    item.item = libraryItem({ lifecycle: "needs_action", stage: "needs_action" });
+    item.item = libraryItem({
+      lifecycle: "needs_action", stage: "needs_action", reason: NO_TRANSCRIPTION, available_actions: ["edit_why_saved", "archive", "retry"],
+    });
 
-    expect(await screen.findByText("需要处理：没有可用字幕，需要语音转写或从浏览器读取字幕")).toBeInTheDocument();
-    expect(stepItem("需要处理：没有可用字幕，需要语音转写或从浏览器读取字幕")).toHaveClass("is-failed");
-    expect(screen.getByText("收藏视频 · 需要处理")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "收藏还在，整理没有完成" })).toBeInTheDocument();
+    expect(unfinishedCard().getByText("Video aaaaaaaaaaa")).toBeInTheDocument();
+    expect(unfinishedCard().getByText("YouTube · 链接已保存")).toBeInTheDocument();
+    expect(unfinishedCard().getByRole("status")).toHaveTextContent("没有字幕，暂时无法语音转写，正文暂不可检索。");
+    expect(unfinishedCard().getByText("可以按标题和备注查找，也可以稍后重试。")).toBeInTheDocument();
+    expect(unfinishedCard().getByRole("button", { name: "重新整理" })).toBeEnabled();
+    expect(unfinishedCard().getByRole("button", { name: "仅查标题 / 备注" })).toBeEnabled();
+    expect(screen.queryByRole("list", { name: "整理步骤" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "在工作区查看" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/可以在工作区重试/)).not.toBeInTheDocument();
     expect(collectButton()).toBeEnabled();
-    expect(screen.getByRole("button", { name: "在工作区查看" })).toBeInTheDocument();
   });
 
-  it("fails with the reason and a retry hint, and clears what it kept for resuming", async () => {
+  it("fails with the real reason, says another try may not help, and clears what it kept for resuming", async () => {
     const env = makeEnvironment();
     const item = feed(env, libraryItem({ stage: "chunking" }));
     const user = await renderPanel(env);
     await screen.findByText(CAPTION_LINE);
     await user.click(collectButton());
-    await waitFor(() => expect(stepItem("切分段落")).toHaveClass("is-running"));
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
     expect(env.collectStore.entries.has(KEY_A)).toBe(true);
 
-    item.item = libraryItem({ lifecycle: "failed", stage: "failed", error_code: "asr_no_speech", available_actions: ["retry", "archive"] });
+    item.item = libraryItem({
+      lifecycle: "failed", stage: "failed", error_code: "asr_no_speech", reason: NO_SPEECH, available_actions: ["retry", "archive"],
+    });
 
-    expect(await screen.findByText("未能完成：没有检测到语音，可以在工作区重试")).toBeInTheDocument();
-    expect(stepItem("未能完成：没有检测到语音，可以在工作区重试")).toHaveClass("is-failed");
+    expect(await screen.findByText("没有字幕，也没有识别出语音，正文暂不可检索。")).toBeInTheDocument();
+    expect(screen.getByText("再试一次大概率还是同样的结果。")).toBeInTheDocument();
+    expect(unfinishedCard().getByRole("button", { name: "重新整理" })).toBeInTheDocument();
     expect(env.collectStore.entries.has(KEY_A)).toBe(false);
-    expect(screen.getByText("收藏视频 · 未能完成").closest("details")).toHaveAttribute("open");
+  });
+
+  it("names a reason in the words of its category for every kind of failure", async () => {
+    const env = makeEnvironment();
+    const item = feed(env, libraryItem({ stage: "chunking" }));
+    const user = await renderPanel(env);
+    await screen.findByText(CAPTION_LINE);
+    await user.click(collectButton());
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
+
+    item.item = libraryItem({
+      lifecycle: "failed", stage: "failed", error_code: "transient_fetch_failed",
+      reason: { code: "transient_fetch_failed", category: "fetch_failed", retry_useful: true }, available_actions: ["retry"],
+    });
+
+    expect(await screen.findByText("没能获取视频内容，可能是平台暂时限制了访问，正文暂不可检索。")).toBeInTheDocument();
+    expect(screen.queryByText("再试一次大概率还是同样的结果。")).not.toBeInTheDocument();
+  });
+
+  it("offers no retry when the server lists none, and still lets the user search titles", async () => {
+    const env = makeEnvironment();
+    const item = feed(env, libraryItem({ stage: "chunking" }));
+    const user = await renderPanel(env);
+    await screen.findByText(CAPTION_LINE);
+    await user.click(collectButton());
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
+
+    item.item = libraryItem({ lifecycle: "failed", stage: "failed", error_code: "ingestion_failed", available_actions: ["archive"] });
+
+    expect(await screen.findByText("整理时出错了，正文暂不可检索。")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重新整理" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "仅查标题 / 备注" })).toBeInTheDocument();
+  });
+
+  it("opens the library search from 「仅查标题 / 备注」", async () => {
+    const env = makeEnvironment();
+    const item = feed(env, libraryItem({ stage: "chunking" }));
+    const user = await renderPanel(env);
+    await screen.findByText(CAPTION_LINE);
+    await user.click(collectButton());
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
+    item.item = libraryItem({ lifecycle: "failed", stage: "failed", reason: NO_SPEECH, available_actions: ["retry"] });
+    await screen.findByRole("heading", { name: "收藏还在，整理没有完成" });
+
+    await user.click(screen.getByRole("button", { name: "仅查标题 / 备注" }));
+
+    expect(env.tabs.openUrl).toHaveBeenCalledWith(WORKSPACE_SEARCH);
   });
 
   it("reports an item that disappeared", async () => {
@@ -458,7 +569,7 @@ describe("progress polling", () => {
     const user = await renderPanel(env);
     await screen.findByText(CAPTION_LINE);
     await user.click(collectButton());
-    await waitFor(() => expect(stepItem("切分段落")).toHaveClass("is-running"));
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
 
     env.getItem.mockRejectedValueOnce(new TypeError("offline"));
     expect(await screen.findByText(/连接不稳定，正在重试/)).toBeInTheDocument();
@@ -468,8 +579,8 @@ describe("progress polling", () => {
     expect(env.getItem.mock.calls.length).toBe(calls);
     expect(collectButton()).toBeDisabled();
 
-    item.item = libraryItem({ stage: "embedding" });
-    await waitFor(() => expect(stepItem("生成检索向量")).toHaveClass("is-running"), { timeout: 2_000 });
+    item.item = libraryItem({ stage: "fetching" });
+    await waitFor(() => expect(progressRow("读取字幕与内容")).toHaveClass("is-running"), { timeout: 2_000 });
     expect(screen.queryByText(/连接不稳定/)).not.toBeInTheDocument();
   });
 
@@ -479,12 +590,14 @@ describe("progress polling", () => {
     const user = await renderPanel(env);
     await screen.findByText(CAPTION_LINE);
     await user.click(collectButton());
-    await waitFor(() => expect(stepItem("切分段落")).toHaveClass("is-running"));
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
 
     env.clock.now += env.deps.pollMaxMs;
 
     expect(await screen.findByText("处理时间比较长，已停止自动刷新，稍后可以在工作区查看进度。")).toBeInTheDocument();
-    expect(screen.getByText("收藏视频 · 仍在处理")).toBeInTheDocument();
+    // The card keeps what was last seen, and the elapsed-time line goes away.
+    expect(progressRow("建立检索索引")).toHaveClass("is-running");
+    expect(screen.queryByText(/已用时/)).not.toBeInTheDocument();
     expect(collectButton()).toBeEnabled();
     expect(env.collectStore.entries.has(KEY_A)).toBe(false);
     const calls = env.getItem.mock.calls.length;
@@ -498,7 +611,7 @@ describe("progress polling", () => {
     const user = await renderPanel(env);
     await screen.findByText(CAPTION_LINE);
     await user.click(collectButton());
-    await waitFor(() => expect(stepItem("切分段落")).toHaveClass("is-running"));
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
 
     env.clock.visible = false;
     await sleep(20);
@@ -533,7 +646,7 @@ describe("progress polling", () => {
     const user = await renderPanel(env);
     await screen.findByText(CAPTION_LINE);
     await user.click(collectButton());
-    await waitFor(() => expect(stepItem("切分段落")).toHaveClass("is-running"));
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
 
     act(() => env.navigate({ id: 7, url: YT_B }));
     await screen.findByRole("heading", { name: "Video bbbbbbbbbbb" });
@@ -546,7 +659,7 @@ describe("progress polling", () => {
     expect(env.collectStore.entries.has(KEY_A)).toBe(true);
 
     act(() => env.navigate({ id: 7, url: YT_A }));
-    await waitFor(() => expect(stepItem("切分段落")).toHaveClass("is-running"));
+    await waitFor(() => expect(progressRow("建立检索索引")).toHaveClass("is-running"));
     await waitFor(() => expect(env.getItem.mock.calls.length).toBeGreaterThan(away));
   });
 });
@@ -574,8 +687,8 @@ describe("resuming after the panel is reopened", () => {
 
     await renderPanel(env);
 
-    await waitFor(() => expect(stepItem("获取视频信息与字幕")).toHaveClass("is-running"));
-    expect(stepItem("获取视频信息与字幕")).toHaveTextContent("已用时 1 分 00 秒");
+    await waitFor(() => expect(progressRow("读取字幕与内容")).toHaveClass("is-running"));
+    expect(progressRow("读取字幕与内容")).toHaveTextContent("已用时 1 分 00 秒");
     expect(env.getItem).toHaveBeenCalledWith("item-7");
     expect(collectButton()).toBeDisabled();
     expect(env.submitBatch).not.toHaveBeenCalled();
@@ -674,7 +787,7 @@ describe("收藏视频 on Bilibili", () => {
 
     await waitFor(() => expect(env.worker.saveCapture).toHaveBeenCalledOnce());
     expect(env.submitBatch).not.toHaveBeenCalled();
-    expect(collectButton()).toHaveTextContent("收藏中…");
+    await waitFor(() => expect(collectButton()).toHaveTextContent("已收藏"));
   });
 
   it("imports a caption-less part 1 by its canonical URL", async () => {

@@ -22,7 +22,7 @@ BOUNDED_AUTONOMY_INSTRUCTIONS = """
    不要为了形式调用知识工具，也不要伪造 Citation、来源区块或 URL；能力说明不得声称动态运行状态
    或未验证的能力。
 2. 视频内容问答必须先搜索，再根据预算决定是否需要继续检索；在搜索前不要输出常识答案。
-   本轮一旦调用过 search_segments 等任何检索工具，就不要撰写回答正文、
+   本轮一旦调用过 search_segments、search_media 等任何检索工具，就不要撰写回答正文、
    不要输出 [S<segment_id>] 标记或任何来源信息；服务器会在检索结束后单独使用本轮证据
    生成最终回答，你当前这一步写的文字不会展示给用户。本轮检索完成后，只输出“检索完成”
    四个字作为这一步的结束语，不要附加其他说明。
@@ -55,6 +55,8 @@ def build_agent(
     model: Model | str,
     *,
     tool_timeout: float = 15.0,
+    multimodal_retrieval_enabled: bool = False,
+    media_search_service=None,
 ) -> Agent[AgentDeps, str]:
     """Build the one supported bounded-autonomy primary Agent."""
 
@@ -67,6 +69,18 @@ def build_agent(
         retries={"tools": 1},
         tool_timeout=tool_timeout,
     )
+
+    @agent.instructions
+    def media_retrieval_instruction(ctx: RunContext[AgentDeps]) -> str:
+        if not ctx.deps.multimodal_retrieval_enabled or media_search_service is None:
+            return ""
+        return (
+            "For visual content questions use search_media to retrieve candidates in the media space. "
+            "Search candidates are not visual facts: use inspect_media on the returned opaque IDs "
+            "when visual evidence is needed. You may also use search_segments for text evidence. "
+            "Only inspected M... evidence and retrieved S... evidence can ground an answer. "
+            "The server composer owns the final source selection and markers."
+        )
 
     @agent.instructions
     def bounded_context_instruction(ctx: RunContext[AgentDeps]) -> str:
@@ -188,7 +202,12 @@ def build_agent(
             "不要猜测、复用旧确认或仅回复‘是/确认’。"
         )
 
-    register_retrieval_tools(agent, policy)
+    register_retrieval_tools(
+        agent,
+        policy,
+        multimodal_retrieval_enabled=multimodal_retrieval_enabled,
+        media_search_service=media_search_service,
+    )
     register_action_tools(agent, policy)
     return agent
 

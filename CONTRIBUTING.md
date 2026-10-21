@@ -50,7 +50,7 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm run audit
 
 To load the build in Chrome, or to build against a local server with `pnpm package:local`, see [extension/README.md](extension/README.md).
 
-If you change the Web API, run `pnpm generate:api` in `extension/` and commit the regenerated contract. CI fails when `pnpm check:api` finds it out of date.
+If you change the Web API, run `pnpm generate:api` and then `pnpm generate:types` in `extension/`, and commit both regenerated files (`src/api/openapi.json` and `src/api/schema.d.ts`). CI fails when `pnpm check:api` finds `openapi.json` out of date; `schema.d.ts` is only checked by the type checker, so regenerate it every time.
 
 ## Pull requests
 

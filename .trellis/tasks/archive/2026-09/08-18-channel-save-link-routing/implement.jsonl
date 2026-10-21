@@ -1,0 +1,13 @@
+{"file":".trellis/tasks/08-18-channel-save-link-routing/prd.md","reason":"Requirements and acceptance criteria for trustworthy save/link routing."}
+{"file":".trellis/tasks/08-18-channel-save-link-routing/design.md","reason":"Error catalog, Bilibili worker, quoted-text parsing, natural save offer, and rollout design."}
+{"file":".trellis/tasks/08-18-channel-save-link-routing/implement.md","reason":"Ordered implementation phases, validation commands, and rollback gates."}
+{"file":".trellis/tasks/08-18-channel-save-link-routing/research/channel-save-link-route-analysis-2026-08-18.md","reason":"Evidence-backed incident route and root-cause analysis."}
+{"file":".trellis/spec/backend/agent-retrieval-convergence.md","reason":"Natural answer, canonical action/read results, exact reference scope, and persistence contracts."}
+{"file":".trellis/spec/backend/langbot-channel-runtime.md","reason":"Bridge early-event routing, payload privacy, and fail-closed channel behavior."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Existing backend error handling contract to extend with the centralized catalog."}
+{"file":".trellis/spec/backend/youtube-connector.md","reason":"Existing bounded yt-dlp and connector runtime contract to reuse for Bilibili."}
+{"file":".trellis/spec/backend/ingest-completion-queue.md","reason":"Ingest dispatch, terminal state, and completion durability reused by the Bilibili worker."}
+{"file":".trellis/tasks/08-18-bilibili-url-plugin/research/feasibility-2026-08-18.md","reason":"Existing Bilibili yt-dlp evidence, risk analysis, and MVP examples."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Required boundary analysis across bridge, gateway, Agent, submission, and worker."}
+{"file": ".trellis/tasks/08-19-trusted-response-boundary/prd.md", "reason": "Parent requirements for canonical/action section ownership and no-evidence separation."}
+{"file": ".trellis/tasks/08-19-trusted-response-boundary/design.md", "reason": "Shared ResponseEnvelope and server-owned section design this child must consume."}

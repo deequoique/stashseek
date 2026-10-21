@@ -38,6 +38,7 @@ from app.config import Settings
 from app.connectors.base import (
     ItemMeta,
     NeedsASR,
+    NeedsExtension,
     TransientFetchError,
 )
 from app.db import get_engine
@@ -336,6 +337,7 @@ def test_asr_disabled_keeps_needs_asr_even_when_handoff_is_requested(monkeypatch
 
     assert state == "needs_asr"
     assert item.state == "needs_asr"
+    assert item.fail_reason == "asr_disabled"
     assert db.commits == ["fetching", "needs_asr"]
 
 
@@ -351,6 +353,7 @@ def test_synchronous_callers_never_hand_off_even_when_asr_is_enabled(monkeypatch
 
     assert state == "needs_asr"
     assert item.state == "needs_asr"
+    assert item.fail_reason == "asr_unavailable"
 
 
 def test_unsupported_platform_stays_needs_asr_with_handoff_requested(monkeypatch):
@@ -366,6 +369,83 @@ def test_unsupported_platform_stays_needs_asr_with_handoff_requested(monkeypatch
 
     assert state == "needs_asr"
     assert item.state == "needs_asr"
+    assert item.fail_reason == "asr_unsupported_platform"
+
+
+def test_platform_is_checked_before_the_asr_switch(monkeypatch):
+    # An unsupported platform reads as such even while ASR is off, so the UI
+    # never tells the user to retry once ASR is switched on.
+    monkeypatch.setattr(
+        "app.ingest.tasks.get_settings", lambda: _settings(asr_enabled=False)
+    )
+    item = _item(platform="ntu_kaltura", platform_id="1_abc")
+
+    process_item(
+        item.id,
+        connector=Inner(),
+        asr_handoff=True,
+        session_factory=lambda: ItemDB(item),
+    )
+
+    assert (item.state, item.fail_reason) == ("needs_asr", "asr_unsupported_platform")
+
+
+def test_connector_needs_extension_records_its_reason_code(monkeypatch):
+    monkeypatch.setattr("app.ingest.tasks.get_settings", lambda: _settings())
+    cases = [
+        (NeedsExtension("login"), "browser_capture_required"),
+        (
+            NeedsExtension("login", code="bilibili_login_required"),
+            "bilibili_login_required",
+        ),
+        (
+            NeedsExtension("data", code="bilibili_capture_required"),
+            "bilibili_capture_required",
+        ),
+    ]
+    for result, code in cases:
+        item = _item(platform="bilibili", platform_id="BV12N4y1M7rh")
+        db = ItemDB(item)
+
+        state = process_item(
+            item.id,
+            connector=Inner(result),
+            asr_handoff=True,
+            session_factory=lambda: db,
+        )
+
+        assert state == "needs_extension"
+        assert item.state == "needs_extension"
+        assert item.fail_reason == code
+        assert db.commits == ["fetching", "needs_extension"]
+
+
+def test_bilibili_without_captions_hands_off_or_records_why_it_cannot(monkeypatch):
+    # URL import (connector path): both platforms are transcribable.
+    monkeypatch.setattr("app.ingest.tasks.get_settings", lambda: _settings())
+    item = _item(platform="bilibili", platform_id="BV12N4y1M7rh")
+    assert (
+        process_item(
+            item.id,
+            connector=Inner(),
+            asr_handoff=True,
+            session_factory=lambda: ItemDB(item),
+        )
+        == ASR_PENDING
+    )
+    assert item.fail_reason is None
+
+    monkeypatch.setattr(
+        "app.ingest.tasks.get_settings", lambda: _settings(asr_enabled=False)
+    )
+    item = _item(platform="bilibili", platform_id="BV12N4y1M7rh")
+    process_item(
+        item.id,
+        connector=Inner(),
+        asr_handoff=True,
+        session_factory=lambda: ItemDB(item),
+    )
+    assert (item.state, item.fail_reason) == ("needs_asr", "asr_disabled")
 
 
 def test_youtube_capture_without_captions_hands_off_when_asr_is_enabled(monkeypatch):
@@ -386,21 +466,53 @@ def test_youtube_capture_without_captions_hands_off_when_asr_is_enabled(monkeypa
     assert db.commits == ["fetching", "fetching"]
 
 
+def test_bilibili_capture_without_captions_hands_off_when_asr_is_enabled(monkeypatch):
+    monkeypatch.setattr("app.ingest.tasks.get_settings", lambda: _settings())
+    monkeypatch.setattr(
+        "app.ingest.tasks._connector",
+        lambda _url: pytest.fail("capture path must not use a remote connector"),
+    )
+    item = _item(platform="bilibili", platform_id="BV12N4y1M7rh")
+    db = ItemDB(item, SimpleNamespace(caption_status="unavailable"))
+
+    state = process_item(item.id, asr_handoff=True, session_factory=lambda: db)
+
+    assert state == ASR_PENDING
+    assert (item.state, item.fail_reason) == ("fetching", None)
+
+
 @pytest.mark.parametrize(
-    ("overrides", "settings_overrides", "asr_handoff"),
+    ("overrides", "settings_overrides", "asr_handoff", "reason"),
     [
-        pytest.param({}, {"asr_enabled": False}, True, id="asr_disabled"),
-        pytest.param({}, {}, False, id="no_handoff_requested"),
+        pytest.param(
+            {}, {"asr_enabled": False}, True, "asr_disabled", id="asr_disabled"
+        ),
+        pytest.param({}, {}, False, "asr_unavailable", id="no_handoff_requested"),
         pytest.param(
             {"platform": "ntu_kaltura", "platform_id": "1_abc"},
             {},
             True,
+            "asr_unsupported_platform",
             id="ntu_kaltura_is_private",
+        ),
+        pytest.param(
+            {"platform": "ntu_kaltura", "platform_id": "1_abc"},
+            {"asr_enabled": False},
+            True,
+            "asr_unsupported_platform",  # never "ASR is off, retry later"
+            id="ntu_kaltura_with_asr_disabled",
+        ),
+        pytest.param(
+            {"platform": "bilibili", "platform_id": "BV12N4y1M7rh"},
+            {"asr_enabled": False},
+            True,
+            "asr_disabled",
+            id="bilibili_with_asr_disabled",
         ),
     ],
 )
 def test_capture_without_captions_stays_needs_asr_when_not_eligible(
-    monkeypatch, overrides, settings_overrides, asr_handoff
+    monkeypatch, overrides, settings_overrides, asr_handoff, reason
 ):
     monkeypatch.setattr(
         "app.ingest.tasks.get_settings", lambda: _settings(**settings_overrides)
@@ -420,6 +532,7 @@ def test_capture_without_captions_stays_needs_asr_when_not_eligible(
     assert state == "needs_asr"
     assert item.state == "needs_asr"
     assert item.text_source == "none"
+    assert item.fail_reason == reason
     assert db.commits == ["fetching", "needs_asr"]
 
 
@@ -450,7 +563,10 @@ def test_asr_transcript_is_stored_as_capture_v1_and_item_becomes_ready(monkeypat
     assert content_type == "application/json"
     parsed = parse_canonical_transcript(body, source="asr_whisper", language="en")
     assert [cue.text for cue in parsed.cues] == [SPOKEN]
-    assert [type(row) for row in db.added] == [Segment]
+    # One body segment plus the item's title row.
+    assert [type(row) for row in db.added] == [Segment, Segment]
+    assert sorted(row.seq for row in db.added) == [-1, 0]
+    assert [row.boundary_kind for row in db.added if row.seq == -1] == ["title"]
     # The temporary audio object never outlives the transcription.
     assert audio_store.deleted == audio_store.puts and len(audio_store.puts) == 1
 
@@ -527,6 +643,9 @@ def test_process_dispatch_hands_the_same_dispatch_to_the_asr_queue(monkeypatch):
     assert (dispatch.state, dispatch.task_id) == ("enqueued", None)
     assert item.state == "fetching"
     assert published == [71]
+    # The durable "transcribing" marker is written with the state change.
+    assert dispatch.asr_handoff_at is not None
+    assert dispatch.asr_handoff_at == dispatch.updated_at
 
 
 def test_handoff_publish_failure_converges_to_needs_asr_without_leaking(
@@ -549,6 +668,7 @@ def test_handoff_publish_failure_converges_to_needs_asr_without_leaking(
     assert result == "asr_pending"
     assert (dispatch.state, dispatch.error_code) == ("completed", None)
     assert item.state == "needs_asr"
+    assert item.fail_reason == "asr_handoff_failed"
     payloads = _payloads(runtime_records)
     assert {"event": "asr_handoff_publish_failed", "error_code": "broker_unavailable"} in payloads
     rendered = json.dumps(payloads) + " ".join(
@@ -585,7 +705,7 @@ def test_default_dispatch_processor_requests_the_asr_handoff(monkeypatch):
     monkeypatch.setattr("app.ingest.tasks.process_item", fake_process_item)
 
     assert process_dispatch(71, task_id="t", session_factory=factory) == "ready"
-    assert calls == [(41, {"asr_handoff": True})]
+    assert calls == [(41, {"asr_handoff": True, "dispatch_id": 71, "dispatch_task_id": "t"})]
 
 
 def test_asr_error_marks_the_dispatch_failed_with_its_stable_code():
@@ -1008,6 +1128,7 @@ def test_asr_flow_end_to_end_creates_exactly_one_ready_event(pg_factory, worker_
     dispatch = _row(pg_factory, IngestDispatch, dispatch_id)
     item = _row(pg_factory, ContentItem, item_id)
     assert (dispatch.state, dispatch.task_id) == ("enqueued", None)
+    assert dispatch.asr_handoff_at is not None
     assert item.state == "fetching"
     assert worker_env.asr_published == [dispatch_id]
     assert _events(pg_factory, dispatch_id) == []
@@ -1052,11 +1173,19 @@ def test_asr_flow_end_to_end_creates_exactly_one_ready_event(pg_factory, worker_
     assert raw_store.puts[0][0] == item.raw_object_key
     assert raw_store.puts[0][2] == "application/json"
     with pg_factory() as db:
-        segments = list(db.scalars(select(Segment).where(Segment.item_id == item_id)))
+        rows = list(
+            db.scalars(
+                select(Segment).where(Segment.item_id == item_id).order_by(Segment.seq)
+            )
+        )
         dims = db.scalar(
             text("select vector_dims(embedding) from segment where item_id = :i limit 1"),
             {"i": item_id},
         )
+    # Exactly one title row (seq -1) precedes the body segments.
+    title_rows = [row for row in rows if row.seq == -1]
+    segments = [row for row in rows if row.seq != -1]
+    assert len(title_rows) == 1 and title_rows[0].boundary_kind == "title"
     assert len(segments) >= 1
     assert dims == 1536
     assert SPOKEN in segments[0].text
@@ -1105,9 +1234,10 @@ def test_handoff_publish_failure_creates_one_needs_asr_event(pg_factory, worker_
     dispatch = _row(pg_factory, IngestDispatch, dispatch_id)
     item = _row(pg_factory, ContentItem, item_id)
     assert (dispatch.state, dispatch.error_code) == ("completed", None)
-    assert item.state == "needs_asr"
+    assert (item.state, item.fail_reason) == ("needs_asr", "asr_handoff_failed")
     events = _events(pg_factory, dispatch_id)
     assert len(events) == 1
+    # The reason lives on the item only; completed events keep a NULL code.
     assert (events[0].outcome, events[0].item_state, events[0].error_code) == (
         "completed",
         "needs_asr",
@@ -1478,7 +1608,11 @@ def test_backfill_publish_failure_restores_needs_asr_and_is_reported(pg_factory)
     )
 
     assert result.failed == (item_id,) and result.queued == ()
-    assert _row(pg_factory, ContentItem, item_id).state == "needs_asr"
+    restored = _row(pg_factory, ContentItem, item_id)
+    assert (restored.state, restored.fail_reason) == (
+        "needs_asr",
+        "asr_handoff_failed",
+    )
     with pg_factory() as db:
         dispatch = db.scalar(
             select(IngestDispatch).where(IngestDispatch.item_id == item_id)
@@ -1609,11 +1743,18 @@ def test_capture_origin_youtube_without_captions_runs_asr_to_one_ready_event(
     # Capture-style chapters were replaced by the platform metadata.
     assert item.chapters == meta_chapters
     with factory() as db:
-        segments = list(db.scalars(select(Segment).where(Segment.item_id == item_id)))
+        rows = list(
+            db.scalars(
+                select(Segment).where(Segment.item_id == item_id).order_by(Segment.seq)
+            )
+        )
         dims = db.scalar(
             text("select vector_dims(embedding) from segment where item_id = :i limit 1"),
             {"i": item_id},
         )
+    title_rows = [row for row in rows if row.seq == -1]
+    segments = [row for row in rows if row.seq != -1]
+    assert len(title_rows) == 1 and title_rows[0].boundary_kind == "title"
     assert len(segments) >= 1 and dims == 1536
     assert SPOKEN in segments[0].text
     assert segments[0].boundary_kind == ("chapter" if meta_chapters else "hard_cut")
@@ -1666,6 +1807,7 @@ def test_capture_origin_youtube_without_captions_stays_needs_asr_when_asr_is_dis
     item = _row(factory, ContentItem, item_id)
     assert (dispatch.state, dispatch.error_code) == ("completed", None)
     assert (item.state, item.text_source) == ("needs_asr", "none")
+    assert item.fail_reason == "asr_disabled"
     assert worker_env.asr_published == []
     events = _events(factory, dispatch_id)
     assert len(events) == 1
@@ -1675,6 +1817,26 @@ def test_capture_origin_youtube_without_captions_stays_needs_asr_when_asr_is_dis
         None,
     )
     assert worker_env.notified == [events[0].id]
+
+
+def test_bilibili_capture_origin_without_captions_hands_off_when_asr_is_enabled(
+    capture_runtime, worker_env
+):
+    factory = capture_runtime
+    _user_id, item_id, dispatch_id = _capture_origin(factory, platform="bilibili")
+
+    assert (
+        process_dispatch(dispatch_id, task_id="ingest-task", session_factory=factory)
+        == "asr_pending"
+    )
+
+    dispatch = _row(factory, IngestDispatch, dispatch_id)
+    item = _row(factory, ContentItem, item_id)
+    assert (dispatch.state, dispatch.task_id) == ("enqueued", None)
+    assert dispatch.asr_handoff_at is not None
+    assert (item.state, item.fail_reason) == ("fetching", None)
+    assert worker_env.asr_published == [dispatch_id]
+    assert _events(factory, dispatch_id) == []
 
 
 def test_ntu_kaltura_capture_without_captions_never_hands_off(
@@ -1692,6 +1854,8 @@ def test_ntu_kaltura_capture_without_captions_never_hands_off(
     item = _row(factory, ContentItem, item_id)
     assert (dispatch.state, dispatch.error_code) == ("completed", None)
     assert (item.state, item.text_source) == ("needs_asr", "none")
+    assert item.fail_reason == "asr_unsupported_platform"
+    assert dispatch.asr_handoff_at is None
     assert worker_env.asr_published == []
     events = _events(factory, dispatch_id)
     assert len(events) == 1
@@ -1715,7 +1879,8 @@ def test_ingest_url_path_never_hands_off_even_for_a_capture_origin_item(
 
     assert connector.calls == ["meta", "text"]
     assert worker_env.asr_published == []
-    assert _row(factory, ContentItem, item_id).state == "needs_asr"
+    row = _row(factory, ContentItem, item_id)
+    assert (row.state, row.fail_reason) == ("needs_asr", "asr_unavailable")
 
 
 def test_backfilled_capture_origin_item_hands_off_on_the_ingest_worker(

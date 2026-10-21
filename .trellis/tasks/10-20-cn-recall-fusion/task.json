@@ -1,0 +1,28 @@
+{
+  "id": "cn-recall-fusion",
+  "name": "cn-recall-fusion",
+  "title": "修复中文与跨语言召回：标题入索引、RRF 融合、中文词法",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-10-20",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "中文/跨语言召回修复：search_segments 改 RRF 名次融合并去掉 5 视频上限；中文条目写双字 fts、中文查询分词 OR 检索；标题与简介作为标题行进入索引；Agent 用完整问题检索；RQ1 回归与租户 211 中文用例对比"
+  }
+}

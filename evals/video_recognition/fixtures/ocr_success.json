@@ -1,0 +1,13 @@
+{
+  "protocol_version": "ocr.v1",
+  "run_id": "fixture-run",
+  "sample_id": "YT-01",
+  "input_frame_id": "yt-01.ocr.1",
+  "provider": "fixture",
+  "model_version": "fixture-ocr-v1",
+  "detections": [
+    {"text": "Benchmark", "polygon": [{"x": 0.1, "y": 0.1}, {"x": 0.9, "y": 0.1}, {"x": 0.9, "y": 0.2}, {"x": 0.1, "y": 0.2}], "confidence": 1.0, "frame_timestamp_sec": 0.0}
+  ],
+  "usage": {"audio_seconds": 0.0, "image_count": 1, "estimated_cost_usd": 0.0},
+  "latency_ms": 1.0
+}

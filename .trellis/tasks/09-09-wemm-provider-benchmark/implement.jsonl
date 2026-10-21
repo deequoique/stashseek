@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/guides/branch-and-delegation-workflow.md", "reason": "Develop on dev in a worktree; Sonnet writes code; commit by path"}
+{"file": ".trellis/spec/backend/ingestion-chunking-embedding.md", "reason": "Production chunker and Zhipu embedding contracts reused by text_prep"}
+{"file": ".trellis/spec/backend/asr-transcription.md", "reason": "whisper-1 fallback client contract used for videos without public subtitles"}
+{"file": ".trellis/spec/backend/youtube-connector.md", "reason": "YouTube public subtitle fetch (fetch_text) used for timestamped text"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Code standards and forbidden patterns"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse scoring.py/chunker/embedders instead of reimplementing"}
+{"file": ".trellis/tasks/09-09-multimodal-retrieval-rollout/design.md", "reason": "Three-way fusion design (BM25 + Zhipu + WeMM, rank fusion) the benchmark evaluates"}
+{"file": ".trellis/tasks/10-08-meeting-qa-test-full-e2e/research/report-rq1-test.md", "reason": "Prior RRF finding on text retrieval (raw->RRF ~no change) and lexical-AND caveat"}

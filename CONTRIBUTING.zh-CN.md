@@ -50,7 +50,7 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm run audit
 
 在 Chrome 中加载构建产物，或用 `pnpm package:local` 连接本地服务，请看 [extension/README.md](extension/README.md)。
 
-改了 Web API 的话，在 `extension/` 下运行 `pnpm generate:api`，并提交重新生成的接口契约。`pnpm check:api` 发现契约过期时，CI 会失败。
+改了 Web API 的话，在 `extension/` 下先运行 `pnpm generate:api`，再运行 `pnpm generate:types`，并提交重新生成的两个文件（`src/api/openapi.json` 和 `src/api/schema.d.ts`）。`pnpm check:api` 发现 `openapi.json` 过期时，CI 会失败；`schema.d.ts` 只有类型检查会间接发现问题，所以每次都要重新生成。
 
 ## Pull request
 

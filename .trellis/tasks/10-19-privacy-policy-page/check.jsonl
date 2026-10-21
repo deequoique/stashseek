@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "CSP, route composition, SPA catch-all ordering"}
+{"file": ".trellis/spec/backend/browser-companion-capture.md", "reason": "What the extension reads/never sends (policy claims must match)"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Content-free production logs (policy claim)"}
+{"file": ".trellis/spec/guides/branch-and-delegation-workflow.md", "reason": "dev first, Sonnet implements"}

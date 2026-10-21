@@ -5,7 +5,12 @@ from urllib.error import HTTPError
 
 import pytest
 
-from app.ingest.embed import EmbeddingError, ZhipuEmbedder
+from app.bootstrap import build_multimodal_embedding_provider
+from app.config import Settings
+from app.ingest.embed import (
+    EmbeddingError,
+    ZhipuEmbedder,
+)
 
 
 def _response(data):
@@ -239,3 +244,41 @@ def test_embed_retry_backoff_never_sleeps_for_real(monkeypatch):
     assert embedder.embed(["redacted-input"]) == [[1.0]]
     assert len(attempts) == 3
     assert len(sleep.calls) == 2
+
+
+def test_wemm_is_disabled_by_default_and_does_not_construct_provider():
+    assert build_multimodal_embedding_provider(Settings()) is None
+
+
+@pytest.mark.parametrize(
+    ("multimodal_enabled", "wemm_enabled"),
+    [(False, False), (False, True), (True, False)],
+)
+def test_wemm_feature_off_does_not_construct_or_download_provider(
+    multimodal_enabled, wemm_enabled
+):
+    def fail_loader(*_args):
+        raise AssertionError("disabled WeMM must not construct a model")
+
+    settings = Settings(
+        multimodal_retrieval_enabled=multimodal_enabled,
+        wemm_enabled=wemm_enabled,
+    )
+
+    assert (
+        build_multimodal_embedding_provider(settings, model_loader=fail_loader)
+        is None
+    )
+
+
+def test_wemm_enabled_requires_a_pinned_revision():
+    with pytest.raises(ValueError, match="40-character commit SHA"):
+        Settings(
+            multimodal_retrieval_enabled=True,
+            wemm_enabled=True,
+            wemm_revision="main",
+        )
+
+
+def test_existing_zhipu_adapter_remains_the_feature_off_text_provider():
+    assert ZhipuEmbedder("secret", dimensions=2).dimensions == 2

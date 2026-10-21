@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Agent tool routing, evidence eligibility, tenant-scoped retrieval, citation validation, and bounded convergence."}
+{"file": ".trellis/spec/backend/agent-execution-streaming.md", "reason": "Public stage vocabulary and interruption-safe streaming for pending recognition progress."}
+{"file": ".trellis/spec/backend/ingest-completion-queue.md", "reason": "Durable outbox, claim/ACK, at-least-once delivery, deletion races, and repair patterns for recognition events."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Single-head migration, forward compatibility, model parity, and PostgreSQL integration requirements."}
+{"file": ".trellis/spec/backend/youtube-connector.md", "reason": "YouTube yt-dlp, TLS/proxy, bounded subprocess, and stable failure contracts."}
+{"file": ".trellis/spec/backend/bilibili-connector.md", "reason": "Bilibili public URL/media boundaries, no-cookie policy, and stable failures."}
+{"file": ".trellis/spec/backend/deployment-lifecycle.md", "reason": "Separate worker admission, runtime dependencies, rollout, and rollback ownership."}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Privacy-safe provider, media, Agent, and recognition diagnostics."}
+{"file": ".trellis/tasks/archive/2026-09/08-20-asr-workload-cost-research/research/asr-workload-cost-2026-08-20.md", "reason": "Existing ASR workload, timestamp, provider, storage, and public/private media findings."}

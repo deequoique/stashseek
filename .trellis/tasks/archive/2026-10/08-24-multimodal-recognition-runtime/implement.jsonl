@@ -1,0 +1,1 @@
+{"file": ".trellis/tasks/08-24-multimodal-recognition-runtime/research/recognition-cli-draft.md", "reason": "Implement the operator-facing asynchronous Recognition CLI and probe semantics through the same runtime service without adding a public HTTP API or separate provider-call path."}

@@ -1,14 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import {
   ApiError,
-  getCapabilities,
   listLibraryItems,
   submitVideoBatch,
   type LibraryQuery,
 } from "../api/client";
 import type { BatchSubmitInput, BatchSubmitResponse, Capabilities, LibraryPageResponse } from "../api/contracts";
+import { lifecycleFilterLabel } from "../ingest/ingestCopy";
 import { AddVideosDialog } from "./AddVideosDialog";
 import { collectCollectionNames } from "./collections";
 import { LibraryEmptyState, LibraryErrorState, LibraryLoadingState } from "./LibraryStates";
@@ -16,12 +17,16 @@ import { estimateWorkItemProgress, isLibraryWorkItem, shouldPollLibrary } from "
 import { collectSearchSuggestions } from "./searchSuggestions";
 import { VideoCard } from "./VideoCard";
 import { RouteLink } from "../app/RouteTransition";
+import { capabilitiesQueryOptions } from "../chat/conversationQueries";
 
 interface LibraryPageProps {
   fetchItems?: (query: LibraryQuery) => Promise<LibraryPageResponse>;
   loadCapabilities?: () => Promise<Capabilities>;
   submitBatch?: (input: BatchSubmitInput) => Promise<BatchSubmitResponse>;
 }
+
+/** The server rejects a longer search term. */
+const SEARCH_MAX_LENGTH = 200;
 
 function libraryErrorDescription(error: unknown): string {
   if (!(error instanceof ApiError)) return "网络连接没有完成，请确认服务可用后重新加载。";
@@ -33,14 +38,19 @@ function libraryErrorDescription(error: unknown): string {
 
 export function LibraryPage({
   fetchItems = listLibraryItems,
-  loadCapabilities = getCapabilities,
+  loadCapabilities,
   submitBatch = submitVideoBatch,
 }: LibraryPageProps) {
   const queryClient = useQueryClient();
   const searchFormRef = useRef<HTMLFormElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  // `?search=` fills the search once when the page opens; `?focus=search` puts the cursor in the box.
+  const [urlParams] = useSearchParams();
+  const focusSearch = urlParams.get("focus") === "search";
+  const [initialSearch] = useState(() => (urlParams.get("search") ?? "").trim().slice(0, SEARCH_MAX_LENGTH));
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [searchDraft, setSearchDraft] = useState("");
-  const [search, setSearch] = useState("");
+  const [searchDraft, setSearchDraft] = useState(initialSearch);
+  const [search, setSearch] = useState(initialSearch);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [knownCollections, setKnownCollections] = useState<string[]>([]);
@@ -62,12 +72,7 @@ export function LibraryPage({
     retry: 1,
     refetchInterval: (state) => shouldPollLibrary(state.state.data?.items ?? []) ? 4_000 : false,
   });
-  const capabilities = useQuery({
-    queryKey: ["capabilities"],
-    queryFn: loadCapabilities,
-    retry: false,
-    staleTime: 5 * 60_000,
-  });
+  const capabilities = useQuery(capabilitiesQueryOptions(loadCapabilities));
   const saveDisabled = capabilities.data?.save_enabled !== true;
   const saveNoticeId = capabilities.isError || capabilities.data?.save_enabled === false
     ? "library-save-notice"
@@ -92,6 +97,9 @@ export function LibraryPage({
         : next;
     });
   }, [library.data]);
+  useEffect(() => {
+    if (focusSearch) searchInputRef.current?.focus();
+  }, [focusSearch]);
   useEffect(() => {
     if (!suggestionsOpen) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -190,6 +198,7 @@ export function LibraryPage({
         >
           <label className="sr-only" htmlFor="library-search">搜索标题、作者或保存说明</label>
           <input
+            ref={searchInputRef}
             id="library-search"
             name="search"
             type="search"
@@ -228,12 +237,12 @@ export function LibraryPage({
           <span className="sr-only">按处理状态筛选</span>
           <select name="lifecycle" value={lifecycle} onChange={(event) => changeFilter(event.target.value)}>
             <option value="">全部状态</option>
-            <option value="ready">可阅读</option>
-            <option value="queued">等待整理</option>
-            <option value="processing">正在整理</option>
-            <option value="needs_action">字幕不可用</option>
-            <option value="failed">整理失败</option>
-            <option value="archived">已归档</option>
+            <option value="ready">{lifecycleFilterLabel("ready")}</option>
+            <option value="queued">{lifecycleFilterLabel("queued")}</option>
+            <option value="processing">{lifecycleFilterLabel("processing")}</option>
+            <option value="needs_action">{lifecycleFilterLabel("needs_action")}</option>
+            <option value="failed">{lifecycleFilterLabel("failed")}</option>
+            <option value="archived">{lifecycleFilterLabel("archived")}</option>
           </select>
         </label>
         <label className="select-field">
@@ -326,6 +335,9 @@ export function LibraryPage({
         onClose={() => setDialogOpen(false)}
         submitBatch={submitBatch}
         suggestedCollections={collectionOptions}
+        partsEnabled={capabilities.data?.bilibili_parts_enabled === true}
+        favoritesEnabled={capabilities.data?.bilibili_parts_enabled === true && capabilities.data?.bilibili_favorites_enabled === true}
+        onPartsSubmitted={() => void queryClient.invalidateQueries({ queryKey: ["library"] })}
         onSubmitted={() => void queryClient.invalidateQueries({ queryKey: ["library"] })}
       />
     </>

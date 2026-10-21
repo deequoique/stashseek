@@ -58,7 +58,14 @@ export type LibraryLifecycle = LibraryItem["lifecycle"];
 - Use generated nullable fields exactly as returned by the API.
 - Treat transcript cursors and public IDs as opaque strings.
 - Regenerate `openapi.json` and `schema.d.ts` together and require
-  `pnpm check:api` in CI.
+  `pnpm check:api` in CI: `pnpm generate:api` (exports `openapi.json`), then
+  `pnpm generate:types` (`openapi-typescript` 7.13.0 → `schema.d.ts`). Commit
+  both files in the same change. `check:api` only diffs `openapi.json`, so a
+  skipped `generate:types` leaves `schema.d.ts` silently stale (it had drifted
+  by ~500 lines before 2026-10-19).
+- New response fields use `Field(default=...)`/`default_factory` so the
+  generated property is optional; old extension builds and typed test
+  fixtures keep compiling.
 
 ---
 
@@ -70,3 +77,56 @@ export type LibraryLifecycle = LibraryItem["lifecycle"];
 - Declaring a second handwritten `LibraryItem` or lifecycle union.
 - Using ORM/model types in React.
 - Assuming optional summary data exists when the schema says null is valid.
+
+## Scenario: Reproducible validation descriptions
+
+### 1. Scope / Trigger
+
+Use when exporting browser contracts on supported Python versions. CI uses
+Python 3.11 while local development may use 3.13; their standard HTTP 413 and
+422 phrases can differ even with the same FastAPI and Starlette versions (3.13
+renamed both). Any route that declares `responses={413: {"model": ...}}` without
+a `description` inherits that default.
+
+### 2. Signatures
+
+`scripts.export_web_openapi.rendered_schema() -> str` is the deterministic,
+inert exporter consumed by `generate:api` and `check:api`.
+
+### 3. Contracts
+
+Normalize only a 422 response description equal to `Unprocessable Entity` or
+`Unprocessable Content` to the existing contract's `Unprocessable Entity`, and a
+413 description equal to `Request Entity Too Large` or `Content Too Large` to
+`Request Entity Too Large` (`STANDARD_PHRASES` in the exporter).
+Retain custom descriptions, schema contents and every other status. Always
+regenerate both tracked files using the exporter, never edit generated text.
+This is documentation normalization, not a runtime response/error change.
+
+### 4. Validation & Error Matrix
+
+| Input | Export result |
+| --- | --- |
+| Either standard 413 or 422 phrase | Same canonical description and identical contract |
+| Custom 413/422 description | Preserve verbatim |
+| Other response/status/schema | Preserve |
+
+### 5. Good / Base / Bad Cases
+
+- Good: Python 3.11 and 3.13 export the same interface.
+- Base: custom safe-error documentation is unchanged.
+- Bad: blame every phrase change on Starlette or hand-edit generated types.
+
+### 6. Tests Required
+
+`tests/test_web_openapi_export.py` changes the standard-library phrase and
+compares real exports, then checks an explicitly documented custom response.
+Run `check:api` after generation; package compatibility alone does not establish
+an exact lock-file match.
+
+### 7. Wrong vs Correct
+
+Wrong: patch 19 descriptions in tracked JSON to match one machine.
+
+Correct: normalize the two standard defaults in the exporter, preserve custom
+text, test both standard phrases, and regenerate from the canonical app.

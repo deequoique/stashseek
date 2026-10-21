@@ -1,6 +1,7 @@
 export const API_ORIGINS = {
   production: "https://stashseek.deequoique.tech",
   local: "http://127.0.0.1:8000",
+  localHttps: "https://localhost:8443",
 } as const;
 
 export const API_REQUEST_TIMEOUT_MS = 10_000;

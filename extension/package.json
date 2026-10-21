@@ -8,6 +8,7 @@
   "scripts": {
     "build": "node scripts/clean.mjs && tsc -p tsconfig.json && vite build --config vite.config.ts && node scripts/copy-static.mjs production",
     "build:local": "node scripts/clean.mjs && tsc -p tsconfig.json && vite build --config vite.config.ts && node scripts/copy-static.mjs local",
+    "build:local-https": "node scripts/clean.mjs && tsc -p tsconfig.json && vite build --config vite.config.ts && node scripts/copy-static.mjs localHttps",
     "audit": "node scripts/audit-package.mjs production",
     "audit:local": "node scripts/audit-package.mjs local",
     "package": "pnpm build && pnpm run audit",
@@ -18,7 +19,8 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src --max-warnings 0",
     "check:api": "node workspace/openapi.mjs check",
-    "generate:api": "node workspace/openapi.mjs generate"
+    "generate:api": "node workspace/openapi.mjs generate",
+    "generate:types": "openapi-typescript src/api/openapi.json -o src/api/schema.d.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

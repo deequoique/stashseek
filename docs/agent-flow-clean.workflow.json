@@ -1,0 +1,72 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Notebook Agent 流程",
+    "locale": "zh-CN",
+    "animation": "none",
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "ask", "label": "问答主链路", "focus": ["entry", "boundary", "channel", "agent", "retrieval", "composer", "answer"], "note": "统一入口经过租户边界、Agent 检索和引用校验后返回回答。" },
+      { "id": "ingest", "label": "保存与导入", "focus": ["entry", "channel", "action", "dispatch", "worker", "ready"], "note": "保存内容进入 durable dispatch，由 Celery worker 处理为 ready segments。" },
+      { "id": "failure", "label": "失败边界", "focus": ["boundary", "channel", "agent"], "note": "超时、provider failure 或无效草稿不会写入失败历史。" }
+    ]
+  },
+  "lanes": [{ "id": "runtime", "label": "Agent Runtime" }],
+  "phases": [
+    { "id": "accept", "label": "接收与绑定", "fromCol": 0, "toCol": 2 },
+    { "id": "reason", "label": "理解与决策", "fromCol": 3, "toCol": 4, "variant": "emphasis" },
+    { "id": "ground", "label": "取证与落库", "fromCol": 5, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "main_loop", "label": "统一问答路径", "lane": "runtime", "fromCol": 0, "toCol": 5, "variant": "emphasis" },
+    { "id": "ingest_loop", "label": "保存后的后台导入", "lane": "runtime", "fromCol": 2, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["entry", "boundary", "channel", "agent", "retrieval", "composer", "answer"],
+  "semanticChecks": {
+    "allowedRoots": ["entry"],
+    "allowedTerminals": ["answer", "ready"],
+    "requiredEdges": [
+      { "from": "boundary", "to": "channel" },
+      { "from": "channel", "to": "agent" },
+      { "from": "retrieval", "to": "composer" },
+      { "from": "composer", "to": "answer" },
+      { "from": "action", "to": "dispatch" },
+      { "from": "worker", "to": "ready" }
+    ],
+    "requiredPaths": [
+      { "from": "entry", "to": "answer" },
+      { "from": "entry", "to": "ready" }
+    ]
+  },
+  "nodes": [
+    { "id": "entry", "lane": "runtime", "col": 0, "type": "external", "label": "四类消息入口", "width": 150 },
+    { "id": "boundary", "lane": "runtime", "col": 1, "type": "security", "label": "认证与 TenantContext", "tag": "权限边界", "width": 150 },
+    { "id": "channel", "lane": "runtime", "col": 2, "type": "backend", "label": "ChannelService", "width": 150 },
+    { "id": "agent", "lane": "runtime", "col": 3, "type": "backend", "label": "KnowledgeAgent", "tag": "单一 Agent 路径", "width": 150 },
+    { "id": "retrieval", "lane": "runtime", "col": 4, "type": "database", "label": "受限检索", "tag": "当前租户 ready 内容", "width": 150 },
+    { "id": "composer", "lane": "runtime", "col": 5, "type": "backend", "label": "结构化 Composer", "width": 150 },
+    { "id": "answer", "lane": "runtime", "col": 5, "type": "frontend", "label": "可核验回答", "tag": "最终成功才写历史", "yOffset": 120, "width": 150 },
+    { "id": "action", "lane": "runtime", "col": 2, "type": "backend", "label": "保存 / 管理 Action", "yOffset": 220, "width": 150 },
+    { "id": "dispatch", "lane": "runtime", "col": 3, "type": "messagebus", "label": "Durable Dispatch", "tag": "broker 只带 dispatch id", "yOffset": 220, "width": 150 },
+    { "id": "worker", "lane": "runtime", "col": 4, "type": "cloud", "label": "Celery Worker", "yOffset": 220, "width": 150 },
+    { "id": "ready", "lane": "runtime", "col": 5, "type": "database", "label": "Ready Library", "yOffset": 220, "width": 150 }
+  ],
+  "edges": [
+    { "id": "entry-boundary", "from": "entry", "to": "boundary", "label": "ChannelEnvelope", "variant": "emphasis" },
+    { "id": "boundary-channel", "from": "boundary", "to": "channel", "label": "验证身份与能力", "variant": "security" },
+    { "id": "channel-agent", "from": "channel", "to": "agent", "label": "普通问题", "variant": "emphasis" },
+    { "id": "agent-retrieval", "from": "agent", "to": "retrieval", "label": "search / neighbor", "variant": "default" },
+    { "id": "retrieval-composer", "from": "retrieval", "to": "composer", "label": "bounded Citation", "variant": "emphasis" },
+    { "id": "composer-answer", "from": "composer", "to": "answer", "label": "验证 citation 后渲染", "variant": "emphasis" },
+    { "id": "agent-action", "from": "agent", "to": "action", "label": "保存或管理请求", "variant": "dashed", "role": "branch" },
+    { "id": "action-dispatch", "from": "action", "to": "dispatch", "label": "创建 tenant-owned dispatch", "variant": "dashed" },
+    { "id": "dispatch-worker", "from": "dispatch", "to": "worker", "label": "异步执行", "variant": "dashed" },
+    { "id": "worker-ready", "from": "worker", "to": "ready", "label": "ready", "variant": "emphasis" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "统一入口", "items": ["Web、MCP、CLI、LangBot 共用 ChannelService", "消息先经过 identity、租户和 thread 边界"] },
+    { "dot": "rose", "title": "可信回答", "items": ["检索只触达当前租户的 active、未归档、ready 内容", "服务端验证引用后才持久化最终答案"] },
+    { "dot": "amber", "title": "异步准备", "items": ["保存请求创建 durable dispatch，再由 connector 处理", "字幕、cookie 和 signed URL 不进入 broker 消息"] }
+  ]
+}

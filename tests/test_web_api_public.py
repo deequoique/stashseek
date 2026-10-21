@@ -32,6 +32,7 @@ def test_public_health_capabilities_and_openapi_are_safe():
         "supported_platforms": ["youtube", "bilibili", "ntu_kaltura"],
         "browser_companion": True,
         "web_login_channels": ["telegram", "wechat"],
+        "external_login_providers": [],
         "save_enabled": True,
         "max_save_batch_size": 10,
         "transcript_pagination": True,
@@ -39,6 +40,9 @@ def test_public_health_capabilities_and_openapi_are_safe():
         "summary_generation": False,
         "chat": True,
         "page_qa": False,  # no services composed: instant page Q&A is not mounted
+        "transcription_platforms": [],  # no services composed: ASR is not advertised
+        "bilibili_parts_enabled": False,
+        "bilibili_favorites_enabled": False,
     }
 
     assert openapi.status_code == 200

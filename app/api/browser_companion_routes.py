@@ -121,9 +121,9 @@ def build_browser_companion_router(
             raise _safe_error(exc.error_code) from None
         return PairingCreateResponse(
             pairing_id=pairing.public_id,
-            # The 0.2.0+ extension approves inside its own side panel and never
-            # opens this URL; 0.1.x installs still need the Web approval page.
-            approval_url=f"{web_origin}/account/browser-companion?pairing={pairing.public_id}",
+            # Kept for protocol compatibility; approval is now performed by
+            # the extension's email verification flow rather than a Web page.
+            approval_url=f"{web_origin}/api/v1/browser-companion/extension/pairings/{pairing.public_id}:approve",
             expires_at=pairing.expires_at,
         )
 

@@ -26,14 +26,17 @@ data/
 .idea/
 
 # Web build and package manager
-web/node_modules/
-web/dist/
-web/coverage/
+/node_modules/
+/.pnpm-store/
 extension/node_modules/
 extension/dist/
 extension/release/
 output/playwright/
 
+# Local interview preparation notes
+面试准备/
+
 # Local Codex/OMX runtime state
 .omx/
 .gstack/
+.neon

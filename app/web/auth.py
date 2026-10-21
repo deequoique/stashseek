@@ -410,7 +410,9 @@ class WebAuthService:
                     WebSession.token_hash == hash_session_token(raw_token)
                 )
             )
-            if row is None or row.revoked_at is not None or row.expires_at <= current:
+            if (row is None or row.external_login_identity_id is not None
+                    or row.login_channel not in {"telegram", "wechat"}
+                    or row.revoked_at is not None or row.expires_at <= current):
                 raise WebAuthError("session_invalid")
             user = db.get(AppUser, row.app_user_id)
             if user is None or user.disabled_at is not None:
@@ -433,7 +435,9 @@ class WebAuthService:
                     WebSession.token_hash == hash_session_token(raw_session_token)
                 )
             )
-            if row is None or row.revoked_at is not None or row.expires_at <= current:
+            if (row is None or row.external_login_identity_id is not None
+                    or row.login_channel not in {"telegram", "wechat"}
+                    or row.revoked_at is not None or row.expires_at <= current):
                 raise WebAuthError("session_invalid")
             supplied = hash_csrf_token(raw_csrf_token)
             if not hmac.compare_digest(row.csrf_token_hash, supplied):

@@ -1,0 +1,29 @@
+{
+  "id": "web-channel-account-binding",
+  "name": "web-channel-account-binding",
+  "title": "Web 邮箱与 Telegram Bot 账户绑定",
+  "description": "Configure a user-created Telegram Bot through the existing LangBot bridge and add bidirectional Web email-to-Telegram account linking with one-time link tokens; defer WeChat.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "web+backend",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-10",
+  "completedAt": "2026-09-04",
+  "branch": "dev",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "cleanup_disposition": "completed_but_unarchived",
+    "cleanup_date": "2026-09-04"
+  }
+}

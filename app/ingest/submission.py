@@ -12,12 +12,13 @@ from typing import Literal
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.channels.types import UserScope
 from app.connectors.bilibili import canonicalize_bilibili_url
+from app.connectors.bilibili_share import SHARE_HOSTS, ShareLinkError, resolve_share_link
 from app.connectors.youtube import YouTubeConnector
 from app.config import get_settings
 from app.models import (
@@ -32,6 +33,10 @@ from app.limits import normalize_why_saved
 
 MAX_SAVE_BATCH_SIZE = 10
 MIN_REMAINING_PUBLISH_BUDGET_SECONDS = 0.01
+# Item states an explicit retry may re-run.  ``needs_extension`` is excluded:
+# its reason is a browser-side login/capture a server re-run cannot fix, which
+# is also why the Web library hides ``retry`` for login-required reasons.
+_RETRYABLE_ITEM_STATES = frozenset({"failed", "needs_asr", "no_text"})
 
 
 class BatchValidationError(ValueError):
@@ -63,6 +68,23 @@ class ItemReference:
     platform: str
     platform_id: str
     canonical_url: str
+    bilibili_bvid: str | None = None
+    bilibili_cid: str | None = None
+    bilibili_page: int | None = None
+    allow_legacy_overlap: bool = False
+
+    def __post_init__(self) -> None:
+        source = (self.bilibili_bvid, self.bilibili_cid, self.bilibili_page)
+        if all(value is None for value in source):
+            return
+        from app.bilibili.public import positive_int, valid_bvid, valid_cid
+
+        if (self.platform != "bilibili" or not valid_bvid(self.bilibili_bvid)
+            or not valid_cid(self.bilibili_cid) or not positive_int(self.bilibili_page, 1000)
+            or self.platform_id != f"{self.bilibili_bvid}_cid{self.bilibili_cid}"
+            or self.canonical_url != f"https://www.bilibili.com/video/{self.bilibili_bvid}?p={self.bilibili_page}"
+            or type(self.allow_legacy_overlap) is not bool):
+            raise ValueError("invalid typed Bilibili source")
 
 
 # Keep URL token handling in one place.  Action tools, the deterministic
@@ -72,6 +94,16 @@ _MESSAGE_URL_RE = re.compile(
     r"https?://[^\s<>，。！？》」』】）\u3400-\u9fff]+",
     re.IGNORECASE,
 )
+# A copied share may surround one URL with a title. Consume the complete URI
+# token, including foreign schemes/hosts, rather than matching a nested Bilibili
+# substring. Keep Unicode path text and unsafe URL components for validation.
+_SHARE_URL_RE = re.compile(
+    r"(?<![^\s，。！？》」』】）：])(?:[A-Za-z][A-Za-z0-9+.-]*:)?//[^\s]*"
+)
+_JOINED_SHARE_URL_RE = re.compile(
+    r"[，。！？》」』】）](?:[A-Za-z][A-Za-z0-9+.-]*:)?//"
+)
+_SHARE_TRAILING_PUNCTUATION = "，。！？》」』】）"
 _SAFE_URL_TRAILING_PUNCTUATION = ".,!?)]}，。！？》」"
 _SAFE_MESSAGE_PUNCTUATION = (
     " \t\r\n.,!?)]}，。！？》」、:：;；()（）[]【】<>\"'“”‘’"
@@ -197,6 +229,9 @@ class SaveItemResult:
         "queue_unavailable",
         "create_failed",
         "quota_exceeded",
+        "part_ref_invalid",
+        "part_ref_expired",
+        "legacy_identity_unknown",
     ]
     item_id: int | None = None
     item_public_id: str | None = None
@@ -406,21 +441,54 @@ class PreparedBatch:
     items: tuple[PreparedItem, ...]
 
 
+def _bv_id(platform_id: str) -> str | None:
+    """BV ids are the only Bilibili ids a CID-qualified row can share."""
+
+    return platform_id if platform_id.upper().startswith("BV") else None
+
+
 def normalize_item_reference(url: str) -> ItemReference:
-    """Normalize one supported item URL without remote connector calls."""
+    """Normalize a URL, complete BV ID, or single Bilibili share locally."""
 
     value = str(url).strip()
-    parsed = urlparse(value)
+    share_url = False
+    if re.fullmatch(r"[bB][vV][0-9A-Za-z]{10}", value):
+        value = f"https://www.bilibili.com/video/BV{value[2:]}"
+    else:
+        candidates = _SHARE_URL_RE.findall(value)
+        # Chinese share separators can join separate URLs without whitespace.
+        # A nested URL in an ordinary tracking value remains part of its URI.
+        if len(candidates) > 1 or any(_JOINED_SHARE_URL_RE.search(candidate) for candidate in candidates):
+            raise InvalidURL("ambiguous URL input")
+        if candidates:
+            candidate = candidates[0].rstrip(_SHARE_TRAILING_PUNCTUATION)
+            if candidate != value:
+                value = candidate
+                share_url = True
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        raise InvalidURL("invalid URL") from None
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise InvalidURL("invalid URL")
+    if (parsed.hostname or "").lower() in SHARE_HOSTS:
+        try:
+            value = resolve_share_link(value)
+        except ShareLinkError:
+            raise UnsupportedURL("unsupported URL") from None
+        parsed = urlparse(value)
     bilibili = canonicalize_bilibili_url(value)
     if bilibili is not None:
+        if "#" in value:
+            raise UnsupportedURL("unsupported URL")
         platform_id, canonical_url = bilibili
         return ItemReference(
             platform="bilibili",
             platform_id=platform_id,
             canonical_url=canonical_url,
         )
+    if share_url:
+        raise UnsupportedURL("unsupported share URL")
     hostname = (parsed.hostname or "").lower()
     if hostname not in {
         "youtu.be",
@@ -540,10 +608,25 @@ class IngestSubmissionService:
         publish_budget_seconds: float | None = None,
         source_thread_id: int | None = None,
     ) -> BatchSaveResult:
+        return self.submit_prepared(
+            tenant, prepare_submission(urls), why_saved=why_saved,
+            request_key=request_key, publish_budget_seconds=publish_budget_seconds,
+            source_thread_id=source_thread_id,
+        )
+
+    def submit_prepared(
+        self, tenant: UserScope, prepared: PreparedBatch, *, why_saved: str | None,
+        request_key: str, publish_budget_seconds: float | None = None,
+        source_thread_id: int | None = None,
+    ) -> BatchSaveResult:
+        """One admission/publish loop for locally normalized URLs and signed parts."""
         if not request_key.strip():
             raise ValueError("request key is required")
         why_saved = normalize_why_saved(why_saved)
-        prepared = prepare_submission(urls)
+        if not prepared.items:
+            raise EmptyBatch()
+        if len(prepared.items) > MAX_SAVE_BATCH_SIZE:
+            raise BatchTooLarge()
         deadline = (
             time.monotonic() + float(publish_budget_seconds)
             if publish_budget_seconds is not None
@@ -588,6 +671,12 @@ class IngestSubmissionService:
                     db, tenant.app_user_id
                 ):
                     raise RuntimeError("tenant does not exist")
+                if reference.bilibili_cid is not None and not self._quotas_enabled:
+                    # Even an embedder with quotas disabled serializes explicit
+                    # same-owner source admission. Production uses the same row
+                    # lock through the configured quota policy.
+                    if db.scalar(select(AppUser.id).where(AppUser.id == tenant.app_user_id).with_for_update()) is None:
+                        raise RuntimeError("tenant does not exist")
                 # Resolve the source target while the item/dispatch admission
                 # transaction is open.  A failed or unsupported validation is
                 # deliberately fail-closed to ``NULL``; it must never retarget
@@ -595,13 +684,17 @@ class IngestSubmissionService:
                 validated_source_thread_id = self._validated_source_thread_id(
                     db, tenant, source_thread_id
                 )
-                existing = db.scalar(
-                    select(ContentItem).where(
+                existing = db.scalar(self._reference_lookup(tenant, reference).with_for_update())
+                if existing is None and reference.bilibili_cid is not None and not reference.allow_legacy_overlap:
+                    legacy = db.scalar(select(ContentItem.id).where(
                         ContentItem.user_id == tenant.app_user_id,
-                        ContentItem.platform == reference.platform,
-                        ContentItem.platform_id == reference.platform_id,
-                    ).with_for_update()
-                )
+                        ContentItem.platform == "bilibili",
+                        ContentItem.platform_id == reference.bilibili_bvid,
+                        ContentItem.bilibili_cid.is_(None),
+                        ContentItem.deleted_at.is_(None),
+                    ).limit(1))
+                    if legacy is not None:
+                        return SaveItemResult(result_id, prepared.input_index, "legacy_identity_unknown", safe_error_code="legacy_identity_unknown")
                 if existing is not None:
                     restored_from_trash = False
                     if getattr(existing, "deleted_at", None) is not None:
@@ -695,6 +788,11 @@ class IngestSubmissionService:
                         url=reference.canonical_url,
                         why_saved=why_saved,
                         state="pending",
+                        **({
+                            "bilibili_bvid": reference.bilibili_bvid,
+                            "bilibili_cid": reference.bilibili_cid,
+                            "bilibili_page": reference.bilibili_page,
+                        } if reference.bilibili_cid is not None else {}),
                     )
                     db.add(content)
                     db.flush()
@@ -792,7 +890,10 @@ class IngestSubmissionService:
         publish_budget_seconds: float | None = None,
         source_thread_id: int | None = None,
     ) -> SaveItemResult:
-        """Queue one stable failed item for its next durable attempt.
+        """Queue one stable failed or unfinished item for its next durable attempt.
+
+        Eligible items are ``failed`` ones and ``needs_asr``/``no_text`` ones
+        (e.g. saved while ASR was off); ``needs_extension`` is not retryable.
 
         The request key is trusted application state (thread/action/message),
         never a model argument.  Replaying it returns the same dispatch
@@ -874,7 +975,7 @@ class IngestSubmissionService:
                 ):
                     item.state = "failed"
                     item.fail_reason = "queue_unavailable"
-                if item.state != "failed":
+                if item.state not in _RETRYABLE_ITEM_STATES:
                     return SaveItemResult(result_id, 0, "retry_not_allowed", item_id=item.id, item_public_id=item.public_id, state=item.state, safe_error_code="retry_not_allowed")
                 if latest is not None and latest.state in {"pending", "enqueued", "running"}:
                     return SaveItemResult(result_id, 0, "retry_not_allowed", item_id=item.id, item_public_id=item.public_id, state=item.state, safe_error_code="retry_not_allowed")
@@ -1139,13 +1240,7 @@ class IngestSubmissionService:
     ) -> SaveItemResult:
         try:
             with self._session_factory() as db:
-                existing = db.scalar(
-                    select(ContentItem).where(
-                        ContentItem.user_id == tenant.app_user_id,
-                        ContentItem.platform == reference.platform,
-                        ContentItem.platform_id == reference.platform_id,
-                    )
-                )
+                existing = db.scalar(self._reference_lookup(tenant, reference))
                 if existing is not None:
                     replay = db.scalar(
                         select(IngestDispatch).where(
@@ -1168,6 +1263,31 @@ class IngestSubmissionService:
             status="create_failed",
             safe_error_code="create_failed",
         )
+
+    @staticmethod
+    def _reference_lookup(tenant: UserScope, reference: ItemReference):
+        query = select(ContentItem).where(
+            ContentItem.user_id == tenant.app_user_id,
+            ContentItem.platform == reference.platform,
+        )
+        if reference.bilibili_cid is not None:
+            return query.where(ContentItem.bilibili_bvid == reference.bilibili_bvid,
+                               ContentItem.bilibili_cid == reference.bilibili_cid)
+        bilibili_bvid = reference.bilibili_bvid or _bv_id(reference.platform_id)
+        if reference.platform == "bilibili" and bilibili_bvid is not None:
+            # A favorites/parts import stores the same P1 as ``bvid_cid...``;
+            # pasting the plain video link must not create a second row.
+            return query.where(or_(
+                ContentItem.platform_id == reference.platform_id,
+                and_(
+                    ContentItem.bilibili_bvid == bilibili_bvid,
+                    ContentItem.bilibili_page == 1,
+                ),
+            )).order_by(
+                (ContentItem.platform_id == reference.platform_id).desc(),
+                ContentItem.id,
+            )
+        return query.where(ContentItem.platform_id == reference.platform_id)
 
     def _set_dispatch_state(
         self,

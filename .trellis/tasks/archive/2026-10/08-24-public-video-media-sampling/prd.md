@@ -1,0 +1,61 @@
+# YouTube 与 Bilibili 公开视频采样
+
+## 2026-10-15 关闭
+
+本任务已关闭归档，由 `10-15-asr-transcription-pipeline` 取代。
+
+关闭原因：
+
+- 用户移除了 Vision/OCR，视频方案改为“多模态 embedding + ASR”；
+- ASR 不再测试，直接选定 Fun-ASR 默认、`whisper-1` 备选。
+
+ASR 只需在入库时对无字幕视频做一次整段转写（Fun-ASR 约 ¥0.79–0.94/音频小时），原先为按需视觉/OCR 设计的发现索引、意图路由、异步识别续答和稀疏采样架构不再需要。
+
+本任务中仍有价值的已确认决策，已在新任务 PRD 中继承：
+
+- 只处理公开 YouTube/Bilibili，由后端获取；
+- 首期不做预算或额度控制，但记录用量；
+- 无字幕视频自动处理，不需逐条确认。
+
+画面检索见 `09-09-wemm-multimodal-embedding-migration`。
+
+## 2026-10-15 方案变更
+
+用户移除了独立的 Vision/OCR 识别，视频方案改为“多模态 embedding + ASR”。依据见父任务 `08-24-intent-aware-video-recognition-routing/prd.md` 的“2026-10-15 方案变更”。对本任务的影响：
+
+- 作废：文字密度信号、条件式 OCR 候选帧，以及 OCR fixtures 依赖。
+- 保留：公开音频获取、ffmpeg 安全边界和语音活动采样（ASR 输入）。
+- 待定：代表帧和场景变化采样是否保留，作为多模态 embedding 的输入，需要与 `09-09-media-embedding-ingestion` 对齐后决定。
+
+## Goal
+
+实现后端公开媒体获取、ffmpeg 安全边界、语音活动/场景变化/去重采样，以及条件式 OCR 所需的文字密度信号与候选帧输入。
+
+## 依赖
+
+- `08-24-video-recognition-benchmark` 的 MediaSampleBundle/OCR fixtures。
+- 消费 `08-24-discovery-index-foundation` 的缺口区间协议；不拥有发现 schema。
+
+## 需求
+
+- 独立 YouTube/Bilibili MediaAdapter，统一输出有界媒体对象与稳定错误。
+- ffmpeg/ffprobe admission、有界子进程、TLS/proxy 继承、临时媒体和清理意图。
+- 时间覆盖 + VAD + 场景变化 + 感知去重 + 局部加密；部分字幕只采样缺口区间。
+- 文字密集判断和条件式 OCR 候选帧选择；本任务不调用托管视觉、ASR 或 OCR。
+- 不接收 Cookie、令牌或签名 URL，不支持登录态/私有/DRM 媒体。
+
+## 验收标准
+
+- [ ] 两个平台的公开 fixtures 和真实 canary 均生成协议一致的 MediaSampleBundle。
+- [ ] 长视频样本满足冻结后的采样工作量和时间覆盖门。
+- [ ] 限流、登录要求、地区限制、删除、超限、格式变化和子进程超时映射为稳定错误。
+- [ ] 日志/任务载荷不含媒体内容、签名 URL、stderr、临时路径或凭证。
+- [ ] 成功、失败、取消和崩溃恢复均能清理临时对象。
+
+## 不在范围
+
+- 托管模型调用、RecognitionJob 状态机、搜索和 Agent。
+
+## Planning Gate
+
+到达本阶段时补齐独立设计/实施计划并评审运行依赖与真实 canary 范围。

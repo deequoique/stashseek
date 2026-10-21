@@ -172,6 +172,22 @@ ResponseSection = (
 )
 
 
+def render_source_line(citation: Citation) -> str:
+    """Render one server-owned source row of the public ``来源`` block.
+
+    A title-and-description row has no transcript time and its excerpt is the
+    item's title text rather than a spoken quote, so it is labelled instead of
+    being presented as caption text.
+    """
+
+    excerpt = " ".join(citation.excerpt.split())
+    if len(excerpt) > 180:
+        excerpt = f"{excerpt[:177]}…"
+    if citation.kind == "title":
+        excerpt = f"标题与简介：{excerpt}"
+    return f"  - [S{citation.segment_id}] {citation.url} — {excerpt}"
+
+
 def _render_grounded_text(
     sections: tuple[GroundedResponseSection | UnsupportedResponseSection, ...],
     citations: tuple[Citation, ...],
@@ -190,10 +206,7 @@ def _render_grounded_text(
     for group in groups.values():
         lines.append(f"- {group[0].title}")
         for citation in group:
-            excerpt = " ".join(citation.excerpt.split())
-            if len(excerpt) > 180:
-                excerpt = f"{excerpt[:177]}…"
-            lines.append(f"  - [S{citation.segment_id}] {citation.url} — {excerpt}")
+            lines.append(render_source_line(citation))
     return "\n".join(lines)
 
 

@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.channels.types import TenantContext
+from app.channels.source_codec import text_source_payloads
 from app.models import ContentItem, ConversationThread, ConversationTurn, Segment
 
 
@@ -365,11 +366,7 @@ class ContextBuilder:
         return TurnContext(tuple(recent_sources), tuple(recent_inventory))
 
     def _source_payloads(self, payload: Any) -> list[dict[str, Any]]:
-        if isinstance(payload, dict):
-            return [dict(payload)]
-        if not isinstance(payload, (list, tuple)):
-            return []
-        return [dict(row) for row in payload if isinstance(row, dict)]
+        return text_source_payloads(payload)
 
     def _inventory_payloads(self, payload: Any) -> list[dict[str, Any]]:
         if isinstance(payload, dict):

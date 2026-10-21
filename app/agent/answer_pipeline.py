@@ -47,14 +47,17 @@ from app.agent.response import (
     ResponseEnvelope,
     UNSUPPORTED_EVIDENCE_TEXT,
     UnsupportedResponseSection,
+    render_source_line,
 )
 from app.agent.types import (
     AgentRequest,
+    AgentAnswer,
     AnswerDraft,
     AnswerStreamPlan,
     GroundedDraft,
     Citation,
     PlannedSection,
+    MediaCitation,
 )
 from app.agent.streaming import AgentStreamEvent
 from app.config import Settings
@@ -67,13 +70,13 @@ _COMPOSER_JSON_EXAMPLE = (
 _COMPOSER_GLOBAL_CONSTRAINTS = (
     "完整约束：kind 只能是 grounded；grounded 的 sections 最多 8 个；"
     "每个 section 必须显式填写 status=grounded 或 status=unsupported；"
-    "grounded section 必须有非空 text 和 citation_ids；unsupported section 必须只包含 status，"
-    "不得填写 text 或 citation_ids，服务器会渲染固定的证据不足说明；"
+    "grounded section 必须有非空 text，并在 citation_ids 或 media_citation_ids 中选择证据；"
+    "unsupported section 必须只包含 status，不得填写任何证据字段；"
     "只选择与问题相关的视频；每个选中的视频至少引用一个 segment，"
     "更重要的视频可以引用多个 segment；"
     "所有 section citation_ids 按 section 顺序合并后就是最终选择（最多 8 个），不得重复；"
     "所有 section 引用都必须是可用候选 ID；全部引用最多来自 5 个视频；"
-    "只能使用可用候选证据中的 ID；section text 不得包含 URL、来源块或 [S…] 标记；"
+    "只能使用可用候选证据中的 ID；section text 不得包含 URL、HTML、来源块或 [S…]/[M…] 标记；"
     "不要为了给无证据 section 填充 Citation 而引用无关片段。"
 )
 _COMPOSER_SCHEMA_GUIDANCE = (
@@ -113,7 +116,9 @@ COMPOSER_INSTRUCTIONS = f"""
 “来源/参考资料”区块、视频标题、[S…] 标记、章节标题或服务器未提供的事实。
 证据编号只能放在 section 的 citation_ids 字段，服务器会追加精确 [S<segment_id>] 标记；
 不要在文本中改写、链接化、放入代码或替代这些标记。
-回答只选择与问题相关的视频；每个选中的视频至少引用一个 segment。
+回答只选择与问题相关的视频；每个选中的视频至少引用一个 segment 或媒体证据。
+标注为“标题与简介”的证据只说明这条视频是什么、与问题是否相关，具体事实以正文片段为准，
+不要把标题或简介当作视频里说过的话。
 {_COMPOSER_SCHEMA_GUIDANCE}
 """.strip()
 
@@ -253,7 +258,9 @@ def build_stream_plan(
     @plan.instructions
     def bounded_plan_evidence(ctx: RunContext[ComposerDeps]) -> str:
         return _render_composer_evidence(
-            ctx.deps.citations.values(), excerpt_chars=ctx.deps.excerpt_chars
+            ctx.deps.citations.values(),
+            excerpt_chars=ctx.deps.excerpt_chars,
+            media_evidence=ctx.deps.media_evidence,
         )
 
     @plan.output_validator
@@ -389,16 +396,26 @@ def _composer_failure_guidance(reason: str | None) -> str:
     return _COMPOSER_FAILURE_GUIDANCE.get(reason or "", "")
 
 
+def _draft_has_media(draft: AnswerDraft) -> bool:
+    return any(
+        section.media_citation_ids
+        for section in draft.sections
+        if section.status == "grounded"
+    )
+
+
 def _draft_failure_reason(
     ctx: RunContext[ComposerDeps],
     draft: AnswerDraft,
 ) -> str | None:
     """Classify a rejected draft without retaining any model-authored content.
 
-    A duplicate or over-cap citation selection is no longer rejected here:
-    the caller normalizes it with ``normalize_section_citations`` and
+    A segment-only duplicate or over-cap selection is no longer rejected
+    here: the caller normalizes it with ``normalize_section_citations`` and
     re-checks item/scope coverage on the normalized selection via
-    ``_draft_scope_failure_reason``.
+    ``_draft_scope_failure_reason``. Media citations are not normalized and
+    keep their original fail-closed duplicate/over-cap checks whenever a
+    draft contains any media citation.
     """
 
     cited_ids = [
@@ -417,10 +434,24 @@ def _draft_failure_reason(
     except NaturalAnswerValidationError:
         return "unsafe_text"
 
-    if not selected_ids:
+    media_ids = [
+        evidence_id
+        for section in draft.sections
+        if section.status == "grounded"
+        for evidence_id in section.media_citation_ids
+    ]
+    if not selected_ids and not media_ids:
         return "missing_citation"
     allowed = set(ctx.deps.citations)
     if any(segment_id not in allowed for segment_id in cited_ids):
+        return "unknown_citation"
+    if media_ids:
+        if len(cited_ids) != len(selected_ids) or len(media_ids) != len(set(media_ids)):
+            return "duplicate_citation"
+        if len(selected_ids) + len(media_ids) > ctx.deps.max_segments:
+            return "too_many_segments"
+    allowed_media = {item.evidence_id: item for item in ctx.deps.media_evidence}
+    if any(media_id not in allowed_media for media_id in media_ids):
         return "unknown_citation"
     return None
 
@@ -437,7 +468,19 @@ def _draft_scope_failure_reason(
         if section.status == "grounded"
         for segment_id in section.citation_ids
     ]
+    media_ids = [
+        evidence_id
+        for section in draft.sections
+        if section.status == "grounded"
+        for evidence_id in section.media_citation_ids
+    ]
+    allowed_media = {item.evidence_id: item for item in ctx.deps.media_evidence}
     item_ids = {ctx.deps.citations[segment_id].item_id for segment_id in cited_ids}
+    item_ids.update(
+        allowed_media[media_id].candidate.item_id
+        for media_id in media_ids
+        if media_id in allowed_media
+    )
     if len(item_ids) > MAX_SOURCE_ITEMS:
         return "too_many_items"
     if not ctx.deps.required_item_ids.issubset(item_ids):
@@ -467,6 +510,7 @@ def build_composer(
         evidence = _render_composer_evidence(
             ctx.deps.citations.values(),
             excerpt_chars=ctx.deps.excerpt_chars,
+            media_evidence=ctx.deps.media_evidence,
         )
         guidance = _composer_failure_guidance(ctx.deps.last_failure_reason)
         return f"{guidance}\n\n{evidence}" if guidance else evidence
@@ -492,36 +536,37 @@ def build_composer(
                 "回答必须只引用可用证据，并满足视频、片段和当前问题范围限制。"
             )
 
-        normalized_rows, report = normalize_section_citations(
-            [
-                section.citation_ids if section.status == "grounded" else []
-                for section in draft.sections
-            ],
-            ctx.deps.max_segments,
-        )
-        if report.deduplicated or report.clamped:
-            draft = draft.model_copy(
-                update={
-                    "sections": [
-                        section.model_copy(
-                            update={"citation_ids": normalized_rows[index]}
-                        )
-                        if section.status == "grounded"
-                        else section
-                        for index, section in enumerate(draft.sections)
-                    ]
-                }
+        if not _draft_has_media(draft):
+            normalized_rows, report = normalize_section_citations(
+                [
+                    section.citation_ids if section.status == "grounded" else []
+                    for section in draft.sections
+                ],
+                ctx.deps.max_segments,
             )
-            if ctx.deps.diagnostics is not None:
-                ctx.deps.diagnostics.event(
-                    "citation_normalized",
-                    agent_phase="answer",
-                    result_count=report.kept_distinct,
-                    retry_count=report.dropped_distinct,
-                    failure_reason=(
-                        "too_many_segments" if report.clamped else "duplicate_citation"
-                    ),
+            if report.deduplicated or report.clamped:
+                draft = draft.model_copy(
+                    update={
+                        "sections": [
+                            section.model_copy(
+                                update={"citation_ids": normalized_rows[index]}
+                            )
+                            if section.status == "grounded"
+                            else section
+                            for index, section in enumerate(draft.sections)
+                        ]
+                    }
                 )
+                if ctx.deps.diagnostics is not None:
+                    ctx.deps.diagnostics.event(
+                        "citation_normalized",
+                        agent_phase="answer",
+                        result_count=report.kept_distinct,
+                        retry_count=report.dropped_distinct,
+                        failure_reason=(
+                            "too_many_segments" if report.clamped else "duplicate_citation"
+                        ),
+                    )
 
         scope_failure_reason = _draft_scope_failure_reason(ctx, draft)
         if scope_failure_reason is not None:
@@ -547,12 +592,21 @@ def _render_composer_evidence(
     citations: Iterable[Citation],
     *,
     excerpt_chars: int,
+    media_evidence: Iterable | None = None,
 ) -> str:
     """Render the trusted Composer view with an explicit excerpt projection."""
 
     rows: list[str] = []
     for citation in citations:
         excerpt = " ".join(citation.excerpt.split())[:excerpt_chars]
+        if citation.kind == "title":
+            # The title-and-description row has no transcript time and its
+            # text is not a spoken quote; label it so the model cannot cite
+            # it as something said in the video.
+            rows.append(
+                f"ID {citation.segment_id}，视频《{citation.title}》的标题与简介：{excerpt}"
+            )
+            continue
         timestamp = (
             f"，时间 {int(citation.start_sec)} 秒"
             if citation.start_sec is not None
@@ -561,7 +615,13 @@ def _render_composer_evidence(
         rows.append(
             f"ID {citation.segment_id}，视频《{citation.title}》{timestamp}：{excerpt}"
         )
-    return "可用证据（仅可引用以下 ID）：\n" + "\n".join(rows)
+    media_rows = []
+    for item in media_evidence or ():
+        if not item.inspection.publishable:
+            continue
+        values = item.inspection.evidence + item.inspection.ocr + item.inspection.objects + item.inspection.actions
+        media_rows.append(f"ID {item.evidence_id}，媒体证据：{' '.join(values)[:excerpt_chars]}")
+    return "可用证据（仅可引用以下 ID）：\n" + "\n".join(rows + media_rows)
 
 
 def _compressed_citations(citations: list[Citation]) -> list[Citation]:
@@ -652,12 +712,7 @@ def _append_sources(text: str, citations: list[Citation]) -> str:
         title = group[0].title
         lines.append(f"- {title}")
         for citation in group:
-            excerpt = " ".join(citation.excerpt.split())
-            if len(excerpt) > 180:
-                excerpt = f"{excerpt[:177]}…"
-            lines.append(
-                f"  - [S{citation.segment_id}] {citation.url} — {excerpt}"
-            )
+            lines.append(render_source_line(citation))
     return "\n".join(lines)
 
 
@@ -886,6 +941,7 @@ class AnswerPipeline:
             diagnostics=diagnostics,
             required_item_ids=required_item_ids,
             max_segments=COMPRESSED_EVIDENCE_LIMIT,
+            media_evidence=dict(deps.media_evidence),
         )
         diagnostics.event("model_attempt", call_index=1, agent_phase="answer")
         try:
@@ -1088,6 +1144,7 @@ class AnswerPipeline:
             diagnostics=diagnostics,
             required_item_ids=frozenset(required_item_ids),
             max_segments=COMPRESSED_EVIDENCE_LIMIT,
+            media_evidence=dict(deps.media_evidence),
         )
         attempts = 0
         last_error_category = "answer_validation"
@@ -1193,6 +1250,54 @@ class AnswerPipeline:
                 )
                 for segment_id in selected_ids
             )
+            selected_media_ids = tuple(
+                evidence_id
+                for section in result.output.sections
+                for evidence_id in section.media_citation_ids
+            )
+            media_by_id = {item.evidence_id: item for item in composer_deps.media_evidence}
+            selected_media = [media_by_id[evidence_id] for evidence_id in selected_media_ids]
+            if selected_media:
+                adapter = deps.media_evidence_adapter
+                if adapter is None:
+                    raise RuntimeError("media evidence adapter unavailable")
+                for item in selected_media:
+                    if not adapter.recheck(item.candidate, phase="before_answer").inspectable:
+                        raise RuntimeError("media evidence is no longer answerable")
+                sections: list[str] = []
+                for section in result.output.sections:
+                    if section.status == "unsupported":
+                        sections.append(UNSUPPORTED_EVIDENCE_TEXT)
+                        continue
+                    validate_natural_answer(section.text or "")
+                    markers = [f"[S{value}]" for value in section.citation_ids]
+                    markers.extend(f"[{value}]" for value in section.media_citation_ids)
+                    sections.append(f"{section.text.strip()} {' '.join(markers)}".strip())
+                answer_text = _append_sources("\n\n".join(sections), selected)
+                media_citations = [
+                    MediaCitation(
+                        evidence_id=item.evidence_id,
+                        media_id=item.candidate.media_id,
+                        item_id=item.candidate.item_id,
+                        title=item.title,
+                        location=item.location,
+                        start_sec=item.inspection.start_sec,
+                        end_sec=item.inspection.end_sec,
+                        evidence=list(item.inspection.evidence),
+                    )
+                    for item in selected_media
+                ]
+                return AgentExecution(
+                    AgentAnswer(
+                        status="ok",
+                        text=answer_text,
+                        citations=selected,
+                        media_citations=media_citations,
+                        action_results=list(deps.actions.read_action_results),
+                        thread_id=request.thread_public_id,
+                    ),
+                    _canonical_history(request.question, answer_text),
+                )
             grounded_sections = tuple(
                 (
                     GroundedResponseSection(

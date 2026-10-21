@@ -17,6 +17,7 @@ from app.connectors.youtube import parse_json3
 from app.browser_capture import parse_canonical_transcript, timestamp_url
 from app.models import ContentItem
 from app.object_store import ObjectStoreError, ObjectTooLarge
+from app.web.source_projection import has_verified_bilibili_source, item_source_url
 
 
 class UserScopeLike(Protocol):
@@ -107,10 +108,12 @@ class TranscriptService:
         object_store,
         *,
         max_object_bytes: int = 5 * 1024 * 1024,
+        bilibili_public_enabled: bool = True,
     ) -> None:
         self._session_factory = session_factory
         self._object_store = object_store
         self.max_object_bytes = max_object_bytes
+        self._bilibili_public_enabled = bool(bilibili_public_enabled)
 
     def get(
         self,
@@ -135,6 +138,13 @@ class TranscriptService:
                 raise TranscriptError("transcript_unavailable")
             key = item.raw_object_key
             source_url = item.url
+            verified_public_id = (
+                item.public_id
+                if has_verified_bilibili_source(
+                    item, bilibili_public_enabled=self._bilibili_public_enabled
+                )
+                else None
+            )
             platform = getattr(item, "platform", "youtube")
             raw_format = getattr(item, "raw_format", "json3")
             text_source = getattr(item, "text_source", "official_cc")
@@ -162,6 +172,14 @@ class TranscriptService:
             else:
                 raise TranscriptError("transcript_invalid")
             blocks = _blocks(cues, source_url, platform=platform)
+            if verified_public_id is not None:
+                blocks = [
+                    TranscriptBlock(
+                        block.ordinal, block.start_sec, block.end_sec,
+                        block.text, item_source_url(verified_public_id, block.start_sec),
+                    )
+                    for block in blocks
+                ]
         except (TransientFetchError, TranscriptError, ValueError) as exc:
             raise TranscriptError("transcript_invalid") from exc
         revision = hashlib.sha256(body).hexdigest()

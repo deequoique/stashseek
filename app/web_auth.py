@@ -22,14 +22,14 @@ from email.message import EmailMessage
 from typing import Protocol
 
 import httpx
-from sqlalchemy import event, func, select, update
+from sqlalchemy import and_, event, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.channels.identity import ensure_explicit_identity
 from app.channels.types import TenantContext
 from app.config import Settings
 from app.db import get_session_factory
-from app.models import AppUser, ChannelIdentity, WebAuthChallenge, WebSession
+from app.models import AppUser, ChannelIdentity, ExternalLoginFlow, ExternalLoginIdentity, WebAuthChallenge, WebSession
 
 
 WEB_CHANNEL = "web"
@@ -69,7 +69,10 @@ class InvalidSession(WebAuthError):
 
 
 class EmailSender(Protocol):
-    def send_login_code(self, to_email: str, code: str, expires_at: datetime) -> None: ...
+    def send_login_code(
+        self, to_email: str, code: str, expires_at: datetime,
+        *, purpose: str | None = None,
+    ) -> None: ...
 
 
 class LoginRateLimiter(Protocol):
@@ -81,6 +84,7 @@ class SentEmail:
     to_email: str
     code: str
     expires_at: datetime
+    purpose: str | None = None
 
 
 class InMemoryEmailSender:
@@ -94,8 +98,11 @@ class InMemoryEmailSender:
         """Compatibility alias for tests without exposing a production sink."""
         return self.messages
 
-    def send_login_code(self, to_email: str, code: str, expires_at: datetime) -> None:
-        self.messages.append(SentEmail(to_email, code, expires_at))
+    def send_login_code(
+        self, to_email: str, code: str, expires_at: datetime,
+        *, purpose: str | None = None,
+    ) -> None:
+        self.messages.append(SentEmail(to_email, code, expires_at, purpose))
 
 
 class ResendEmailSender:
@@ -111,12 +118,25 @@ class ResendEmailSender:
         self._timeout = timeout_seconds
         self._client = client
 
-    def send_login_code(self, to_email: str, code: str, expires_at: datetime) -> None:
+    def send_login_code(
+        self, to_email: str, code: str, expires_at: datetime,
+        *, purpose: str | None = None,
+    ) -> None:
+        subject = "Your StashSeek Chat login code"
+        text = f"Your login code is {code}. It expires at {expires_at.isoformat()}."
+        if purpose:
+            subject = "StashSeek Chat account linking code"
+            text = (
+                f"Your verification code is {code}. It expires at "
+                f"{expires_at.isoformat()}.\n\n"
+                f"You are {purpose} to this email address. If you did not "
+                "request this, ignore this message and do not share the code."
+            )
         payload = {
             "from": self._from_email,
             "to": [to_email],
-            "subject": "Your StashSeek Chat login code",
-            "text": f"Your login code is {code}. It expires at {expires_at.isoformat()}.",
+            "subject": subject,
+            "text": text,
         }
         try:
             if self._client is not None:
@@ -168,14 +188,26 @@ class SmtpEmailSender:
         self._timeout = timeout_seconds
         self._client_factory = client_factory or smtplib.SMTP
 
-    def send_login_code(self, to_email: str, code: str, expires_at: datetime) -> None:
+    def send_login_code(
+        self, to_email: str, code: str, expires_at: datetime,
+        *, purpose: str | None = None,
+    ) -> None:
         message = EmailMessage()
         message["From"] = self._from_email
         message["To"] = to_email
-        message["Subject"] = "Your StashSeek Chat login code"
-        message.set_content(
-            f"Your login code is {code}. It expires at {expires_at.isoformat()}."
-        )
+        if purpose:
+            message["Subject"] = "StashSeek Chat account linking code"
+            message.set_content(
+                f"Your verification code is {code}. It expires at "
+                f"{expires_at.isoformat()}.\n\n"
+                f"You are {purpose} to this email address. If you did not "
+                "request this, ignore this message and do not share the code."
+            )
+        else:
+            message["Subject"] = "Your StashSeek Chat login code"
+            message.set_content(
+                f"Your login code is {code}. It expires at {expires_at.isoformat()}."
+            )
         client = None
         try:
             client = self._client_factory(self._host, self._port, timeout=self._timeout)
@@ -273,6 +305,8 @@ class AuthenticatedWebSession:
     public_id: str
     # Internal only: used by the request-scoped CSRF boundary and cache.
     csrf_token_hash: str = ""
+    login_channel: str = "email"
+    external_login_identity_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -291,8 +325,8 @@ class RedisSessionCache:
     """
 
     _GENERATION_KEY = "notebook-agent:web-session:generation"
-    _KEY_PREFIX = "notebook-agent:web-session:v1"
-    _VERSION = 1
+    _KEY_PREFIX = "notebook-agent:web-session:v2"
+    _VERSION = 2
     _MAX_PAYLOAD_BYTES = 4096
     _PAYLOAD_FIELDS = frozenset(
         {
@@ -306,6 +340,8 @@ class RedisSessionCache:
             "external_user_id",
             "csrf_token_hash",
             "expires_at",
+            "login_channel",
+            "external_login_identity_id",
         }
     )
     _LOOKUP_SCRIPT = """
@@ -394,6 +430,8 @@ return 1
             or payload["version"] != self._VERSION
         ):
             raise ValueError("invalid session cache version")
+        if payload["login_channel"] != "email" or payload["external_login_identity_id"] is not None:
+            raise ValueError("external sessions cannot use the email cache")
         for field in ("session_id", "app_user_id", "channel_identity_id"):
             if type(payload[field]) is not int or payload[field] <= 0:
                 raise ValueError("invalid session cache identifier")
@@ -500,7 +538,7 @@ return 1
         now: datetime,
         generation: int | None = None,
     ) -> None:
-        if not self.enabled:
+        if not self.enabled or session.external_login_identity_id is not None or session.login_channel != "email":
             return
         try:
             if self._generation_bump_required:
@@ -523,6 +561,8 @@ return 1
                 "external_user_id": session.tenant.external_user_id,
                 "csrf_token_hash": session.csrf_token_hash,
                 "expires_at": _utc(session.expires_at).isoformat(),
+                "login_channel": "email",
+                "external_login_identity_id": None,
             }
             stored = self._redis.eval(
                 self._STORE_SCRIPT,
@@ -564,6 +604,7 @@ class WebAuthService:
         self._session_factory, self._settings = session_factory, settings
         self._sender, self._limiter = sender, limiter
         self._session_cache = session_cache
+        self._external_providers = {}
         if session_cache is not None:
             self._cache_instances.add(session_cache)
         self._last_used_interval = timedelta(
@@ -578,84 +619,146 @@ class WebAuthService:
         current = _utc(now)
         if not self._limiter.allow(canonical, client_ip, now=current):
             raise LoginRateLimited()
-        code = f"{secrets.randbelow(1_000_000):06d}"
         with self._session_factory() as db:
-            db.execute(update(WebAuthChallenge).where(
-                WebAuthChallenge.email == canonical,
-                WebAuthChallenge.consumed_at.is_(None), WebAuthChallenge.invalidated_at.is_(None),
-            ).values(invalidated_at=current))
-            challenge = WebAuthChallenge(email=canonical, code_hash="", expires_at=current + timedelta(seconds=self._settings.web_auth_code_ttl_seconds), sent_at=current)
-            _sqlite_id(db, challenge, WebAuthChallenge)
-            db.add(challenge)
-            db.flush()
-            challenge.code_hash = self._code_hash(challenge.id, code)
             try:
-                self._sender.send_login_code(canonical, code, challenge.expires_at)
+                self._request_email_proof(db, canonical, current=current)
             except EmailDeliveryUnavailable:
-                challenge.delivery_failed_at = current
                 db.commit()
                 raise
             db.commit()
 
-    def verify(self, email: str, code: str, *, now: datetime | None = None) -> VerifiedWebLogin:
-        canonical = canonical_email(email)
+    def _request_email_proof(self, db: Session, canonical: str, *, current: datetime,
+                             external_login_flow_id: int | None = None,
+                             expires_at: datetime | None = None,
+                             purpose: str | None = None) -> None:
+        """Transaction-local challenge issuance with an exact proof purpose."""
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        purpose_filter = WebAuthChallenge.external_login_flow_id == external_login_flow_id
+        if external_login_flow_id is None:
+            purpose_filter = and_(purpose_filter, WebAuthChallenge.email == canonical)
+        db.execute(update(WebAuthChallenge).where(
+            purpose_filter,
+            WebAuthChallenge.consumed_at.is_(None), WebAuthChallenge.invalidated_at.is_(None),
+        ).values(invalidated_at=current))
+        challenge = WebAuthChallenge(
+            email=canonical, external_login_flow_id=external_login_flow_id, code_hash="",
+            expires_at=min(expires_at, current + timedelta(seconds=self._settings.web_auth_code_ttl_seconds))
+            if expires_at else current + timedelta(seconds=self._settings.web_auth_code_ttl_seconds),
+            sent_at=current,
+        )
+        _sqlite_id(db, challenge, WebAuthChallenge)
+        db.add(challenge)
+        db.flush()
+        challenge.code_hash = self._code_hash(challenge.id, code)
+        try:
+            self._sender.send_login_code(
+                canonical, code, challenge.expires_at, purpose=purpose
+            )
+        except EmailDeliveryUnavailable:
+            challenge.delivery_failed_at = current
+            raise
+
+    def _verify_email_proof(self, db: Session, canonical: str, code: str, *, current: datetime,
+                            external_login_flow_id: int | None = None) -> WebAuthChallenge | None:
+        """Return None only for a counted wrong code; caller commits attempts."""
         if not re.fullmatch(r"\d{6}", str(code)):
             raise InvalidVerification()
-        current = _utc(now)
+        challenge = db.scalar(select(WebAuthChallenge).where(
+            WebAuthChallenge.email == canonical,
+            WebAuthChallenge.external_login_flow_id == external_login_flow_id,
+        ).order_by(WebAuthChallenge.created_at.desc(), WebAuthChallenge.id.desc()).with_for_update())
+        if challenge is None or challenge.consumed_at or challenge.invalidated_at or challenge.delivery_failed_at or _utc(challenge.expires_at) <= current or challenge.attempt_count >= self._settings.web_auth_max_attempts:
+            raise InvalidVerification()
+        challenge.attempt_count += 1
+        if not hmac.compare_digest(challenge.code_hash, self._code_hash(challenge.id, str(code))):
+            return None
+        return challenge
+
+    def _resolve_email_tenant(self, db: Session, canonical: str) -> TenantContext:
+        query = select(ChannelIdentity).where(
+            ChannelIdentity.channel == WEB_CHANNEL, ChannelIdentity.account_id == WEB_ACCOUNT_ID,
+            ChannelIdentity.external_user_id == canonical,
+        )
+        identity = db.scalar(query)
+        if identity is None:
+            # Enter the SAVEPOINT before adding candidates: begin_nested()
+            # flushes pre-existing pending rows before creating its savepoint.
+            try:
+                with db.begin_nested():
+                    user = AppUser()
+                    _sqlite_id(db, user, AppUser)
+                    db.add(user)
+                    db.flush()
+                    identity = ChannelIdentity(app_user_id=user.id, channel=WEB_CHANNEL,
+                                               account_id=WEB_ACCOUNT_ID, external_user_id=canonical)
+                    _sqlite_id(db, identity, ChannelIdentity)
+                    db.add(identity)
+                    db.flush()
+            except IntegrityError:
+                identity = db.scalar(query)
+                if identity is None:
+                    raise InvalidVerification() from None
+        user = db.scalar(select(AppUser).where(AppUser.id == identity.app_user_id).with_for_update().execution_options(populate_existing=True))
+        identity = db.scalar(query.with_for_update().execution_options(populate_existing=True))
+        if (user is None or user.disabled_at is not None or identity is None
+                or identity.disabled_at is not None or identity.app_user_id != user.id):
+            raise InvalidVerification()
+        return TenantContext(user.id, identity.id, identity.channel, identity.account_id, identity.external_user_id)
+
+    def _issue_session(self, db: Session, tenant: TenantContext, *, current: datetime,
+                       login_channel: str = "email", external_login_identity_id: int | None = None) -> VerifiedWebLogin:
+        raw, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+        expires = current + timedelta(seconds=self._settings.web_session_ttl_seconds)
+        row = WebSession(public_id=secrets.token_urlsafe(24), app_user_id=tenant.app_user_id,
+                         channel_identity_id=tenant.channel_identity_id, token_hash=_token_hash(raw),
+                         csrf_token_hash=_token_hash(csrf), login_channel="web" if login_channel == "email" else login_channel,
+                         external_login_identity_id=external_login_identity_id, expires_at=expires)
+        _sqlite_id(db, row, WebSession)
+        db.add(row)
+        db.flush()
+        return VerifiedWebLogin(raw, csrf, AuthenticatedWebSession(
+            row.id, tenant, expires, row.public_id, row.csrf_token_hash, login_channel, external_login_identity_id,
+        ))
+
+    def verify(self, email: str, code: str, *, now: datetime | None = None,
+               external_login_flow_token: str = "") -> VerifiedWebLogin:
+        canonical, current = canonical_email(email), _utc(now)
         with self._session_factory() as db:
-            challenge = db.scalar(select(WebAuthChallenge).where(
-                WebAuthChallenge.email == canonical,
-            ).order_by(WebAuthChallenge.created_at.desc(), WebAuthChallenge.id.desc()).with_for_update())
-            if challenge is None or challenge.consumed_at or challenge.invalidated_at or challenge.delivery_failed_at or _utc(challenge.expires_at) <= current or challenge.attempt_count >= self._settings.web_auth_max_attempts:
-                raise InvalidVerification()
-            challenge.attempt_count += 1
-            if not hmac.compare_digest(challenge.code_hash, self._code_hash(challenge.id, str(code))):
+            # Lock browser proof before email/owner rows, matching external
+            # verification's lock order. A provider HTTP request has already
+            # committed its claim and holds no DB lock while we log in here.
+            flow = None
+            if external_login_flow_token:
+                try:
+                    flow_digest = _token_hash(external_login_flow_token)
+                except ValueError:
+                    pass
+                else:
+                    flow = db.scalar(select(ExternalLoginFlow).where(
+                        ExternalLoginFlow.token_hash == flow_digest,
+                    ).with_for_update())
+            challenge = self._verify_email_proof(db, canonical, code, current=current)
+            if challenge is None:
                 db.commit()
                 raise InvalidVerification()
+            tenant = self._resolve_email_tenant(db, canonical)
+            verified = self._issue_session(db, tenant, current=current)
             challenge.consumed_at = current
-            identity = db.scalar(select(ChannelIdentity).where(
-                ChannelIdentity.channel == WEB_CHANNEL, ChannelIdentity.account_id == WEB_ACCOUNT_ID,
-                ChannelIdentity.external_user_id == canonical,
-            ).with_for_update())
-            if identity is None:
-                user = AppUser()
-                _sqlite_id(db, user, AppUser)
-                db.add(user)
-                db.flush()
-                tenant = ensure_explicit_identity(db, app_user_id=user.id, channel=WEB_CHANNEL, account_id=WEB_ACCOUNT_ID, external_user_id=canonical)
-            else:
-                tenant = TenantContext(identity.app_user_id, identity.id, identity.channel, identity.account_id, identity.external_user_id)
-                user = db.get(AppUser, identity.app_user_id)
-                if user is None or user.disabled_at is not None or identity.disabled_at is not None:
-                    raise InvalidVerification()
-            raw = secrets.token_urlsafe(32)
-            csrf = secrets.token_urlsafe(32)
-            session = WebSession(
-                public_id=secrets.token_urlsafe(24),
-                app_user_id=tenant.app_user_id,
-                channel_identity_id=tenant.channel_identity_id,
-                token_hash=_token_hash(raw),
-                csrf_token_hash=_token_hash(csrf),
-                login_channel=WEB_CHANNEL,
-                expires_at=(
-                    current
-                    + timedelta(seconds=self._settings.web_session_ttl_seconds)
-                ),
-            )
-            _sqlite_id(db, session, WebSession)
-            db.add(session)
+            if flow is not None:
+                # The browser intentionally chose email while a provider flow
+                # was pending. Mark it in this same authoritative transaction:
+                # a later callback cannot infer this from its stale Cookie.
+                if flow.completed_session_hash:
+                    db.execute(update(WebSession).where(
+                        WebSession.token_hash == flow.completed_session_hash,
+                        WebSession.external_login_identity_id.is_not(None),
+                        WebSession.revoked_at.is_(None),
+                    ).values(revoked_at=current))
+                flow.phase, flow.failure_code = "failed", "session_changed"
+                flow.material_ciphertext = flow.namespace = flow.subject = None
+                flow.completed_session_hash = None
             db.commit()
-            return VerifiedWebLogin(
-                raw,
-                csrf,
-                AuthenticatedWebSession(
-                    session.id,
-                    tenant,
-                    _utc(session.expires_at),
-                    session.public_id,
-                    session.csrf_token_hash,
-                ),
-            )
+            return verified
 
     def resolve_session(self, raw_token: str, *, now: datetime | None = None) -> AuthenticatedWebSession:
         try:
@@ -672,7 +775,7 @@ class WebAuthService:
             if cached is not None:
                 return cached
         with self._session_factory() as db:
-            row = db.execute(
+            query = (
                 select(WebSession, AppUser, ChannelIdentity)
                 .join(AppUser, AppUser.id == WebSession.app_user_id)
                 .join(ChannelIdentity, ChannelIdentity.id == WebSession.channel_identity_id)
@@ -686,10 +789,45 @@ class WebAuthService:
                     ChannelIdentity.channel == WEB_CHANNEL,
                     ChannelIdentity.account_id == WEB_ACCOUNT_ID,
                 )
-            ).first()
+            )
+            email_source = and_(WebSession.external_login_identity_id.is_(None), WebSession.login_channel.in_(("web", "email")))
+            if self._external_providers:
+                query = query.add_columns(ExternalLoginIdentity).outerjoin(
+                    ExternalLoginIdentity, ExternalLoginIdentity.id == WebSession.external_login_identity_id
+                ).where(or_(email_source, and_(
+                    ExternalLoginIdentity.disabled_at.is_(None),
+                    ExternalLoginIdentity.app_user_id == WebSession.app_user_id,
+                    ExternalLoginIdentity.channel_identity_id == WebSession.channel_identity_id,
+                    ExternalLoginIdentity.provider == WebSession.login_channel,
+                    or_(*(and_(ExternalLoginIdentity.provider == name,
+                               ExternalLoginIdentity.application_id == provider.application_id)
+                          for name, provider in self._external_providers.items())),
+                )))
+            else:
+                # No enabled provider also rejects its old sessions; the email
+                # path remains usable in migration-era test/embedding fixtures.
+                query = query.where(email_source)
+            row = db.execute(query).first()
             if row is None:
                 raise InvalidSession()
-            session, user, identity = row
+            session, user, identity = row[:3]
+            try:
+                if canonical_email(identity.external_user_id) != identity.external_user_id:
+                    raise InvalidSession()
+            except InvalidEmail:
+                raise InvalidSession() from None
+            # Both rollback and commit may expire ORM rows. Capture the
+            # authorized values now so read-only requests do not reload the
+            # Session, user and identity through three extra database trips.
+            resolved = AuthenticatedWebSession(
+                session.id,
+                TenantContext(user.id, identity.id, identity.channel, identity.account_id, identity.external_user_id),
+                _utc(session.expires_at),
+                session.public_id,
+                session.csrf_token_hash,
+                "email" if session.external_login_identity_id is None else session.login_channel,
+                session.external_login_identity_id,
+            )
             if (
                 session.last_used_at is None
                 or current - _utc(session.last_used_at) >= self._last_used_interval
@@ -698,14 +836,7 @@ class WebAuthService:
                 db.commit()
             else:
                 db.rollback()
-            resolved = AuthenticatedWebSession(
-                session.id,
-                TenantContext(user.id, identity.id, identity.channel, identity.account_id, identity.external_user_id),
-                _utc(session.expires_at),
-                session.public_id,
-                session.csrf_token_hash,
-            )
-            if self._session_cache is not None:
+            if self._session_cache is not None and resolved.external_login_identity_id is None:
                 self._session_cache.put(
                     digest,
                     resolved,

@@ -1,0 +1,31 @@
+{
+  "id": "release-readiness",
+  "name": "release-readiness",
+  "title": "发布准备：dev 合 main 前置",
+  "description": "dev 合 main 的发布前置父任务：恢复网页入口与部署构建、隔离 WeMM 半成品、让 CI 变绿、完整栈冒烟；父任务只管任务图、跨子任务验收和最终集成评审",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-10-21",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-21-web-entry-restore",
+    "10-21-wemm-quarantine",
+    "10-21-ci-green",
+    "10-21-release-smoke"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

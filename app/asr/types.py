@@ -22,6 +22,11 @@ class AsrTranscript:
     billed_seconds: float | None
 
 
+# Platforms whose audio the server can fetch and transcribe (the ones
+# ``app.asr.audio.download_audio`` supports).  Advertised as
+# ``transcription_platforms`` in the capabilities route when ASR is enabled.
+ASR_PLATFORMS = frozenset({"youtube", "bilibili"})
+
 ASR_ERROR_CODES = frozenset(
     {
         "asr_too_long",

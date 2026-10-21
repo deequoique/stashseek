@@ -19,20 +19,23 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
-| [Ingestion Chunking and Embedding](./ingestion-chunking-embedding.md) | Semantic-first transcript chunking (80–200 words, ≤120 s, deepest-dip cut, whole-cue overlap), embedding budget guard, composer excerpt cap, and per-batch transient embedding retry | Active |
+| [Ingestion Chunking and Embedding](./ingestion-chunking-embedding.md) | Semantic-first transcript chunking (80–200 words, ≤120 s, deepest-dip cut, whole-cue overlap), embedding budget guard, composer excerpt cap, per-batch transient embedding retry, the per-item title row, Chinese bigram `fts`, and the `app.cli reindex` backfill | Active |
 | [YouTube Connector](./youtube-connector.md) | Subtitle-track selection and yt-dlp runtime contract | Active |
 | [Bilibili Connector](./bilibili-connector.md) | Strict video URL admission, public yt-dlp metadata/SRT, and browser/ASR fallback | Active |
+| [Bilibili Explicit Parts and Favorites](./bilibili-parts.md) | Stable CID selection, signed refs, bounded favorites discovery, source-proof fences and owned browser navigation | Active |
 | [LangBot Channel Runtime](./langbot-channel-runtime.md) | Required bridge readiness, fail-closed routing, and channel privacy | Active |
 | [Provider TLS and Request Diagnostics](./provider-tls-diagnostics.md) | Verified outbound CA composition and redacted Agent/retrieval stage diagnostics | Active |
-| [Agent Retrieval Convergence](./agent-retrieval-convergence.md) | Server-enforced retrieval convergence, tool-free answer composition, evidence fallback, and Top-5 video-level sources | Active |
+| [Agent Retrieval Convergence](./agent-retrieval-convergence.md) | Server-enforced retrieval convergence, rank fusion (RRF) of lexical and vector hits with a per-video window, title-row citations, tool-free answer composition, evidence fallback, and Top-5 video-level sources | Active |
 | [Agent Execution Streaming](./agent-execution-streaming.md) | Single-run tool lifecycle projection, safe public step vocabulary, SSE state machines, and transient browser timeline | Active |
 | [Channel Identity Linking](./channel-identity-linking.md) | Deterministic `/link` validation, single-use tokens, tenant merge and privacy boundaries | Active |
 | [Knowledge Item Management](./knowledge-item-management.md) | Tenant-scoped inventory tools, durable destructive confirmation, recycle-bin lifecycle, retry, and bounded purge | Active |
 | [Ingestion Completion Queue](./ingest-completion-queue.md) | Transactional completion outbox, durable broker boundary, at-least-once delivery, and bounded repair sweeps | Active |
 | [MCP Channel Runtime](./mcp-channel-runtime.md) | Official MCP v2 transports, tenant-bound grants, scope-gated tools, URL-token safety, and fail-closed readiness | Active |
 | [Web Browser Runtime](./web-browser-runtime.md) | Canonical browser app ownership, email session/CSRF contract, tenant affinity, OpenAPI composition, and MCP isolation | Active |
+| [External Website Login](./external-login.md) | Email-anchored Microsoft/WeChat/QQ proofs, atomic binding, uncached provider sessions, exact anchors and ownership compatibility | Active |
 | [Browser Companion Capture](./browser-companion-capture.md) | MV3 pairing grants, capture.v1, canonical transcripts, extension CORS, and YouTube/Bilibili capture ingestion | Active |
 | [Deployment Lifecycle](./deployment-lifecycle.md) | Profile-aware one-command startup, minimal configuration, process ownership, and exactly-one-Beat safety | Active |
+| [Ingest Status Model](./ingest-status-model.md) | Projected body stage + stored post-body stages, fixed reason registry, `stages`/`reason`/`body_searchable` API fields, one retry rule for Web/Agent/MCP | Active |
 | [ASR Transcription Pipeline](./asr-transcription.md) | `asr_pending` handoff to the `asr` queue, Fun-ASR/whisper fallback rules, signed audio route, stable `asr_*` error codes, and cleanup/privacy contracts | Active |
 
 ---

@@ -551,6 +551,7 @@ def test_residential_egress_filter_matches_home_egress_hosts():
         r"(^|\.)youtube\.com$",
         r"(^|\.)googlevideo\.com$",
         r"(^|\.)bilibili\.com$",
+        r"(^|\.)b23\.tv$",
         r"(^|\.)hdslb\.com$",
         r"(^|\.)bilivideo\.com$",
         r"(^|\.)bilivideo\.cn$",

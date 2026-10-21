@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index; find the layer rules before touching retrieval, ingest, agent or CLI code"}
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Current contract for search_segments over-fetch, diversify window, Citation allow-list, Composer source limits and diagnostics; this task changes the fusion and window rules and must update it"}
+{"file": ".trellis/spec/backend/ingestion-chunking-embedding.md", "reason": "Segment size and embedding-budget contract; the title row and Chinese fts are added at the same insert point in process_item"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Neon runtime URL, migration discipline and the rule that tests/evals never use the production DATABASE_URL"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Production logs must not gain query text, segment IDs or scores; reindex command output is bounded to counts and item IDs"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Code standards and forbidden patterns for backend changes"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse the evals fuse_rrf logic by moving it into app/retrieval/fusion.py instead of a second implementation"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Hit -> Citation -> Composer -> sources rendering crosses four layers; the title row must be handled consistently in each"}
+{"file": ".trellis/tasks/10-20-cn-recall-fusion/research/diagnosis-20261020.md", "reason": "Measured root causes, tenant-211 reproduction numbers and production data sizes that the acceptance criteria refer to"}

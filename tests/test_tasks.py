@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import certifi
 from kombu import Connection
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from app.connectors.base import (
     Cue,
@@ -284,7 +285,11 @@ def test_worker_fetches_and_persists_metadata_before_text():
 
 
 def test_browser_capture_without_captions_goes_to_needs_asr_without_remote_fetch(monkeypatch):
-    item = type("Item", (), {"id": 41, "user_id": 7, "state": "pending", "text_source": "none"})()
+    item = type(
+        "Item",
+        (),
+        {"id": 41, "user_id": 7, "platform": "youtube", "state": "pending", "text_source": "none"},
+    )()
     capture = type("Capture", (), {"caption_status": "unavailable"})()
     statements = []
 
@@ -298,10 +303,12 @@ def test_browser_capture_without_captions_goes_to_needs_asr_without_remote_fetch
         def commit(self): return None
 
     monkeypatch.setattr("app.ingest.tasks._connector", lambda _url: pytest.fail("capture path must not use the remote connector"))
+    monkeypatch.setattr("app.ingest.tasks.get_settings", lambda: replace(Settings(), asr_enabled=False))
     state = process_item(item.id, session_factory=lambda: DB())
 
     assert state == "needs_asr"
     assert item.text_source == "none"
+    assert item.fail_reason == "asr_disabled"
     assert "browser_capture.app_user_id" in statements[0]
 
 
@@ -315,6 +322,8 @@ def test_browser_capture_ready_from_original_attempt_is_reused_on_retry(monkeypa
             "platform": "ntu_kaltura",
             "platform_id": "123456_retry",
             "url": "https://ntulearnvideo.ntu.edu.sg/media/123456_retry",
+            "title": None,
+            "description": None,
             "chapters": [],
             "state": "pending",
             "raw_object_key": None,
@@ -400,6 +409,8 @@ def test_browser_capture_retry_does_not_reuse_a_different_users_capture(monkeypa
             "platform": "ntu_kaltura",
             "platform_id": "123456_retry",
             "url": "https://ntulearnvideo.ntu.edu.sg/media/123456_retry",
+            "title": None,
+            "description": None,
             "chapters": [],
             "state": "pending",
         },
@@ -454,6 +465,8 @@ def test_browser_capture_with_captions_reuses_object_and_existing_worker(monkeyp
             "platform": "ntu_kaltura",
             "platform_id": "123456_abCd",
             "url": "https://ntulearnvideo.ntu.edu.sg/media/123456_abCd",
+            "title": None,
+            "description": None,
             "chapters": [],
             "state": "pending",
             "raw_object_key": None,
@@ -534,6 +547,8 @@ def test_long_browser_capture_skips_per_cue_semantic_embedding(monkeypatch):
             "platform": "ntu_kaltura",
             "platform_id": "123456_long",
             "url": "https://ntulearnvideo.ntu.edu.sg/media/123456_long",
+            "title": None,
+            "description": None,
             "chapters": [],
             "state": "pending",
             "raw_object_key": None,
@@ -616,6 +631,8 @@ def test_long_connector_transcript_keeps_per_cue_semantic_embedding():
             "platform": "youtube",
             "platform_id": "dQw4w9WgXcQ",
             "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "title": None,
+            "description": None,
             "chapters": [],
             "state": "pending",
             "raw_object_key": None,
@@ -689,6 +706,8 @@ def test_semantic_budget_guard_skips_per_cue_embedding_when_insufficient(monkeyp
             "platform": "youtube",
             "platform_id": "dQw4w9WgXcQ",
             "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "title": None,
+            "description": None,
             "chapters": [],
             "state": "pending",
             "raw_object_key": None,
@@ -767,6 +786,8 @@ def test_bilibili_srt_uses_format_specific_object_key_and_content_type():
             "platform": "bilibili",
             "platform_id": "BV1xx411c7mD",
             "url": "https://www.bilibili.com/video/BV1xx411c7mD",
+            "title": None,
+            "description": None,
             "chapters": [],
             "state": "pending",
             "raw_object_key": None,
@@ -1359,3 +1380,194 @@ def test_deleted_item_claim_indexes_the_event_without_a_targeted_enqueue(
     assert enqueued == []  # historical contract: no targeted task from here
     # Nothing else will look at it, so the next gated tick must.
     assert before <= index.score(99) <= math.ceil(after)
+
+
+# ---------------------------------------------------------------------------
+# Title row and Chinese fts written by process_item
+# ---------------------------------------------------------------------------
+
+
+def _ingest_with_title_row(
+    monkeypatch,
+    *,
+    lang,
+    cue_texts,
+    title="Computer prices explained",
+    description="A short description of the video.",
+    max_segments=None,
+):
+    item = type(
+        "Item",
+        (),
+        {
+            "id": 61,
+            "user_id": 7,
+            "platform": "youtube",
+            "platform_id": "dQw4w9WgXcQ",
+            "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "title": title,
+            "description": description,
+            "chapters": [],
+            "state": "pending",
+            "raw_object_key": None,
+            "raw_format": "json3",
+            "content_hash": None,
+            "text_source": "none",
+            "lang": None,
+            "fail_reason": None,
+            "deleted_at": None,
+            "purge_claimed_at": None,
+        },
+    )()
+    added = []
+
+    class DB:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return None
+        def get(self, model, _item_id):
+            assert model is ContentItem
+            return item
+        def commit(self): return None
+        def refresh(self, _value): return None
+        def execute(self, _statement): return None
+        def add(self, value): added.append(value)
+
+    cues = [Cue(index * 3, index * 3 + 2, text) for index, text in enumerate(cue_texts)]
+
+    class Connector:
+        platform = "youtube"
+
+        def fetch_meta(self, _platform_id):
+            return None
+
+        def fetch_text(self, _platform_id):
+            return TextResult(b"connector transcript", cues, "official_cc", lang)
+
+    class Store:
+        def put(self, *_args): return None
+
+    class Embedder:
+        def __init__(self): self.calls = []
+        def embed(self, values):
+            self.calls.append(list(values))
+            # The position in the batch doubles as the vector, so a test can
+            # tell which text produced which stored embedding.
+            return [[float(index), 0.0] for index, _ in enumerate(values)]
+
+    embedder = Embedder()
+    if max_segments is not None:
+        limits = replace(Settings(), ingest_max_segments_per_item=max_segments)
+        monkeypatch.setattr("app.ingest.tasks.get_settings", lambda: limits)
+    state = process_item(
+        item.id,
+        connector=Connector(),
+        embedder=embedder,
+        object_store=Store(),
+        session_factory=lambda: DB(),
+    )
+    return state, added, embedder
+
+
+def _fts_config(segment):
+    """Text-search configuration and indexed text of a stored fts expression."""
+
+    compiled = segment.fts.compile(dialect=postgresql.dialect())
+    return compiled.params["to_tsvector_1"], compiled.params["to_tsvector_2"]
+
+
+def test_process_item_inserts_exactly_one_title_row_embedded_with_the_body(monkeypatch):
+    state, added, embedder = _ingest_with_title_row(
+        monkeypatch, lang="en", cue_texts=["Computers cost a lot this year."]
+    )
+
+    assert state == "ready"
+    title_rows = [row for row in added if row.seq == -1]
+    body_rows = [row for row in added if row.seq != -1]
+    assert len(title_rows) == 1 and len(body_rows) == 1
+    title_row = title_rows[0]
+    assert title_row.boundary_kind == "title"
+    assert float(title_row.start_sec) == 0 and float(title_row.end_sec) == 0
+    assert title_row.item_id == 61
+    assert title_row.text == "Computer prices explained\nA short description of the video."
+    assert [row.seq for row in body_rows] == [0]
+
+    # Semantic boundaries embed every cue once, then one final batch holds the
+    # title first, followed by every body chunk.
+    final_batch = embedder.calls[-1]
+    assert final_batch[0] == title_row.text
+    assert final_batch[1:] == [row.text for row in body_rows]
+    assert len(final_batch) == len(body_rows) + 1
+    assert title_row.embedding == [0.0, 0.0]
+    assert [row.embedding for row in body_rows] == [[1.0, 0.0]]
+
+
+def test_title_row_falls_back_to_the_platform_id_without_a_title(monkeypatch):
+    _state, added, _embedder = _ingest_with_title_row(
+        monkeypatch,
+        lang="en",
+        cue_texts=["Computers cost a lot this year."],
+        title=None,
+        description=None,
+    )
+
+    (title_row,) = [row for row in added if row.seq == -1]
+    assert title_row.text == "dQw4w9WgXcQ"
+
+
+def test_english_item_keeps_the_english_fts_configuration(monkeypatch):
+    _state, added, _embedder = _ingest_with_title_row(
+        monkeypatch, lang="en", cue_texts=["Computers cost a lot this year."]
+    )
+
+    assert {_fts_config(row)[0] for row in added} == {"english"}
+
+
+def test_english_item_with_chinese_title_indexes_the_title_row_in_both_configurations(monkeypatch):
+    _state, added, _embedder = _ingest_with_title_row(
+        monkeypatch,
+        lang="en",
+        cue_texts=["Pop open any electronic device and look at the chips."],
+        title="什么时候买内存？我找到了答案",
+        description=None,
+    )
+
+    (title_row,) = [row for row in added if row.seq == -1]
+    (body_row,) = [row for row in added if row.seq != -1]
+    assert _fts_config(body_row)[0] == "english"
+    compiled = title_row.fts.compile(dialect=postgresql.dialect())
+    assert " || " in str(compiled)
+    configs = {value for key, value in compiled.params.items() if key.startswith("to_tsvector") and value in {"english", "simple"}}
+    assert configs == {"english", "simple"}
+    indexed = {value for value in compiled.params.values() if isinstance(value, str)}
+    assert any("内存" in value.split() for value in indexed)
+
+
+def test_chinese_item_writes_simple_bigram_fts_for_body_and_title_row(monkeypatch):
+    _state, added, _embedder = _ingest_with_title_row(
+        monkeypatch,
+        lang="zh",
+        cue_texts=["电脑价格今年涨了很多。"],
+        title="电脑价格",
+        description=None,
+    )
+
+    assert {_fts_config(row)[0] for row in added} == {"simple"}
+    (title_row,) = [row for row in added if row.seq == -1]
+    (body_row,) = [row for row in added if row.seq != -1]
+    assert _fts_config(title_row)[1] == "电脑 脑价 价格"
+    indexed = _fts_config(body_row)[1].split()
+    assert {"电脑", "脑价", "价格"} <= set(indexed)
+
+
+def test_segment_limit_counts_body_chunks_but_not_the_title_row(monkeypatch):
+    # One body chunk fits a limit of one; the extra title row must not trip it.
+    state, added, _embedder = _ingest_with_title_row(
+        monkeypatch,
+        lang="en",
+        cue_texts=["Computers cost a lot this year."],
+        max_segments=1,
+    )
+
+    assert state == "ready"
+    assert len(added) == 2
+    assert sorted(row.seq for row in added) == [-1, 0]

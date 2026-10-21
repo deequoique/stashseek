@@ -1,0 +1,3 @@
+{"file":".trellis/spec/backend/agent-retrieval-convergence.md","reason":"Preserve current-run Citation allow-lists, bounded autonomy recovery, tool-free Composer behavior, and the existing independent evidence-compression fallback."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Add the durable compaction checkpoint with an additive single-head Alembic migration and production-safe migration lifecycle."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Keep summary and tool projection diagnostics content-free in production while adding safe counts and fixed stages."}

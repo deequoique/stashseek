@@ -5,7 +5,7 @@ import asyncio
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 
 from app.bootstrap import build_channel_service, build_embedding_provider
 from app.channels.http_gateway import serve as serve_channel_gateway
@@ -18,8 +18,9 @@ from app.ingest.asr_backfill import (
     MAX_BACKFILL_LIMIT,
     backfill_needs_asr,
 )
+from app.ingest.reindex import reindex
 from app.ingest.tasks import ingest_url
-from app.models import AppUser, ChannelIdentity
+from app.models import AppUser, ChannelIdentity, ExternalLoginIdentity
 from app.retrieval.search import bm25_search, vector_search
 from app.mcp_grants import McpGrantError, McpGrantService
 from app.web_auth import revoke_web_sessions
@@ -76,6 +77,14 @@ def main() -> None:
     )
     asr_backfill.add_argument("--user-id", type=int)
     asr_backfill.add_argument("--dry-run", action="store_true")
+    reindex_parser = commands.add_parser(
+        "reindex",
+        help="backfill Chinese fts and per-item title rows (omit both flags to run both)",
+    )
+    reindex_parser.add_argument("--user-id", type=int)
+    reindex_parser.add_argument("--dry-run", action="store_true")
+    reindex_parser.add_argument("--zh-fts", action="store_true")
+    reindex_parser.add_argument("--title-rows", action="store_true")
     commands.add_parser("gateway-server")
     mcp_server = commands.add_parser("mcp-server")
     mcp_server.add_argument(
@@ -119,6 +128,9 @@ def main() -> None:
     if args.command == "asr-backfill":
         _asr_backfill(args)
         return
+    if args.command == "reindex":
+        _reindex(args)
+        return
     settings = get_settings()
     logging_options = dict(
         log_dir=getattr(
@@ -154,10 +166,10 @@ def main() -> None:
     if args.command == "web-server":
         import uvicorn
 
-        from app.api.runtime import build_web_app
+        from app.api.runtime import build_api_app
 
         uvicorn.run(
-            build_web_app(settings),
+            build_api_app(settings),
             host=settings.web_host,
             port=settings.web_port,
             proxy_headers=True,
@@ -205,6 +217,31 @@ def _asr_backfill(args) -> None:
         raise SystemExit(2)
 
 
+def _reindex(args) -> None:
+    """Run the reindex jobs; print only counts and failed item IDs."""
+
+    # Neither flag selects everything; either flag narrows to just that job.
+    both = not args.zh_fts and not args.title_rows
+    result = reindex(
+        user_id=args.user_id,
+        dry_run=args.dry_run,
+        zh_fts=args.zh_fts or both,
+        title_rows=args.title_rows or both,
+    )
+    print(
+        f"zh_segments_updated={result.zh_segments_updated} "
+        f"title_rows_inserted={result.title_rows_inserted} "
+        f"title_rows_updated={result.title_rows_updated} "
+        f"title_rows_skipped={result.title_rows_skipped} "
+        f"failed={len(result.failed_item_ids)} "
+        f"dry_run={str(result.dry_run).lower()}"
+    )
+    for item_id in result.failed_item_ids:
+        print(f"item={item_id} failed")
+    if result.failed_item_ids:
+        raise SystemExit(2)
+
+
 def _users(args) -> None:
     factory = get_session_factory()
     with factory() as db:
@@ -215,12 +252,20 @@ def _users(args) -> None:
             print(f"user={user.id}")
             return
         if args.user_command == "rebind-identity":
-            user = db.get(AppUser, args.user_id)
-            identity = db.get(ChannelIdentity, args.identity_id)
+            user = db.scalar(select(AppUser).where(AppUser.id == args.user_id).with_for_update())
+            identity = db.scalar(select(ChannelIdentity).where(ChannelIdentity.id == args.identity_id).with_for_update())
             if user is None:
                 raise SystemExit(f"app user {args.user_id} not found")
             if identity is None:
                 raise SystemExit(f"channel identity {args.identity_id} not found")
+            if (
+                identity.app_user_id != user.id
+                and inspect(db.connection()).has_table("external_login_identity")
+                and db.scalar(select(ExternalLoginIdentity.id).where(
+                    ExternalLoginIdentity.channel_identity_id == identity.id,
+                ).limit(1)) is not None
+            ):
+                raise SystemExit("identity has external login bindings; use the supported account-linking flow")
             identity.app_user_id = user.id
             db.commit()
             print(f"identity={identity.id} user={user.id}")

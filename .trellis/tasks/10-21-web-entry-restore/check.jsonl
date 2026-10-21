@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/deployment-lifecycle.md", "reason": "Verify the deploy script keeps fail-fast semantics and process ownership"}
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "Verify SPA fallback, /privacy and /api behaviour are unchanged"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify build, test and typecheck ran under Node 22"}
+{"file": ".trellis/tasks/10-21-release-readiness/prd.md", "reason": "Cross-child acceptance the website restore contributes to"}

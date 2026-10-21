@@ -60,6 +60,16 @@ API key、完整 DSN、MCP URL capability、浏览器 Bearer 或 HMAC secret 写
 | `EMBEDDING_ENDPOINT` | `https://open.bigmodel.cn/api/paas/v4/embeddings` | 否 | embedding endpoint |
 | `EMBEDDING_DIMENSIONS` | `1536` | 否 | 必须与 PostgreSQL `vector(1536)` schema 对齐 |
 | `EMBEDDING_BATCH_SIZE` | `64` | 否 | 每次 embedding 请求的输入数上限 |
+| `MULTIMODAL_RETRIEVAL_ENABLED` | `false` | 否 | 多模态检索运行时总开关；默认关闭 |
+| `WEMM_ENABLED` | `false` | 否 | 可选本地 WeMM-Embedding 适配器开关 |
+| `WEMM_MODEL` | `tencent/WeMM-Embedding-2B` | 否 | Hugging Face 模型标识；默认使用上游 2B 模型 |
+| `WEMM_REVISION` | `bbd6cd4bf52cfc6716f752a2df80b2706720bd95` | 两个多模态开关均开启时必需 | 传给 remote code loader 的显式 40 字符 commit SHA；默认是已向官方仓库核对存在的固定 revision，不代表完成安全审计或真实推理验证 |
+| `WEMM_DIMENSIONS` | `1024` | 否 | 新 WeMM 向量空间维度；上游 2B 模型支持 `64`、`128`、`256`、`512`、`1024`、`2048` |
+| `WEMM_DEVICE` | `cpu` | 否 | Sentence Transformers 推理设备，例如 `cpu`、`cuda` 或 `mps` |
+| `WEMM_BATCH_SIZE` | `1` | 否 | 每次本地 `model.encode` 的有界 batch，范围 `1`–`8` |
+| `WEMM_MAX_INPUTS` | `32` | 否 | 单次 provider 调用允许的总输入数 |
+| `WEMM_MAX_TEXT_CHARS` | `8192` | 否 | 单条文本输入字符上限 |
+| `WEMM_MAX_MEDIA_BYTES` | `134217728` | 否 | resolver 提供的单个本地媒体文件大小上限 |
 | `AGENT_MODEL` | `openai:gpt-5-mini` | 否 | PydanticAI model 字符串 |
 | `AGENT_API_KEY` | 未设置 | 是 | provider 需要时使用；也可使用 provider 原生环境变量 |
 | `AGENT_BASE_URL` | 未设置 | 否/视 URL 而定 | OpenAI-compatible endpoint |
@@ -68,6 +78,44 @@ API key、完整 DSN、MCP URL capability、浏览器 Bearer 或 HMAC secret 写
 
 没有 `ZHIPU_API_KEY` 时，确定性的 inventory/identity 操作仍可运行；普通
 知识问答和需要 embedding 的后台导入会失败闭合，而不是悄悄返回无依据答案。
+
+### 可选本地 WeMM 运行时
+
+> **状态（2026-10-21）**：WeMM 会更换 embedding 模型，所以媒体表
+> （`media_asset`、`media_embedding`）、建表迁移和媒体入库代码已从当前版本
+> 摘除，会在更换模型的任务里重做；现在只保留检索接口层
+> （`app/retrieval/media.py`、`app/agent/media.py`）和下面的配置项。
+> `MULTIMODAL_RETRIEVAL_ENABLED` 与 `WEMM_ENABLED` 默认且应保持 `false`，
+> 生产环境不需要新增任何键。两个开关关闭时，Agent 不会拿到 `search_media`
+> 或 `inspect_media`，导出的 OpenAPI 也没有媒体路径，数据库里没有媒体表。
+
+WeMM 适配器是对上游 WeMM-Embedding **本地** Sentence Transformers 用法的
+薄封装，不是官方 WeMM HTTP API 客户端；当前项目没有配置或声称存在可用的
+托管 WeMM 服务，也不读取 `WEMM_ENDPOINT` 或 `WEMM_API_KEY`。它保留现有
+Zhipu `vector(1536)` 文本空间不变；适配器配置默认使用 `1024` 维 WeMM 空间，
+但当前没有对应的数据表，也不会改写旧向量。
+
+启用时，`WEMM_REVISION` 必须是显式配置的 40 字符不可变模型 commit SHA；不能
+使用 branch 或 floating tag。构造
+provider 只保存配置，不导入 `sentence_transformers`、执行模型、下载权重或
+解析媒体；首次 encode 才会惰性加载
+`SentenceTransformer(model, revision=..., trust_remote_code=True, device=...)`。
+运行环境需要由部署者另外提供兼容的 `sentence-transformers`、PyTorch、上游
+remote-code 依赖和已允许的模型缓存/下载条件；本项目依赖清单不隐式安装这些
+重量级依赖。本次没有执行模型下载、付费调用、benchmark 或生产推理。
+
+图片和视频输入只能通过调用方注入的授权 resolver 使用。resolver 必须返回
+一个 context manager，在上下文内提供本地 regular file；provider 在
+`model.encode` 完成后立即退出该上下文。对象 ID、URL 和租户权限不会被 provider
+自行解析，也不会被当作媒体字节传给模型。文本输入不需要 resolver；没有
+resolver 的当前应用 composition root 因而只支持 WeMM 文本调用，媒体摄入、
+对象存储授权、租户/状态检查、视频抽帧/片段化、数据库写入、重试和回填仍是
+未接入的上层职责。
+
+`WEMM_DIMENSIONS` 会在首次加载时与
+`model[0].auto_model.config.matryoshka_dimensions` 对照；不支持的维度和
+非有限/零向量都会以稳定 embedding error 拒绝。输入数量、文本字符数、媒体
+文件大小和 encode batch 都有界，并保持输入顺序。
 
 ## Agent 与上下文预算
 
@@ -81,6 +129,12 @@ API key、完整 DSN、MCP URL capability、浏览器 Bearer 或 HMAC secret 写
 | `AGENT_TOOL_CALLS_LIMIT` | `10` | tool call 总上限 |
 | `AGENT_OUTPUT_TOKEN_LIMIT` | `3000` | stage 输出 token 上限（检索阶段开启思考时峰值约 2000，见 10-07-retrieval-agent-budget） |
 | `AGENT_COMPOSER_MAX_TOKENS` | `1000` | evidence-backed answer Composer 每次尝试的 provider cap |
+| `RETRIEVAL_FUSION` | `rrf` | `search_segments` 两路结果的融合方式：`rrf` 按名次融合；`raw` 为旧的原始分数混排加 5 视频窗口（回滚开关） |
+| `RETRIEVAL_RRF_K` | `60` | RRF 的 k（1–1000） |
+| `RETRIEVAL_LEXICAL_WEIGHT` | `1.0` | 词法路在 RRF 里的权重（0–10；0 等于关闭该路，两路不能同时为 0） |
+| `RETRIEVAL_VECTOR_WEIGHT` | `1.0` | 向量路在 RRF 里的权重（0–10） |
+| `RETRIEVAL_CANDIDATE_POOL_LIMIT` | `50` | 每路取多少条候选再融合（10–200） |
+| `RETRIEVAL_PER_ITEM_CAP` | `3` | 候选窗口第一段里同一视频最多几条（1–10）；不足 10 条时按名次补满 |
 | `AGENT_STREAMING_ENABLED` | `true` | Web SSE 是否可用；关闭后使用 JSON 兼容路径 |
 | `CONTEXT_MAX_TURNS` | `8` | 对话上下文 turn 数上限 |
 | `CONTEXT_TOKEN_BUDGET` | `6000` | 对话历史 token budget |
@@ -212,14 +266,16 @@ ASR 终态失败使用稳定错误码：`asr_too_long`、`asr_audio_unavailable`
 
 ## Web 与登录
 
-生产 canonical Web runtime 使用 email OTP；开发/迁移兼容路径仍支持渠道批准
-登录。二者都使用同一类 opaque session 和 CSRF cookie，但配置入口不同。
+生产 canonical Web runtime 保留 email OTP，并可按配置启用 Microsoft、微信网站和
+QQ 登录。首次外部授权需要验证邮箱并明确绑定到该邮箱的原有或新账户，之后同一
+外部账号可直接进入原资料库。开发/迁移兼容路径仍支持渠道批准登录；网站微信与
+微信 Bot 身份不同，不能通过邮箱声明、昵称或相同 ID 文本自动合并。
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `WEB_AUTH_ENABLED` | `false` | 生产必须为 `true` |
 | `WEB_PUBLIC_ORIGIN` | 未设置 | 开启 email Web auth 时必需的精确 HTTPS origin，无末尾 `/` |
-| `WEB_AUTH_SECRET` | 未设置 | 至少 32 字符；用于登录码/会话密钥材料 |
+| `WEB_AUTH_SECRET` | 未设置 | 至少 32 字符的高熵随机 secret；用于验证码 HMAC 和外部流程短期加密材料的独立派生密钥 |
 | `WEB_COOKIE_SECURE` | `true` | 必须保持 true，以满足 `__Host-` cookie 合约 |
 | `WEB_API_PREFIX` | `/api/v1` | 固定值，不能自定义 |
 | `EMAIL_PROVIDER` | 未设置 | 生产 Web auth 需 `resend` 或 `smtp` |
@@ -227,8 +283,8 @@ ASR 终态失败使用稳定错误码：`asr_too_long`、`asr_audio_unavailable`
 | `SMTP_HOST` / `SMTP_PORT` | 未设置 / `587` | `EMAIL_PROVIDER=smtp` 时使用 |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM_EMAIL` | 未设置 | SMTP 凭据和发件人 |
 | `SMTP_STARTTLS` | `true` | SMTP STARTTLS 开关 |
-| `WEB_SESSION_TTL_SECONDS` | `2592000` | email session TTL |
-| `WEB_SESSION_CACHE_TTL_SECONDS` | `60` | Redis session projection TTL；`0` 表示只查 PostgreSQL |
+| `WEB_SESSION_TTL_SECONDS` | `2592000` | 邮箱及外部登录的浏览器 session TTL |
+| `WEB_SESSION_CACHE_TTL_SECONDS` | `60` | 仅邮箱 Redis session projection TTL；`0` 表示只查 PostgreSQL；外部来源 session 始终查数据库 |
 | `WEB_AUTH_CODE_TTL_SECONDS` | `600` | email code TTL |
 | `WEB_AUTH_MAX_ATTEMPTS` | `5` | email code 尝试上限 |
 | `WEB_AUTH_RESEND_SECONDS` | `60` | 同一邮箱 resend 间隔 |
@@ -238,8 +294,8 @@ ASR 终态失败使用稳定错误码：`asr_too_long`、`asr_audio_unavailable`
 | `SMTP_TIMEOUT_SECONDS` | `10` | `EMAIL_PROVIDER=smtp` 的网络 timeout |
 | `WEB_TRUSTED_PROXY_HOSTS` | 空 | 允许提供 `X-Forwarded-For` 的明确 proxy peer |
 | `WEB_HOST` / `WEB_PORT` | `127.0.0.1` / `8000` | 独立 `web-server` listener |
-| `WEB_SERVE_STATIC` | `true` | 是否从 `WEB_STATIC_DIR` 提供 SPA |
-| `WEB_STATIC_DIR` | `web/dist` | SPA 构建目录 |
+| `WEB_SERVE_STATIC` | `true` | 由同一个 ASGI 进程提供网页版（SPA）：`/` 与前端路由返回 `index.html`，`/assets/*` 来自静态目录；`/api/*` 的未知路径仍返回 JSON 404，`/privacy` 仍是隐私页。设为 `false` 则只提供 API |
+| `WEB_STATIC_DIR` | `extension/dist` | 网页静态目录（相对运行时工作目录），默认是插件工作区构建产物，必须含 `index.html`；缺失时服务启动失败，不会静默降级为只有 API。旧值 `web/dist` 在 release 目录里是指向 `extension/dist` 的兼容链接 |
 | `WEB_FORWARDED_ALLOW_IPS` | `127.0.0.1` | uvicorn 可信 forwarded-header 来源；不能是 `*` |
 | `WEB_PUBLISH_BUDGET_SECONDS` | `5` | Web 保存/重试 publish budget |
 | `CHANNEL_LINK_TTL_SECONDS` | `600` | Web compatibility link token 的有效期 |
@@ -249,6 +305,31 @@ ASR 终态失败使用稳定错误码：`asr_too_long`、`asr_audio_unavailable`
 `app.api.runtime.build_web_app` 使用 `WEB_PUBLIC_ORIGIN` + email auth。两者都
 必须是精确 origin，不能包含 credentials、path、query、fragment 或末尾 `/`；
 不要把旧配置误当成生产 email auth 的替代品。
+
+### 可选外部登录配置
+
+| 变量 | 默认值 | secret | 说明 |
+| --- | --- | --- | --- |
+| `WEB_MICROSOFT_ENABLED` | `false` | 否 | 启用已配置的 Microsoft Web 登录 |
+| `WEB_MICROSOFT_CLIENT_ID` | 未设置 | 否 | 注册应用的 client ID |
+| `WEB_MICROSOFT_CLIENT_SECRET` | 未设置 | 是 | 注册 Web 应用的私有 client secret value |
+| `WEB_MICROSOFT_TENANT` | `common` | 否 | `common`、`organizations`、`consumers` 或 tenant UUID；不接受任意 authority URL |
+| `WEB_WECHAT_WEBSITE_ENABLED` | `false` | 否 | 启用已审核的微信网站应用登录，与 Bot 无关 |
+| `WEB_WECHAT_WEBSITE_APP_ID` | 未设置 | 否 | 网站应用 AppID |
+| `WEB_WECHAT_WEBSITE_APP_SECRET` | 未设置 | 是 | 网站应用 AppSecret |
+| `WEB_QQ_ENABLED` | `false` | 否 | 启用已审核的 QQ Connect 网站应用登录 |
+| `WEB_QQ_APP_ID` | 未设置 | 否 | QQ 网站应用 AppID |
+| `WEB_QQ_APP_KEY` | 未设置 | 是 | QQ 网站应用 AppKey |
+
+启用任一外部方式都要求 `WEB_AUTH_ENABLED=true`、安全 cookie、正确的 HTTPS origin
+和完整应用配置。缺少凭据时保持 enable flag 为 false；启用但配置不完整会使启动
+验证失败。`/api/v1/capabilities.external_login_providers` 仅列出已启用、配置完整的
+实现，不把未申请的应用渲染成可用按钮；所有凭据只属于后端，不能放入 `VITE_*`。
+
+授权流程固定十分钟，过期需重新授权。更换应用 ID 或 secret 后重启服务会使旧的
+未完成流程失效，不会按提供方邮箱重新绑定资料库。`TLS_CA_BUNDLE` 也用于提供方
+HTTPS 请求，不能关闭证书验证。应用申请、审批、回调域名和真实收信验收见
+[配置指南](../how-to/configure-external-login.md)。本仓库不附送已注册应用或真实密钥。
 
 ## 浏览器伴侣
 
@@ -316,6 +397,7 @@ LangBot 4.10.6 部署还需要 patched runtime 的 required plugin readiness；
 | `YOUTUBE_FETCH_TIMEOUT_SECONDS` | `30` | yt-dlp metadata/subtitle bounded timeout |
 | `US_VIDEO_PROXY_URL` | 未设置 | 可选；服务端所有视频抓取（YouTube 与 Bilibili 的 metadata、字幕和 ASR 音频）共用的美国住宅出口。只允许无凭据 loopback HTTP URL 且必须有显式端口，例如 `http://127.0.0.1:18080`。取代旧的 `YOUTUBE_PROXY_URL`：旧变量仍存在（即使为空）时启动直接失败，不做别名或静默回退 |
 | `BILIBILI_FETCH_TIMEOUT_SECONDS` | `30` | Bilibili yt-dlp timeout |
+| `BILIBILI_PUBLIC_ENABLED` | `false` | 公开收藏夹预览/导入与分 P 选择；发现请求（`api.bilibili.com`）和分 P 字幕抽取在设置了 `US_VIDEO_PROXY_URL` 时都经该代理出口（生产环境必须设置，其数据中心 IP 会被 Bilibili 返回 HTTP 412），未设置时直连。关闭时 capability 为 false，四个相关路由统一返回 `503 bilibili_disabled`，资料库/字幕/引用里的 B 站链接回退为 `bilibili.com` 原地址（不经服务器跳转） |
 | `TRASH_RETENTION_DAYS` | `30` | 回收站保留时长 |
 | `TRASH_PURGE_INTERVAL_SECONDS` | `86400` | purge 周期（每天一次，让空闲的 Neon compute 归零） |
 | `TRASH_PURGE_BATCH_SIZE` | `20` | 一次 purge 数量，最大 100 |

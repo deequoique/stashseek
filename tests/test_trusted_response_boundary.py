@@ -186,6 +186,27 @@ def test_response_envelope_rejects_citations_for_non_grounded_dispositions():
     assert grounded.project(thread_id="thread").citations == [_citation()]
 
 
+def test_grounded_envelope_labels_a_title_row_in_the_source_block():
+    title_row = Citation(
+        item_id=9,
+        segment_id=90,
+        title="电脑价格",
+        excerpt="电脑价格\n等等党",
+        url="https://example.test/video",
+        kind="title",
+    )
+    envelope = ResponseEnvelope.grounded(
+        sections=(GroundedResponseSection("grounded", "这条视频讲电脑价格。", (90,)),),
+        citations=[title_row],
+    )
+
+    text = envelope.project(thread_id="thread").text
+
+    assert "[S90]" in text
+    assert "  - [S90] https://example.test/video — 标题与简介：电脑价格 等等党" in text
+    assert "时间" not in text
+
+
 @pytest.mark.asyncio
 async def test_nonempty_candidates_do_not_become_no_evidence_after_invalid_composer_draft():
     citation = _citation()

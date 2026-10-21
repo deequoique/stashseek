@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Citation allow-list, [S<id>] marker contract, title-row citations and the Web projection boundary this task adds marker renumbering to"}
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "Canonical browser app ownership, OpenAPI composition and MCP isolation; the renumbering must stay in the web projection and leave MCP text unchanged"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "No new log fields with answer text or citation identifiers"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend code standards"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend guideline index"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Composition, native controls and accessibility rules for the CitationChip link, tooltip and the collapse toggle"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "OpenAPI-generated types are the only source of API shapes; citations keep the generated ConversationCitation type"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required checks and test expectations for the extension/web code"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Where chat components, tests and styles live"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Marker numbering crosses route projection, SSE streaming, history and the React renderer; keep the rule identical on both sides"}

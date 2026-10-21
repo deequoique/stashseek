@@ -141,6 +141,60 @@ describe("side panel page states", () => {
     expect(env.streamQuestion).toHaveBeenCalledOnce();
   });
 
+  it("points a caption-less video at 「收藏视频」 when the server transcribes its platform", async () => {
+    const env = makeEnvironment({ pages: { [YT_A]: noCaptionPage() }, transcriptionPlatforms: ["youtube", "bilibili"] });
+    const user = await renderReady(env);
+
+    expect(await screen.findByText(
+      "该视频没有字幕，提问将仅基于标题和简介回答。收藏后会自动语音转写，转写完成后可以按内容搜索。",
+    )).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "收藏视频" })).toBeEnabled();
+    // The panel still answers from the browser's captions only, so it never promises to answer from the transcript.
+    expect(screen.queryByText(/回到侧栏/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/转写完成后可以(提问|问)/)).not.toBeInTheDocument();
+    // Questions on the title and description are still allowed.
+    await ask(user, "它讲什么？");
+    expect(env.streamQuestion).toHaveBeenCalledOnce();
+  });
+
+  it("points a caption-less Bilibili video at 「收藏视频」 as well, next to the login hint", async () => {
+    const env = makeEnvironment({
+      tab: { id: 7, url: BILI_URL },
+      pages: { [BILI_URL]: noCaptionBilibiliPage() },
+      transcriptionPlatforms: ["bilibili"],
+    });
+    await renderReady(env);
+
+    expect(await screen.findByText(/收藏后会自动语音转写，转写完成后可以按内容搜索。/)).toBeInTheDocument();
+    expect(screen.getByText("没有读取到字幕：登录哔哩哔哩后可能会有 AI 字幕。")).toBeInTheDocument();
+  });
+
+  it("keeps the original line when the server does not transcribe, or not this platform", async () => {
+    const off = makeEnvironment({ pages: { [YT_A]: noCaptionPage() }, transcriptionPlatforms: [] });
+    const { unmount } = render(<SidePanel deps={off.deps} />);
+    expect(await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答")).toBeInTheDocument();
+    expect(screen.queryByText(/自动语音转写/)).not.toBeInTheDocument();
+    unmount();
+
+    const legacy = makeEnvironment({ pages: { [YT_A]: noCaptionPage() } });
+    const second = render(<SidePanel deps={legacy.deps} />);
+    expect(await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答")).toBeInTheDocument();
+    second.unmount();
+
+    const other = makeEnvironment({ pages: { [YT_A]: noCaptionPage() }, transcriptionPlatforms: ["bilibili"] });
+    render(<SidePanel deps={other.deps} />);
+    expect(await screen.findByText("该视频没有字幕，提问将仅基于标题和简介回答")).toBeInTheDocument();
+    expect(screen.queryByText(/自动语音转写/)).not.toBeInTheDocument();
+  });
+
+  it("does not offer the transcription hint on a video that has captions", async () => {
+    const env = makeEnvironment({ transcriptionPlatforms: ["youtube"] });
+    await renderReady(env);
+
+    expect(await screen.findByText("字幕可用 · 官方字幕 · 2 条")).toBeInTheDocument();
+    expect(screen.queryByText(/自动语音转写/)).not.toBeInTheDocument();
+  });
+
   it("offers a manual re-read when the page cannot be read", async () => {
     const env = makeEnvironment();
     env.worker.readPage.mockRejectedValueOnce(new WorkerError("caption_fetch_failed"));

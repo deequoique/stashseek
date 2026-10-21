@@ -695,3 +695,280 @@ async def test_stream_timeout_is_safe_and_terminal_without_partial_answer():
         assert all(event["type"] != "completed" for event in events)
     finally:
         await client.aclose()
+
+
+def _numbered_citation(segment_id: int, *, url: str | None = None) -> Citation:
+    return Citation(
+        item_id=7,
+        segment_id=segment_id,
+        title=f"来源{segment_id}",
+        excerpt=f"字幕{segment_id}",
+        url=url or f"https://example.test/video?t={segment_id}",
+        start_sec=float(segment_id),
+    )
+
+
+def _sources_block(citations) -> str:
+    lines = ["", "", "来源：", "- 视频"]
+    lines.extend(f"  - [S{value.segment_id}] {value.url} — {value.excerpt}" for value in citations)
+    return "\n".join(lines)
+
+
+class _MultiSectionChannel(_ChannelService):
+    """Two grounded sections; ``dropped`` lists segment IDs whose link is unsafe."""
+
+    def __init__(self, sections, *, final_text: str):
+        super().__init__()
+        self.sections = sections
+        self.final_text = final_text
+
+    async def handle_stream(self, envelope):
+        self.envelopes.append(envelope)
+        all_citations: list[Citation] = []
+        for index, citations in enumerate(self.sections, start=1):
+            section_id = f"section-{index}"
+            all_citations.extend(citations)
+            yield AgentStreamEvent(
+                "section_started", envelope.request_id, envelope.message_id,
+                section_id=section_id, status="grounded",
+                citation_ids=tuple(value.segment_id for value in citations),
+                citations=tuple(citations),
+            )
+            yield AgentStreamEvent(
+                "text_delta", envelope.request_id, envelope.message_id,
+                section_id=section_id, text=f"第{index}段",
+            )
+            yield AgentStreamEvent(
+                "section_completed", envelope.request_id, envelope.message_id,
+                section_id=section_id, status="grounded",
+            )
+        yield AgentStreamEvent(
+            "completed", envelope.request_id, envelope.message_id,
+            answer=AgentAnswer(
+                status="ok",
+                text=self.final_text + _sources_block(all_citations),
+                citations=all_citations,
+                thread_id="thread-1",
+            ),
+            new_messages=(),
+        )
+
+
+async def _stream_events(channel: _ChannelService, message_id: str) -> list[dict]:
+    client, origin, csrf, _ = await _authenticated_client(_settings(), channel)
+    try:
+        response = await client.post(
+            "/api/v1/conversations/browser-thread/messages/stream",
+            json={"message_id": message_id, "text": "hello"},
+            headers={**origin, "X-CSRF-Token": csrf},
+        )
+        assert response.status_code == 200
+        return [
+            json.loads(line.removeprefix("data: "))
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_stream_numbers_markers_by_public_citation_position_across_sections():
+    sections = [
+        [_numbered_citation(101), _numbered_citation(102)],
+        [_numbered_citation(203), _numbered_citation(204)],
+    ]
+    channel = _MultiSectionChannel(
+        sections, final_text="第1段 [S101] [S102]\n\n第2段 [S203] [S204] [S101]"
+    )
+
+    events = await _stream_events(channel, "message-numbered")
+
+    started = [event for event in events if event["type"] == "section_started"]
+    assert [[value["title"] for value in event["citations"]] for event in started] == [
+        ["来源101", "来源102"],
+        ["来源203", "来源204"],
+    ]
+    final = events[-1]["response"]
+    assert events[-1]["type"] == "completed"
+    assert [value["title"] for value in final["citations"]] == [
+        "来源101", "来源102", "来源203", "来源204",
+    ]
+    assert final["text"].startswith("第1段 [^1] [^2]\n\n第2段 [^3] [^4] [^1]")
+    assert "[S" not in final["text"]
+    # Source block markers are rewritten with the same ordinals.
+    assert "  - [^3] https://example.test/video?t=203" in final["text"]
+    # No internal segment identifier reaches the browser in the text.
+    assert "101" not in final["text"].split("来源：")[0]
+
+
+@pytest.mark.asyncio
+async def test_stream_text_delta_markers_use_the_same_ordinals():
+    class _MarkerDeltaChannel(_ChannelService):
+        async def handle_stream(self, envelope):
+            self.envelopes.append(envelope)
+            first = [_numbered_citation(31), _numbered_citation(32)]
+            second = [_numbered_citation(33), _numbered_citation(34)]
+            for index, citations in enumerate((first, second), start=1):
+                yield AgentStreamEvent(
+                    "section_started", envelope.request_id, envelope.message_id,
+                    section_id=f"section-{index}", status="grounded",
+                    citation_ids=tuple(value.segment_id for value in citations),
+                    citations=tuple(citations),
+                )
+                yield AgentStreamEvent(
+                    "text_delta", envelope.request_id, envelope.message_id,
+                    section_id=f"section-{index}",
+                    text=f"文字 [S{citations[1].segment_id}] [S{citations[0].segment_id}]",
+                )
+                yield AgentStreamEvent(
+                    "section_completed", envelope.request_id, envelope.message_id,
+                    section_id=f"section-{index}", status="grounded",
+                )
+            yield AgentStreamEvent(
+                "completed", envelope.request_id, envelope.message_id,
+                answer=AgentAnswer(
+                    status="ok", text="文字 [S32] [S31] 文字 [S34] [S33]",
+                    citations=first + second, thread_id="thread-1",
+                ),
+                new_messages=(),
+            )
+
+    events = await _stream_events(_MarkerDeltaChannel(), "message-delta-markers")
+
+    deltas = [event["text"] for event in events if event["type"] == "text_delta"]
+    assert deltas == ["文字 [^2] [^1]", "文字 [^4] [^3]"]
+    assert all("[S" not in value for value in deltas)
+    assert events[-1]["response"]["text"] == "文字 [^2] [^1] 文字 [^4] [^3]"
+
+
+@pytest.mark.asyncio
+async def test_stream_final_numbering_stays_contiguous_when_a_citation_is_filtered():
+    unsafe = _numbered_citation(302, url="javascript:alert(1)")
+
+    class _FilteredFinalChannel(_ChannelService):
+        async def handle_stream(self, envelope):
+            self.envelopes.append(envelope)
+            for index, citation in enumerate(
+                (_numbered_citation(301), _numbered_citation(303)), start=1
+            ):
+                yield AgentStreamEvent(
+                    "section_started", envelope.request_id, envelope.message_id,
+                    section_id=f"section-{index}", status="grounded",
+                    citation_ids=(citation.segment_id,), citations=(citation,),
+                )
+                yield AgentStreamEvent(
+                    "text_delta", envelope.request_id, envelope.message_id,
+                    section_id=f"section-{index}", text="文字",
+                )
+                yield AgentStreamEvent(
+                    "section_completed", envelope.request_id, envelope.message_id,
+                    section_id=f"section-{index}", status="grounded",
+                )
+            final = [_numbered_citation(301), unsafe, _numbered_citation(303)]
+            yield AgentStreamEvent(
+                "completed", envelope.request_id, envelope.message_id,
+                answer=AgentAnswer(
+                    status="ok",
+                    text="甲 [S301] [S302]\n\n乙 [S303]" + _sources_block(final),
+                    citations=final, thread_id="thread-1",
+                ),
+                new_messages=(),
+            )
+
+    events = await _stream_events(_FilteredFinalChannel(), "message-filtered")
+
+    final = events[-1]["response"]
+    assert events[-1]["type"] == "completed"
+    assert [value["title"] for value in final["citations"]] == ["来源301", "来源303"]
+    # The dropped citation's marker disappears; the rest are consecutive and
+    # each ordinal points at the right public citation.
+    assert final["text"].startswith("甲 [^1]\n\n乙 [^2]")
+    assert "[^3]" not in final["text"]
+    assert "[S" not in final["text"]
+
+
+@pytest.mark.asyncio
+async def test_stream_final_list_follows_stream_ordinals_when_final_order_differs():
+    first = [_numbered_citation(401), _numbered_citation(402)]
+    second = [_numbered_citation(403)]
+
+    class _ReorderedFinalChannel(_ChannelService):
+        async def handle_stream(self, envelope):
+            self.envelopes.append(envelope)
+            for index, citations in enumerate((first, second), start=1):
+                yield AgentStreamEvent(
+                    "section_started", envelope.request_id, envelope.message_id,
+                    section_id=f"section-{index}", status="grounded",
+                    citation_ids=tuple(value.segment_id for value in citations),
+                    citations=tuple(citations),
+                )
+                yield AgentStreamEvent(
+                    "text_delta", envelope.request_id, envelope.message_id,
+                    section_id=f"section-{index}", text="文字",
+                )
+                yield AgentStreamEvent(
+                    "section_completed", envelope.request_id, envelope.message_id,
+                    section_id=f"section-{index}", status="grounded",
+                )
+            yield AgentStreamEvent(
+                "completed", envelope.request_id, envelope.message_id,
+                answer=AgentAnswer(
+                    status="ok", text="甲 [S401] [S402]\n\n乙 [S403]",
+                    # Same citations, different order, plus one never streamed.
+                    citations=[
+                        _numbered_citation(403), _numbered_citation(405),
+                        _numbered_citation(402), _numbered_citation(401),
+                    ],
+                    thread_id="thread-1",
+                ),
+                new_messages=(),
+            )
+
+    events = await _stream_events(_ReorderedFinalChannel(), "message-reordered")
+
+    final = events[-1]["response"]
+    assert [value["title"] for value in final["citations"]] == [
+        "来源401", "来源402", "来源403", "来源405",
+    ]
+    assert final["text"] == "甲 [^1] [^2]\n\n乙 [^3]"
+
+
+@pytest.mark.asyncio
+async def test_compatibility_paths_renumber_the_whole_answer_delta_and_response():
+    citations = [_numbered_citation(501), _numbered_citation(502)]
+    answer = AgentAnswer(
+        status="ok",
+        text="答案 [S502] [S501]" + _sources_block(citations),
+        citations=citations,
+        thread_id="thread-1",
+    )
+    for channel in (_ChannelService(answer), _CompletedOnlyChannel(answer)):
+        events = await _stream_events(channel, "message-compat")
+        deltas = [event for event in events if event["type"] == "text_delta"]
+        assert len(deltas) == 1
+        assert deltas[0]["text"].startswith("答案 [^2] [^1]")
+        assert "[S" not in deltas[0]["text"]
+        final = events[-1]["response"]
+        assert final["text"] == deltas[0]["text"]
+        assert [value["title"] for value in final["citations"]] == ["来源501", "来源502"]
+
+
+@pytest.mark.asyncio
+async def test_json_route_renumbers_markers_and_drops_unaddressable_ones():
+    citations = [_numbered_citation(601), _numbered_citation(602, url="ftp://bad.example/x")]
+    answer = AgentAnswer(
+        status="ok", text="甲 [S601] [S602]", citations=citations, thread_id="thread-1"
+    )
+    client, origin, csrf, _ = await _authenticated_client(_settings(), _ChannelService(answer))
+    try:
+        response = await client.post(
+            "/api/v1/conversations/browser-thread/messages",
+            json={"message_id": "message-json", "text": "hello"},
+            headers={**origin, "X-CSRF-Token": csrf},
+        )
+    finally:
+        await client.aclose()
+    body = response.json()
+    assert body["text"] == "甲 [^1]"
+    assert [value["title"] for value in body["citations"]] == ["来源601"]

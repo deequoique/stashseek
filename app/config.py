@@ -18,6 +18,8 @@ from urllib.parse import urlparse, urlsplit
 
 from dotenv import dotenv_values, load_dotenv
 
+from app.retrieval.fusion import FusionConfig
+
 # Renamed keys need source-aware precedence: process canonical, process legacy,
 # .env canonical, .env legacy. python-dotenv normally flattens process and .env
 # into os.environ, so retain renamed .env values separately and remove only the
@@ -108,6 +110,23 @@ def _env_bool(name: str, default: bool) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ValueError(f"{name} must be a boolean")
+
+
+@dataclass(frozen=True)
+class _WemmEnv:
+    """Defer optional provider parsing until constructor flags are known."""
+
+    name: str
+    default: str | int | bool
+
+    def resolve(self, *, enabled: bool):
+        if not enabled:
+            return self.default
+        if isinstance(self.default, bool):
+            return _env_bool(self.name, self.default)
+        if isinstance(self.default, int):
+            return _env_int(self.name, self.default)
+        return _env(self.name, self.default)
 
 
 def _compat_env_bool(canonical: str, legacy: str, default: bool) -> bool:
@@ -322,6 +341,42 @@ class Settings:
         default_factory=lambda: _env_int("EMBEDDING_BATCH_SIZE", 64)
     )
 
+    # --- Optional local WeMM multimodal embedding ---
+    # Disabled by default so existing text ingestion/retrieval is unchanged.
+    wemm_enabled: bool = field(default_factory=lambda: _WemmEnv("WEMM_ENABLED", False))
+    wemm_model: str = field(
+        default_factory=lambda: _WemmEnv(
+            "WEMM_MODEL", "tencent/WeMM-Embedding-2B"
+        )
+    )
+    wemm_revision: str | None = field(
+        default_factory=lambda: _WemmEnv(
+            "WEMM_REVISION",
+            "bbd6cd4bf52cfc6716f752a2df80b2706720bd95",
+        )
+    )
+    wemm_dimensions: int = field(
+        default_factory=lambda: _WemmEnv("WEMM_DIMENSIONS", 1024)
+    )
+    wemm_device: str = field(
+        default_factory=lambda: _WemmEnv("WEMM_DEVICE", "cpu")
+    )
+    wemm_batch_size: int = field(
+        default_factory=lambda: _WemmEnv("WEMM_BATCH_SIZE", 1)
+    )
+    wemm_max_inputs: int = field(
+        default_factory=lambda: _WemmEnv("WEMM_MAX_INPUTS", 32)
+    )
+    wemm_max_text_chars: int = field(
+        default_factory=lambda: _WemmEnv("WEMM_MAX_TEXT_CHARS", 8_192)
+    )
+    wemm_max_media_bytes: int = field(
+        default_factory=lambda: _WemmEnv("WEMM_MAX_MEDIA_BYTES", 128 * 1024 * 1024)
+    )
+    multimodal_retrieval_enabled: bool = field(
+        default_factory=lambda: _env_bool("MULTIMODAL_RETRIEVAL_ENABLED", False)
+    )
+
     # --- Postgres / SQLAlchemy ---
     database_url: str = field(default_factory=lambda: _build_database_url())
 
@@ -389,6 +444,12 @@ class Settings:
     )
     bilibili_fetch_timeout_seconds: float = field(
         default_factory=lambda: _env_float("BILIBILI_FETCH_TIMEOUT_SECONDS", 30.0)
+    )
+    # Public-favorites and multipart access requires server egress to
+    # api.bilibili.com, which datacenter IPs cannot rely on. Off unless a
+    # deployment has a working egress path.
+    bilibili_public_enabled: bool = field(
+        default_factory=lambda: _env_bool("BILIBILI_PUBLIC_ENABLED", False)
     )
 
     # --- Hosted ASR for subtitle-less public videos ---
@@ -477,6 +538,28 @@ class Settings:
     # to streaming or when operators explicitly disable it.
     agent_streaming_enabled: bool = field(
         default_factory=lambda: _env_bool("AGENT_STREAMING_ENABLED", True)
+    )
+
+    # --- Retrieval fusion (search_segments candidate ranking) ---
+    # ``rrf`` fuses the lexical and vector rankings by rank; ``raw`` restores
+    # the pre-RRF raw-score merge and five-video window as a rollback switch.
+    retrieval_fusion: str = field(
+        default_factory=lambda: (_env("RETRIEVAL_FUSION", "rrf") or "rrf").strip()
+    )
+    retrieval_rrf_k: int = field(
+        default_factory=lambda: _env_int("RETRIEVAL_RRF_K", 60)
+    )
+    retrieval_lexical_weight: float = field(
+        default_factory=lambda: _env_float("RETRIEVAL_LEXICAL_WEIGHT", 1.0)
+    )
+    retrieval_vector_weight: float = field(
+        default_factory=lambda: _env_float("RETRIEVAL_VECTOR_WEIGHT", 1.0)
+    )
+    retrieval_candidate_pool_limit: int = field(
+        default_factory=lambda: _env_int("RETRIEVAL_CANDIDATE_POOL_LIMIT", 50)
+    )
+    retrieval_per_item_cap: int = field(
+        default_factory=lambda: _env_int("RETRIEVAL_PER_ITEM_CAP", 3)
     )
     trash_retention_days: int = field(
         default_factory=lambda: _env_int(
@@ -671,7 +754,9 @@ class Settings:
         default_factory=lambda: _env_bool("WEB_SERVE_STATIC", True)
     )
     web_static_dir: str = field(
-        default_factory=lambda: _env("WEB_STATIC_DIR", "web/dist") or "web/dist"
+        # Built web app served as the SPA when WEB_SERVE_STATIC is on; the
+        # extension workspace build produces it and it must contain index.html.
+        default_factory=lambda: _env("WEB_STATIC_DIR", "extension/dist") or "extension/dist"
     )
     web_publish_budget_seconds: float = field(
         default_factory=lambda: _env_float("WEB_PUBLISH_BUDGET_SECONDS", 5.0)
@@ -693,6 +778,16 @@ class Settings:
     web_public_origin: str | None = field(
         default_factory=lambda: _env("WEB_PUBLIC_ORIGIN")
     )
+    web_microsoft_enabled: bool = field(default_factory=lambda: _env_bool("WEB_MICROSOFT_ENABLED", False))
+    web_microsoft_client_id: str | None = field(default_factory=lambda: _env("WEB_MICROSOFT_CLIENT_ID"))
+    web_microsoft_client_secret: str | None = field(default_factory=lambda: _env("WEB_MICROSOFT_CLIENT_SECRET"), repr=False)
+    web_microsoft_tenant: str = field(default_factory=lambda: _env("WEB_MICROSOFT_TENANT", "common") or "common")
+    web_wechat_website_enabled: bool = field(default_factory=lambda: _env_bool("WEB_WECHAT_WEBSITE_ENABLED", False))
+    web_wechat_website_app_id: str | None = field(default_factory=lambda: _env("WEB_WECHAT_WEBSITE_APP_ID"))
+    web_wechat_website_app_secret: str | None = field(default_factory=lambda: _env("WEB_WECHAT_WEBSITE_APP_SECRET"), repr=False)
+    web_qq_enabled: bool = field(default_factory=lambda: _env_bool("WEB_QQ_ENABLED", False))
+    web_qq_app_id: str | None = field(default_factory=lambda: _env("WEB_QQ_APP_ID"))
+    web_qq_app_key: str | None = field(default_factory=lambda: _env("WEB_QQ_APP_KEY"), repr=False)
     browser_companion_allowed_origins: tuple[str, ...] = field(
         default_factory=lambda: _env_csv("BROWSER_COMPANION_ALLOWED_ORIGINS")
     )
@@ -781,6 +876,71 @@ class Settings:
         default_factory=lambda: _env("WEB_TRUSTED_PROXY_HOSTS", "") or ""
     )
 
+    def _validate_retrieval(self) -> None:
+        if self.retrieval_fusion not in {"rrf", "raw"}:
+            raise ValueError("RETRIEVAL_FUSION must be rrf or raw")
+        if not 1 <= self.retrieval_rrf_k <= 1000:
+            raise ValueError("RETRIEVAL_RRF_K must be between 1 and 1000")
+        for name, weight in (
+            ("RETRIEVAL_LEXICAL_WEIGHT", self.retrieval_lexical_weight),
+            ("RETRIEVAL_VECTOR_WEIGHT", self.retrieval_vector_weight),
+        ):
+            if not math.isfinite(weight) or not 0 <= weight <= 10:
+                raise ValueError(f"{name} must be between 0 and 10")
+        if self.retrieval_lexical_weight == 0 and self.retrieval_vector_weight == 0:
+            raise ValueError(
+                "RETRIEVAL_LEXICAL_WEIGHT and RETRIEVAL_VECTOR_WEIGHT must not "
+                "both be 0"
+            )
+        if not 10 <= self.retrieval_candidate_pool_limit <= 200:
+            raise ValueError(
+                "RETRIEVAL_CANDIDATE_POOL_LIMIT must be between 10 and 200"
+            )
+        if not 1 <= self.retrieval_per_item_cap <= 10:
+            raise ValueError("RETRIEVAL_PER_ITEM_CAP must be between 1 and 10")
+
+    def retrieval_fusion_config(self) -> FusionConfig:
+        """Project the validated retrieval settings into a ``FusionConfig``."""
+
+        return FusionConfig(
+            method=self.retrieval_fusion,  # type: ignore[arg-type]
+            rrf_k=self.retrieval_rrf_k,
+            lexical_weight=self.retrieval_lexical_weight,
+            vector_weight=self.retrieval_vector_weight,
+            candidate_pool_limit=self.retrieval_candidate_pool_limit,
+            per_item_cap=self.retrieval_per_item_cap,
+        )
+
+    def _validate_wemm(self) -> None:
+        if not isinstance(self.wemm_model, str) or not self.wemm_model.strip():
+            raise ValueError("WEMM_MODEL must not be empty")
+        if self.wemm_dimensions < 1:
+            raise ValueError("WEMM_DIMENSIONS must be positive")
+        if not isinstance(self.wemm_device, str) or not self.wemm_device.strip() or any(
+            character.isspace() for character in self.wemm_device
+        ):
+            raise ValueError("WEMM_DEVICE must be a non-whitespace device")
+        if not 1 <= self.wemm_batch_size <= 8:
+            raise ValueError("WEMM_BATCH_SIZE must be between 1 and 8")
+        if not 1 <= self.wemm_max_inputs <= 32:
+            raise ValueError("WEMM_MAX_INPUTS must be between 1 and 32")
+        if not 1 <= self.wemm_max_text_chars <= 8_192:
+            raise ValueError("WEMM_MAX_TEXT_CHARS must be between 1 and 8192")
+        if not 1 <= self.wemm_max_media_bytes <= 128 * 1024 * 1024:
+            raise ValueError("WEMM_MAX_MEDIA_BYTES must be between 1 and 134217728")
+        revision = self.wemm_revision
+        if (
+            not isinstance(revision, str)
+            or not revision
+            or revision != revision.strip()
+            or any(character.isspace() for character in revision)
+            or len(revision) != 40
+            or any(character not in "0123456789abcdef" for character in revision)
+        ):
+            raise ValueError(
+                "WEMM_ENABLED requires a 40-character commit SHA in WEMM_REVISION"
+            )
+
     def _validate_asr(self) -> None:
         if not isinstance(self.dashscope_api_key, str) or not self.dashscope_api_key.strip():
             raise ValueError("DASHSCOPE_API_KEY is required when ASR_ENABLED=true")
@@ -823,6 +983,18 @@ class Settings:
             raise ValueError("ASR_POLL_INTERVAL_SECONDS must be between 1 and 60")
 
     def __post_init__(self) -> None:
+        if isinstance(self.wemm_enabled, _WemmEnv):
+            object.__setattr__(
+                self,
+                "wemm_enabled",
+                self.wemm_enabled.resolve(enabled=self.multimodal_retrieval_enabled),
+            )
+        wemm_active = self.multimodal_retrieval_enabled and self.wemm_enabled
+        for name, value in vars(self).items():
+            if isinstance(value, _WemmEnv):
+                object.__setattr__(self, name, value.resolve(enabled=wemm_active))
+        if wemm_active:
+            self._validate_wemm()
         if self.notebook_agent_env not in {"development", "production"}:
             raise ValueError("STASHSEEK_ENV must be development or production")
         if (
@@ -924,6 +1096,8 @@ class Settings:
                 parsed_origin.scheme != "https"
                 or not parsed_origin.netloc
                 or parsed_origin.path not in {"", "/"}
+                or parsed_origin.username is not None
+                or parsed_origin.password is not None
                 or parsed_origin.query
                 or parsed_origin.fragment
             ):
@@ -963,8 +1137,10 @@ class Settings:
                     "\n" in value or "\r" in value for value in smtp_header_values
                 ):
                     raise ValueError("SMTP settings must not contain line breaks")
+        self.validate_external_login()
         if self.agent_composer_max_tokens <= 0:
             raise ValueError("AGENT_COMPOSER_MAX_TOKENS must be positive")
+        self._validate_retrieval()
         if self.trash_retention_days <= 0:
             raise ValueError("TRASH_RETENTION_DAYS must be positive")
         if not _PLAUSIBLE_EMAIL.fullmatch(self.privacy_contact_email):
@@ -1086,6 +1262,28 @@ class Settings:
                 "AGENT_COMPOSER_MAX_TOKENS multiplied by the Composer request "
                 "limit must not exceed AGENT_OUTPUT_TOKEN_LIMIT"
             )
+
+    def validate_external_login(self) -> None:
+        """Fail startup for enabled providers without their email/auth boundary."""
+
+        enabled = (
+            (self.web_microsoft_enabled, "WEB_MICROSOFT", (self.web_microsoft_client_id, self.web_microsoft_client_secret)),
+            (self.web_wechat_website_enabled, "WEB_WECHAT_WEBSITE", (self.web_wechat_website_app_id, self.web_wechat_website_app_secret)),
+            (self.web_qq_enabled, "WEB_QQ", (self.web_qq_app_id, self.web_qq_app_key)),
+        )
+        if not any(flag for flag, _name, _credentials in enabled):
+            return
+        if not self.web_auth_enabled:
+            raise ValueError("external login requires WEB_AUTH_ENABLED")
+        if not self.web_cookie_secure:
+            raise ValueError("external login requires WEB_COOKIE_SECURE")
+        for flag, name, credentials in enabled:
+            if flag and not all(value and value.strip() for value in credentials):
+                raise ValueError(f"{name} requires its application ID and secret")
+        if self.web_microsoft_enabled:
+            tenant = self.web_microsoft_tenant
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}", tenant):
+                raise ValueError("WEB_MICROSOFT_TENANT must be a tenant identifier")
 
     def validate_web_auth(self) -> None:
         if self.web_auth_secret is None or len(self.web_auth_secret) < 32:

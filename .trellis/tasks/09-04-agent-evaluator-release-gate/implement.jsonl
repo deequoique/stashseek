@@ -1,0 +1,10 @@
+{"file": ".trellis/tasks/09-04-agent-evaluator-release-gate/research/meeting-gold-reuse-2026-10-07.md", "reason": "现状核查：题库版本与分布、跑题脚本已有能力、轨迹/token 记录缺口、specific-30 历史数字。"}
+{"file": "evals/meeting_gold/README.md", "reason": "题库和跑题脚本的现有命令与约束（只连测试分支、题库只读、许可证）；benchmark 只能在其上新增，不能改变已有命令。"}
+{"file": ".trellis/tasks/09-12-qmsum-explainmeetsum-golden-set/prd.md", "reason": "题库的数据约束：没有负例、没有时间戳、证据句重叠只是覆盖代理、val/test 划分。"}
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "预期轨迹规则必须与 Agent 的检索预算、扩展约束、引用 allow-list 和失败恢复设计一致。"}
+{"file": ".trellis/spec/backend/agent-execution-streaming.md", "reason": "轨迹记录只读 lifecycle 事件，不能改变流式状态机或泄露参数。"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "原始记录和报告不得包含回答原文、工具参数、账号 ID、密钥。"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "故障注入和 T8 判定要符合现有的失败恢复与 fail-closed 语义。"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "只连测试分支、测试账号隔离、无破坏性数据库访问。"}
+{"file": ".trellis/spec/backend/ingestion-chunking-embedding.md", "reason": "入库检查点里的分块配置和片段→证据句映射。"}
+{"file": ".trellis/tasks/09-04-agent-evaluator-release-gate/research/trace-observability.md", "reason": "轨迹记录、参数出错率、冗余/空转判定的早期研究。"}

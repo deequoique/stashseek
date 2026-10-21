@@ -1,0 +1,29 @@
+{
+  "id": "documentation-refresh",
+  "name": "documentation-refresh",
+  "title": "Reorganize and refresh project documentation",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-11",
+  "completedAt": "2026-09-04",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "cleanup_disposition": "completed_but_unarchived",
+    "cleanup_date": "2026-09-04"
+  }
+}

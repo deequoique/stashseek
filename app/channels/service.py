@@ -24,6 +24,7 @@ from app.channels.conversations import (
     reset_thread,
     save_completed_turn,
 )
+from app.channels.source_codec import decode_sources, validated_text_citations
 from app.channels.errors import (
     DisabledIdentity,
     ExpiredLinkToken,
@@ -314,7 +315,10 @@ class ChannelService:
                         thread=current_thread,
                         envelope=envelope,
                         assistant_text=answer.text,
-                        sources=[value.model_dump() for value in answer.citations],
+                        sources=[
+                            value.model_dump(mode="json") for value in answer.citations
+                        ],
+                        media_citations=answer.media_citations,
                         model_messages=event.new_messages,
                         answer_status=answer.status,
                         error_code=answer.error_code,
@@ -499,7 +503,11 @@ class ChannelService:
                 thread=thread,
                 envelope=envelope,
                 assistant_text=execution.answer.text,
-                sources=[value.model_dump() for value in execution.answer.citations],
+                sources=[
+                    value.model_dump(mode="json")
+                    for value in execution.answer.citations
+                ],
+                media_citations=execution.answer.media_citations,
                 model_messages=execution.new_messages,
                 answer_status=execution.answer.status,
                 error_code=execution.answer.error_code,
@@ -608,7 +616,8 @@ def _command(text: str) -> tuple[str | None, str | None]:
 
 
 def _answer_from_turn(turn, public_id: str) -> AgentAnswer:
-    citations = [Citation.model_validate(value) for value in turn.sources]
+    decoded = decode_sources(turn.sources)
+    citations = validated_text_citations(decoded.text)
     answer_status = turn.answer_status
     error_code = turn.error_code
     if answer_status == "legacy":
@@ -621,4 +630,5 @@ def _answer_from_turn(turn, public_id: str) -> AgentAnswer:
         action_results=list(turn.action_results or []),
         thread_id=public_id,
         error_code=error_code,
+        media_citations=list(decoded.media),
     )
