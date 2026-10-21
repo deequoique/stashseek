@@ -775,3 +775,53 @@ The side-panel page Q&A and Bilibili code was already on dev and on main (PR #32
 
 - Live checks above were moved by lane into another task (not named); confirm which one carries them
 - Start 10-15-web-companion-build, or archive the parent 10-15-extension-page-qa once lane decides to drop it
+
+
+## Session 26: Release dev to main (4eefa34), production deploy, reindex, extension 0.2.3 package
+
+**Date**: 2026-10-21
+**Task**: Release dev to main (4eefa34), production deploy, reindex, extension 0.2.3 package
+**Branch**: `dev`
+
+### Summary
+
+Diagnosed the Chinese recall miss (tenant 211), shipped RRF fusion + zh bigram fts + title rows and inline citation chips, prepared and released dev to main via PR #36, fixed the host-managed deploy dispatcher, deployed 4eefa34, ran the production reindex (114/122/0), merged main back into dev, and prepared the extension 0.2.3 packages.
+
+### Main Changes
+
+- Retrieval: RRF fusion with two-pass window, CJK bigram fts, per-item title rows, CLI reindex (58326da)
+- Chat: [S<id>] markers renumbered to [^n] for browsers; inline citation chips replace the evidence list (26d4267)
+- Release readiness: website served from the extension build, WeMM quarantine, CI green, full-stack smoke, release/2026-10-dev-sync merge -> PR #36 -> main 4eefa34
+- Production: replaced the stale /usr/local/sbin/notebook-agent-deploy copy, redeployed 4eefa34, migrations to f8a9b0c1d2e3, reindex via transient systemd unit, tenant 211 re-check (429/430 recalled on all four queries)
+- origin/main merged back into dev (d6c91ca); extension bumped to 0.2.3 with the offline package replaced (ac7fafb); store zip built for manual upload
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `58326da` | (see git log) |
+| `26d4267` | (see git log) |
+| `d4bc689` | (see git log) |
+| `8b7c12a` | (see git log) |
+| `90c55a4` | (see git log) |
+| `cc903b4` | (see git log) |
+| `4eefa34` | (see git log) |
+| `d6c91ca` | (see git log) |
+| `ac7fafb` | (see git log) |
+| `697a621` | (see git log) |
+
+### Testing
+
+- [OK] [OK] PR #36 CI deterministic-extension-gates; local full-stack smoke on the Neon test branch; production checks (/, #/login, /privacy, health, JSON 404, zip, alembic check); reindex idempotent re-run 0/0/0
+- [OK] [OK] extension 0.2.3: install, check:api, typecheck, lint, vitest 778 passed, build, audit, package:release; pytest test_linux_frontend_deployment 6 passed
+- [OK] [NOT RUN] production logged-in web library/chat/video detail, extension side panel and MCP against production (need email code / token)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Upload extension/release/stashseek-chat-chrome-web-store-0.2.3.zip in the Chrome developer dashboard; release ac7fafb to main so the website serves the 0.2.3 offline package
+- Host unit WEB_STATIC_DIR=extension/dist + daemon-reload (deferred by lane; compat link in place)
+- Decide whether to archive 10-20-chrome-store-entry, 10-20-cn-recall-fusion, 10-20-inline-citation-chips (all shipped)

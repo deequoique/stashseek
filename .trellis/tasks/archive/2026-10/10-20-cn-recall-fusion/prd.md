@@ -78,15 +78,15 @@
 
 ## 验收标准
 
-- [ ] AC1 `search_segments` 默认按 RRF 融合；`RETRIEVAL_FUSION=raw` 时恢复旧行为；k、权重、候选池、每视频上限都能用环境变量调整，`Settings` 校验非法值。
-- [ ] AC2 候选窗口：第一段里同一视频不超过 N 条，候选足够时窗口总是 10 条；候选池里可以出现 6 个及以上视频；限定单个视频时返回 `min(10, 候选数)` 条且顺序等于融合名次；Composer 校验与来源渲染不变，现有相关测试通过。
-- [ ] AC3 中文条目入库后 `fts` 非空；查询「电脑相关的视频」在只含"电脑"或"视频"的中文片段上有词法命中并按命中词元数排序；英文路径测试不变。
-- [ ] AC4 每个 ready 条目有且只有一条标题行；`get_neighbors`、`open_at`、页面问答不返回它；被引用时 `start_sec` 为空、链接不带时间点（Bilibili 走解析链接时是现有的 `t=0` 无时间写法）、Composer 提示词里标注为"标题与简介"。
-- [ ] AC5 运维命令可以干跑和实际执行，按租户过滤，只处理缺失或过期的行，输出只含数量和条目 ID；对生产 149 个中文片段和 131 个条目执行后，四个中文查询的候选池都包含 429；「电脑」「什么时候买内存」「电脑 内存 显卡 价格」三个查询都包含 430（「电脑相关的视频」对 430 只记录）。
-- [ ] AC6 RQ1 对比报告在 `research/`，范围 A 无明显退步，范围 B 不低于现状。
-- [ ] AC7 生产日志契约不变：不新增任何含查询文本、片段 ID、分数的生产日志字段。
-- [ ] AC8 规范更新：`agent-retrieval-convergence.md`（融合、窗口、标题行）、`ingestion-chunking-embedding.md`（标题行与中文 fts 的入库契约）。
-- [ ] AC9 任务 2 的 PRD 注明搜索-2 的 RRF 已由本任务实现。
+- [x] AC1 `search_segments` 默认按 RRF 融合；`RETRIEVAL_FUSION=raw` 时恢复旧行为；k、权重、候选池、每视频上限都能用环境变量调整，`Settings` 校验非法值。 —— `58326da`：`app/retrieval/fusion.py`、`Settings.retrieval_fusion_config()`、`_validate_retrieval()`，有单测
+- [x] AC2 候选窗口：第一段里同一视频不超过 N 条，候选足够时窗口总是 10 条；候选池里可以出现 6 个及以上视频；限定单个视频时返回 `min(10, 候选数)` 条且顺序等于融合名次；Composer 校验与来源渲染不变，现有相关测试通过。 —— 两段式 `select_window`；生产复核「电脑」「电脑 内存 显卡 价格」各 6 个视频；RQ1 范围 A 单视频窗口与基线逐题相同
+- [x] AC3 中文条目入库后 `fts` 非空；查询「电脑相关的视频」在只含"电脑"或"视频"的中文片段上有词法命中并按命中词元数排序；英文路径测试不变。 —— `research/zh-fts-check.md`；生产补写 114 条中文片段 `fts`
+- [x] AC4 每个 ready 条目有且只有一条标题行；`get_neighbors`、`open_at`、页面问答不返回它；被引用时 `start_sec` 为空、链接不带时间点（Bilibili 走解析链接时是现有的 `t=0` 无时间写法）、Composer 提示词里标注为"标题与简介"。 —— `app/ingest/title_row.py`、`services.py` 排除标题行，有单测；生产插入 122 条，再干跑跳过 122
+- [x] AC5 运维命令可以干跑和实际执行，按租户过滤，只处理缺失或过期的行，输出只含数量和条目 ID；对生产 149 个中文片段和 131 个条目执行后，四个中文查询的候选池都包含 429；「电脑」「什么时候买内存」「电脑 内存 显卡 价格」三个查询都包含 430（「电脑相关的视频」对 430 只记录）。 —— 2026-10-21 生产实际为 114 个中文片段、122 个条目（用户删除 4 个 lecture 后数量下降）；四个查询 429、430 全部进池，含「电脑相关的视频」，见 `research/tenant211-compare.md`「部署后复核」
+- [x] AC6 RQ1 对比报告在 `research/`，范围 A 无明显退步，范围 B 不低于现状。 —— `research/rq1-compare.md`：两段式窗口后范围 A 与基线逐题相同（Recall@5 0.381），范围 B 保持
+- [x] AC7 生产日志契约不变：不新增任何含查询文本、片段 ID、分数的生产日志字段。 —— 新模块 `fusion.py`、`zh_tokens.py`、`title_row.py`、`reindex.py` 无任何日志调用；`reindex` 只打印数量与条目 ID
+- [x] AC8 规范更新：`agent-retrieval-convergence.md`（融合、窗口、标题行）、`ingestion-chunking-embedding.md`（标题行与中文 fts 的入库契约）。 —— `ingestion-chunking-embedding.md`「Scenario: title row and Chinese fts」；`agent-retrieval-convergence.md` 融合与窗口场景
+- [x] AC9 任务 2 的 PRD 注明搜索-2 的 RRF 已由本任务实现。 —— `10-18-stashseek-search-api/prd.md` 第 218 行「2026-10-20 更新」
 
 ## 不在范围
 

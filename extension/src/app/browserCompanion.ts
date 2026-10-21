@@ -1,5 +1,5 @@
 export const BROWSER_COMPANION_DOWNLOAD_URL =
-  "/assets/stashseek-chat-browser-companion-production-0.2.2.zip";
+  "/assets/stashseek-chat-browser-companion-production-0.2.3.zip";
 
 export const BROWSER_COMPANION_STORE_URL =
   "https://chromewebstore.google.com/detail/jeemllapbelpglmpnhjfamcnoibpeail";

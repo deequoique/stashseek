@@ -16,15 +16,15 @@
 - [x] `git fetch origin main && git worktree add ../release-dev-sync origin/main -b release/2026-10-dev-sync`，在 worktree 里 `git merge dev`，按 `design.md` 第 1 节解决 33 个冲突；`git diff dev --stat` 核对只剩预期差异。
 - [x] 在 worktree 里：`corepack pnpm install --frozen-lockfile`，子任务 3 的全套命令（`check:api`、`typecheck`、`lint`、`test`、`build`、`run audit`），`alembic heads`，CI 的 pytest 子集（干净环境）；全部退出 0。
 - [x] 写 `research/rollback.md`（R4），请用户过目。
-- [ ] **征得用户同意后**：`git push -u origin release/2026-10-dev-sync`，`gh pr create` 到 main（正文：七项变更、三条迁移、一次性主机步骤、回滚方案）；用 ccd_pr 工具绑定并读 CI。
-- [ ] CI 全绿后由用户合并、放行 Production gate。
+- [x] **征得用户同意后**：`git push -u origin release/2026-10-dev-sync`，`gh pr create` 到 main（正文：七项变更、三条迁移、一次性主机步骤、回滚方案）；用 ccd_pr 工具绑定并读 CI。
+- [x] CI 全绿后由用户合并、放行 Production gate。
 
 ## 3. 部署后（R3）
-- [ ] 发布手册的部署后检查逐项做并记录；生产 `alembic current`。
-- [ ] 生产主机：`python -m app.cli reindex --dry-run` → 数量符合 → `reindex`；记录输出（只有数量和 ID）。
-- [ ] 运行 `10-20-cn-recall-fusion/research/compare_fusion_tenant211.py`（dev 代码此时与生产 schema 一致），补 `tenant211-compare.md`。
-- [ ] 一次性主机步骤：单元 `WEB_STATIC_DIR=extension/dist` + `daemon-reload`，手册打勾。
-- [ ] 父任务跨子任务验收打勾；`/trellis:finish-work` 归档父任务与四个子任务。
+- [x] 发布手册的部署后检查逐项做并记录；生产 `alembic current`。
+- [x] 生产主机：`python -m app.cli reindex --dry-run` → 数量符合 → `reindex`；记录输出（只有数量和 ID）。 —— 干跑 114 / 122 / 0 失败；正式执行同数；再干跑 0 / 0 / 0 跳过 122
+- [x] 运行 `10-20-cn-recall-fusion/research/compare_fusion_tenant211.py`（dev 代码此时与生产 schema 一致），补 `tenant211-compare.md`。 —— 已补「部署后复核」，429/430 四个查询全进池
+- [ ] 一次性主机步骤：单元 `WEB_STATIC_DIR=extension/dist` + `daemon-reload`，手册打勾。 —— 用户 2026-10-21 决定暂不做：兼容链接 `web/dist -> ../extension/dist` 可用；做之前部署脚本的兼容逻辑不能删
+- [x] 父任务跨子任务验收打勾；`/trellis:finish-work` 归档父任务与四个子任务。 —— 2026-10-21 归档
 
 ## 风险
 | 风险 | 处理 |

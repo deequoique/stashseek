@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 25
-- **Last Active**: 2026-10-19
+- **Total Sessions**: 26
+- **Last Active**: 2026-10-21
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~777 | Active |
+| `journal-1.md` | ~827 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 26 | 2026-10-21 | Release dev to main (4eefa34), production deploy, reindex, extension 0.2.3 package | `58326da`, `26d4267`, `d4bc689`, `8b7c12a`, `90c55a4`, `cc903b4`, `4eefa34`, `d6c91ca`, `ac7fafb`, `697a621` | `dev` |
 | 25 | 2026-10-19 | Close side-panel page Q&A and Bilibili Trellis tasks | `c6d2044`, `966dfd4`, `07fe844`, `9420cea`, `7076283` | `dev` |
 | 24 | 2026-10-16 | Residential video egress: Evomi for YouTube, Bilibili via US_VIDEO_PROXY_URL | `b05691d`, `a8ca494`, `6270972`, `a7fe340`, `7d069a9` | `dev` |
 | 23 | 2026-10-16 | Neon idle scale-to-zero: Redis-gated notification repair | `21a51f9`, `c7e385c` | `dev` |

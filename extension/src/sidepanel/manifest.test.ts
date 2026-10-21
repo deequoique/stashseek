@@ -47,7 +47,7 @@ describe("side panel packaging", () => {
 
   it("keeps the manifest, package and client versions in step", () => {
     const pkg = JSON.parse(read("package.json")) as { version: string };
-    expect(manifest.version).toBe("0.2.2");
+    expect(manifest.version).toBe("0.2.3");
     expect(pkg.version).toBe(manifest.version);
     expect(read("src/protocol.ts")).toContain(`CLIENT_VERSION = "${String(manifest.version)}"`);
     expect(read("src/app/browserCompanion.ts")).toContain(`production-${String(manifest.version)}.zip`);
