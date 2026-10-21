@@ -47,7 +47,7 @@ case "$DATABASE_URL" in postgresql+psycopg://*@ep-falling-fog-*) ;; *) echo "not
 
 ## 3. 可选：本地预览核对
 
-- [ ] 如果 `.claude/launch.json` 里有可用的网页开发服务器，用内置浏览器打开聊天页，发一个有引用的提问，核对：chip 在句尾、悬停出现提示、点击新标签页跳转、开关收起、没有依据列表。截图存到 `research/`。
+- [ ] 如果 `.claude/launch.json` 里有可用的网页开发服务器，用内置浏览器打开聊天页，发一个有引用的提问，核对：chip 在句尾、悬停出现提示、点击新标签页跳转、开关收起、没有依据列表。截图存到 `research/`。 —— 未做：本地 Caddy 证书不被内置浏览器信任，冒烟改为脚本走 API；渲染由 vitest 覆盖
 
 ## 4. 规范、检查与提交
 
@@ -58,9 +58,9 @@ case "$DATABASE_URL" in postgresql+psycopg://*@ep-falling-fog-*) ;; *) echo "not
 
 ## 5. 发布到线上网页（2026-10-21 起由父任务 `10-21-release-readiness` 承接：dev 整体合 main，不再单独移植到 `web/`）
 
-- [ ] 从 main 切 `release/inline-citation-chips`，把后端投影改动（`app/web/citation_markers.py`、`conversation_routes.py` 及测试）和前端改动移植到 `web/src/chat/`、`web/src/styles.css`（main 的 `ChatPage.tsx` 比 dev 旧，按 diff 手工移植，不要整文件覆盖）。
-- [ ] 开 PR 合并 main，部署由 Production gate 放行；上线后在浏览器核对 `stashseek.deequoique.tech` 的聊天页。
-- [ ] 这一步和 `10-20-cn-recall-fusion` 的发布可以合在同一个 release 分支，顺序：先检索修复，后引用按钮。
+- [ ] 从 main 切 `release/inline-citation-chips`，把后端投影改动（`app/web/citation_markers.py`、`conversation_routes.py` 及测试）和前端改动移植到 `web/src/chat/`、`web/src/styles.css`（main 的 `ChatPage.tsx` 比 dev 旧，按 diff 手工移植，不要整文件覆盖）。 —— 不再适用：改为 dev 整体合 main（PR #36），`web/` 已删除
+- [x] 开 PR 合并 main，部署由 Production gate 放行；上线后在浏览器核对 `stashseek.deequoique.tech` 的聊天页。 —— PR #36 → main `4eefa34`，用户放行部署；浏览器核对只到构建产物层面，见 AC5
+- [x] 这一步和 `10-20-cn-recall-fusion` 的发布可以合在同一个 release 分支，顺序：先检索修复，后引用按钮。 —— 两者同在 PR #36，dev 上提交顺序 `58326da` → `26d4267`
 
 ## 风险文件与回滚点
 
