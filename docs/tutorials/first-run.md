@@ -140,7 +140,7 @@ stdio 的 stdout 只能承载 MCP 协议数据；不要把调试信息或 shell 
 ## 下一步
 
 - 要保存视频、运行后台整理并使用管理工具，按[启用完整资料库](../how-to/run-full-library.md)。
-- 要在浏览器中登录、搜索和查看时间戳依据，按[使用 Web 资料库](../how-to/use-web-library.md)。
+- 要在浏览器中登录、搜索和查看时间戳依据，按[使用插件工作区](../how-to/use-extension-workspace.md)。
 - 要了解 grant、scope 和 HTTP/stdio 选项，查看 [MCP 连接指南](../how-to/connect-mcp-client.md)
   与 [MCP 参考](../reference/mcp.md)。
 

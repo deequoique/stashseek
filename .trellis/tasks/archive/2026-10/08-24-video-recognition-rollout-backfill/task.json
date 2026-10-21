@@ -1,0 +1,29 @@
+{
+  "id": "video-recognition-rollout-backfill",
+  "name": "video-recognition-rollout-backfill",
+  "title": "视频识别灰度上线与历史回填",
+  "description": "按租户和平台灰度启用识别，验证运行依赖与 canary，有界回填历史公开 needs_asr，并完成回滚演练。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "backend-deployment-operations",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-24",
+  "completedAt": "2026-10-15",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "08-24-intent-aware-video-recognition-routing",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "phase": "7",
+    "closed_reason": "superseded-2026-10-15 by 10-15-asr-transcription-pipeline (embedding + ASR plan)"
+  }
+}

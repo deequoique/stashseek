@@ -6,11 +6,12 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import BigInteger, Select, any_, bindparam, desc, false, func, or_, select
+from sqlalchemy import BigInteger, Select, any_, bindparam, desc, false, func, select
 from sqlalchemy.dialects.postgresql import ARRAY
 
 from app.browser_capture import timestamp_url
 from app.models import ContentItem, Segment
+from app.retrieval.zh_tokens import zh_tsquery
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class Hit:
     score: float
     platform: str = "youtube"
     source_url: str | None = None
+    boundary_kind: str = ""
 
     @property
     def url(self) -> str:
@@ -43,6 +45,7 @@ def _hits(rows) -> list[Hit]:
             float(score),
             platform=item.platform,
             source_url=item.url,
+            boundary_kind=segment.boundary_kind or "",
         )
         for segment, item, score in rows
     ]
@@ -214,8 +217,18 @@ def bm25_search(
         predicates.append(Segment.item_id == item_id)
     base = select(Segment, ContentItem).join(ContentItem).where(*predicates)
     if is_zh:
-        score = func.similarity(Segment.text, query)
-        stmt = base.add_columns(score.label("score")).where(ContentItem.lang.like("zh%"), or_(Segment.text.op("%")(query), Segment.text.ilike(f"%{query}%"))).order_by(desc(score)).limit(k)
+        # Chinese text is indexed as CJK bigrams (see app.retrieval.zh_tokens);
+        # any query token may match and ts_rank_cd favours more matched tokens.
+        zh_query = zh_tsquery(query)
+        if zh_query is None:
+            return []
+        score = func.ts_rank_cd(Segment.fts, zh_query)
+        stmt = (
+            base.add_columns(score.label("score"))
+            .where(Segment.fts.op("@@")(zh_query))
+            .order_by(desc(score), Segment.id)
+            .limit(k)
+        )
     else:
         tsquery = func.websearch_to_tsquery("english", query)
         score = func.ts_rank_cd(Segment.fts, tsquery)

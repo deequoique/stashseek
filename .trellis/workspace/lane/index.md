@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 20
-- **Last Active**: 2026-08-30
+- **Total Sessions**: 25
+- **Last Active**: 2026-10-19
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~570 | Active |
+| `journal-1.md` | ~777 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,11 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-10-19 | Close side-panel page Q&A and Bilibili Trellis tasks | `c6d2044`, `966dfd4`, `07fe844`, `9420cea`, `7076283` | `dev` |
+| 24 | 2026-10-16 | Residential video egress: Evomi for YouTube, Bilibili via US_VIDEO_PROXY_URL | `b05691d`, `a8ca494`, `6270972`, `a7fe340`, `7d069a9` | `dev` |
+| 23 | 2026-10-16 | Neon idle scale-to-zero: Redis-gated notification repair | `21a51f9`, `c7e385c` | `dev` |
+| 22 | 2026-10-07 | Release meeting-QA fixes to production | `56dd744`, `ca32495`, `e03ae44`, `1c3e843`, `4e8b404`, `d449e9b`, `7418262` | `release/meeting-qa-fixes` |
+| 21 | 2026-10-06 | 会议问答质量：RQ1 前置修复与检索研究 | - | `dev` |
 | 20 | 2026-08-30 | Add community and GitHub entry points | `0deeb7e` | `dev` |
 | 19 | 2026-08-23 | Rewrite product README and user documentation | `0c169ae`, `5d58134` | `dev` |
 | 18 | 2026-08-23 | Fix conversation continuity and list latency | `569ff9f`, `11cf7ae`, `58a70d8` | `dev` |

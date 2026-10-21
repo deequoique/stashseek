@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/deployment-lifecycle.md", "reason": "Profile-aware startup, process ownership and the deploy script contract the frontend build step must respect"}
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "Canonical browser app ownership, static SPA serving and the email session contract the website relies on"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Where the extension workspace entries, tests and generated files live"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required checks (test, typecheck, lint, build) for extension changes"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend and deployment script standards"}
+{"file": ".trellis/tasks/10-21-release-readiness/prd.md", "reason": "Parent task: why the website entry must be restored before the dev-to-main release and the cross-child acceptance criteria"}

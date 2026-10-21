@@ -207,6 +207,9 @@ def build_library_router(
                 page=result.page,
                 page_size=result.page_size,
                 is_true_first_empty=result.is_true_first_empty,
+                # Service doubles that predate the counts omit them.
+                unsearchable_total=getattr(result, "unsearchable_total", 0),
+                processing_total=getattr(result, "processing_total", 0),
             )
 
     @router.post(

@@ -24,6 +24,8 @@ _VALID_MARKER = re.compile(r"\[S([1-9][0-9]*)\]")
 # so ``[Sfoo]`` and ``[S0]`` fail closed rather than silently becoming prose.
 _CITATION_LIKE_MARKER = re.compile(r"\[\s*[Ss][^\]]*\]")
 _URL_PATTERN = re.compile(r"(?:https?://|ftp://|www\.)", re.IGNORECASE)
+_HTML_PATTERN = re.compile(r"<\/?[A-Za-z][^>]*>")
+_MEDIA_MARKER_PATTERN = re.compile(r"\[\s*[Mm][^\]]*\]")
 _SOURCE_BLOCK_PATTERN = re.compile(
     r"(?im)^\s*(?:#{1,6}\s*)?(?:sources?|references?|来源|参考来源)\s*(?:[:：]|$)"
 )
@@ -67,6 +69,10 @@ def parse_inline_citation_ids(text: str) -> tuple[int, ...]:
 def _reject_model_sources(text: str) -> None:
     if _URL_PATTERN.search(text) is not None:
         raise NaturalAnswerValidationError("answer must not contain model-authored URLs")
+    if _HTML_PATTERN.search(text) is not None:
+        raise NaturalAnswerValidationError("answer must not contain model-authored HTML")
+    if _MEDIA_MARKER_PATTERN.search(text) is not None:
+        raise NaturalAnswerValidationError("answer must not contain model-authored media markers")
     if _SOURCE_BLOCK_PATTERN.search(text) is not None:
         raise NaturalAnswerValidationError("answer must not contain a source block")
 

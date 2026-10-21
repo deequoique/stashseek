@@ -222,6 +222,129 @@ def test_stage_fields_are_optional_in_the_generated_item_schema():
     }
 
 
+def test_status_fields_are_optional_in_the_generated_schemas():
+    client, _ = _client()
+    schemas = client.get("/api/v1/openapi.json").json()["components"]["schemas"]
+
+    item = schemas["LibraryItemResponse"]
+    for name in ("stages", "reason", "body_searchable"):
+        assert name in item["properties"]
+        assert name not in item["required"]
+
+    page = schemas["LibraryPageResponse"]
+    for name in ("unsearchable_total", "processing_total"):
+        assert name in page["properties"]
+        assert name not in page["required"]
+
+    # ``key`` stays a plain string so a new stage never changes the generated type.
+    stage = schemas["IngestStageResponse"]
+    assert stage["properties"]["key"] == {"type": "string", "title": "Key"}
+    assert set(stage["required"]) == {"key", "status"}
+    assert set(stage["properties"]["status"]["enum"]) == {
+        "pending",
+        "running",
+        "done",
+        "failed",
+        "skipped",
+    }
+    detail = next(
+        value for value in stage["properties"]["detail"]["anyOf"] if "enum" in value
+    )
+    assert set(detail["enum"]) == {"queued", "fetching", "transcribing", "indexing"}
+
+    reason = schemas["IngestReasonResponse"]
+    assert set(reason["required"]) == {"code", "category", "retry_useful"}
+    assert set(reason["properties"]["category"]["enum"]) == {
+        "no_speech",
+        "no_transcription",
+        "fetch_failed",
+        "asr_failed",
+        "quota",
+        "too_large",
+        "login_required",
+        "error",
+    }
+
+    # The legacy enums keep exactly their values.
+    assert set(item["properties"]["lifecycle"]["enum"]) == {
+        "archived",
+        "ready",
+        "needs_action",
+        "failed",
+        "processing",
+        "queued",
+    }
+
+
+def test_capabilities_transcription_platforms_is_optional_and_closed():
+    client, _ = _client()
+    schemas = client.get("/api/v1/openapi.json").json()["components"]["schemas"]
+
+    capabilities = schemas["CapabilitiesResponse"]
+    assert "transcription_platforms" in capabilities["properties"]
+    assert "transcription_platforms" not in capabilities.get("required", [])
+    assert set(
+        capabilities["properties"]["transcription_platforms"]["items"]["enum"]
+    ) == {"youtube", "bilibili"}
+
+
+def test_item_response_serializes_stages_reason_and_searchability():
+    from app.ingest.reasons import reason_for
+    from app.web.library import IngestStageDTO
+
+    client, library = _client()
+    value = library_item("needs_action")
+    reason = reason_for("asr_disabled")
+    value.stages = (
+        IngestStageDTO("body", "failed", None, reason),
+        IngestStageDTO("classify", "skipped"),
+        IngestStageDTO("summary", "running", None, None),
+    )
+    value.reason = reason
+    value.body_searchable = False
+    library.get_item = lambda _scope, _public_id: value
+
+    response = client.get(
+        "/api/v1/library/items/item-public",
+        headers={
+            "Authorization": "Bearer extension-session",
+            "Origin": EXTENSION_ORIGIN,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    expected_reason = {
+        "code": "asr_disabled",
+        "category": "no_transcription",
+        "retry_useful": True,
+    }
+    assert body["reason"] == expected_reason
+    assert body["body_searchable"] is False
+    assert body["stages"] == [
+        {"key": "body", "status": "failed", "detail": None, "reason": expected_reason},
+        {"key": "classify", "status": "skipped", "detail": None, "reason": None},
+        {"key": "summary", "status": "running", "detail": None, "reason": None},
+    ]
+    # ``error_code`` keeps meaning "a failed item's code", not the new reason.
+    assert body["error_code"] is None
+
+
+def test_item_response_defaults_for_services_that_predate_the_status_fields():
+    client, _ = _client()
+
+    response = client.get(
+        "/api/v1/library/items/item-public",
+        headers={
+            "Authorization": "Bearer extension-session",
+            "Origin": EXTENSION_ORIGIN,
+        },
+    )
+
+    body = response.json()
+    assert (body["stages"], body["reason"], body["body_searchable"]) == ([], None, False)
+
+
 def test_csrf_header_is_documented_but_optional_on_every_library_mutation():
     client, _ = _client()
     document = client.get("/api/v1/openapi.json").json()

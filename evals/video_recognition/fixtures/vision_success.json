@@ -1,0 +1,13 @@
+{
+  "protocol_version": "vision.v1",
+  "run_id": "fixture-run",
+  "sample_id": "YT-01",
+  "input_bundle_id": "yt-01.bundle.1",
+  "provider": "fixture",
+  "model_version": "fixture-vision-v1",
+  "observations": [
+    {"scene_type": "slide", "short_description": "A stable slide scene", "entities": ["slide"], "actions": [], "screen_topics": ["benchmark"], "search_terms": ["slide", "benchmark"], "evidence_frame_times": [0.0, 5.0, 10.0], "confidence": 1.0}
+  ],
+  "usage": {"audio_seconds": 0.0, "image_count": 4, "estimated_cost_usd": 0.0},
+  "latency_ms": 1.0
+}

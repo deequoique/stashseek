@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import "../styles.css";
+import "../ingest/ingest.css";
 import "./sidepanel.css";
 import { SidePanel } from "./SidePanel";
 

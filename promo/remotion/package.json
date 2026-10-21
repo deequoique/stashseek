@@ -1,0 +1,25 @@
+{
+  "name": "notebook-agent-promo-video",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "render:preview": "remotion render src/index.ts NotebookAgentLandscape out/notebook-agent-preview.mp4 --codec=h264 --scale=0.5",
+    "render": "remotion render src/index.ts NotebookAgentLandscape out/notebook-agent-demo-promo-zh-v2.mp4 --codec=h264"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.512",
+    "@remotion/media": "4.0.512",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "remotion": "4.0.512",
+    "simple-icons": "16.28.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "typescript": "5.9.3"
+  }
+}

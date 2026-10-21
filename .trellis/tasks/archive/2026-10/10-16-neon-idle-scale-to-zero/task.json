@@ -1,0 +1,31 @@
+{
+  "id": "neon-idle-scale-to-zero",
+  "name": "neon-idle-scale-to-zero",
+  "title": "空闲时让 Neon 归零：通知修复扫描 Redis 门控与每日清理",
+  "description": "Gate the notification repair sweep on a Redis due-index so idle ticks never touch Postgres; daily full repair and daily trash purge; fix local .env 10s interval.",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-10-16",
+  "completedAt": "2026-10-16",
+  "branch": "fix/neon-idle-scale-to-zero",
+  "base_branch": "dev",
+  "worktree_path": null,
+  "commit": "c7e385c",
+  "pr_url": "https://github.com/deequoique/stashseek/pull/28",
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "app/ingest/notifications.py",
+    "app/ingest/tasks.py",
+    "app/config.py",
+    "app/ingest/notification_repair_index.py"
+  ],
+  "notes": "Follows 10-02-neon-production-query-cost (600s sweep still ~50% awake). Shipped to main via PR #28 (be6fc3b, merged fa9c57e on 2026-10-16); dev has c7e385c. Prod env checklist in PR body.",
+  "meta": {}
+}

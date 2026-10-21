@@ -1,0 +1,31 @@
+{
+  "id": "bilibili-url-plugin",
+  "name": "bilibili-url-plugin",
+  "title": "适配 Bilibili URL 插件",
+  "description": "调查并规划 Bilibili URL 服务器导入与浏览器 companion 插件适配，优先实现 yt-dlp connector，再以登录态浏览器捕获作为字幕兜底。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "backend+frontend+extension",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-18",
+  "completedAt": "2026-09-04",
+  "branch": "codex/bilibili-url-plugin",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "feasibility_status": "feasible_with_phased_rollout",
+    "research_date": "2026-08-18",
+    "cleanup_disposition": "completed_but_unarchived",
+    "cleanup_date": "2026-09-04"
+  }
+}

@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/deployment-lifecycle.md", "reason": "Verify the merge keeps the deploy contract intact"}
+{"file": ".trellis/tasks/10-21-release-readiness/prd.md", "reason": "Cross-child acceptance checklist"}

@@ -10,7 +10,7 @@ execution.
 ## 2. Signatures
 
 ```python
-LINKABLE_CHANNELS = frozenset({"telegram", "wechat"})
+LINKABLE_CHANNELS = frozenset({"telegram", "wechat", "web"})
 classify_link_argument(value: str) -> tuple[Literal["channel", "token"], str]
 create_link_token(db, tenant, *, target_channel, ttl, now) -> str
 consume_link_token(db, envelope, raw_token, *, now) -> TenantContext
@@ -21,7 +21,7 @@ SHA-256 hash, expire at `expires_at`, and are consumed at most once.
 
 ## 3. Contracts
 
-- `/link telegram` or `/link wechat` is generation syntax. The target must be
+- `/link telegram`, `/link wechat` or `/link web` is generation syntax. The target must be
   supported and different from the current source channel.
 - A value matching the generated 43-character token shape is consumption
   syntax. Unknown channel-like values fail as unsupported channels; malformed
@@ -38,6 +38,11 @@ SHA-256 hash, expire at `expires_at`, and are consumed at most once.
 - A target `running` ingestion, or a running duplicate that would be retired,
   returns `link_merge_busy` without consuming the token. Pending/enqueued
   duplicate deliveries become no-ops after retirement.
+- Website-provider mappings move with the absorbed user's exact email anchors;
+  their deferred composite ownership FK must agree before commit, and absorbed
+  provider sessions remain revoked. Direct CLI rebind of an externally anchored
+  identity is rejected. Ordinary provider login never invokes this merge; see
+  [External Website Login](./external-login.md).
 - Production diagnostics and smoke evidence never contain raw tokens, message
   bodies, names, external sender IDs, URLs or complete identity mappings.
 

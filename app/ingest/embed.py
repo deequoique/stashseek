@@ -1,4 +1,4 @@
-"""Small injectable client for Zhipu's OpenAI-compatible embedding API."""
+"""Embedding provider contracts and the existing Zhipu text adapter."""
 
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ import random
 import ssl
 import time
 from collections.abc import Callable
-from typing import Protocol
+from dataclasses import dataclass
+from typing import Any, Literal, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -28,12 +29,53 @@ class EmbeddingError(RuntimeError):
         self.code = code
 
 
+class EmbeddingInputError(EmbeddingError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, code="invalid_input")
+
+
 class EmbeddingProvider(Protocol):
     """The small, shared boundary used by ingestion and query retrieval."""
 
     dimensions: int
 
     def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+
+@dataclass(frozen=True)
+class EmbeddingSpaceMetadata:
+    model: str
+    protocol_version: str
+    dimensions: int
+    revision: str | None = None
+
+
+@dataclass(frozen=True)
+class MediaObjectReference:
+    """Opaque object-store identity; never a URL, path, or payload."""
+
+    object_id: str
+    modality: Literal["image", "video"]
+    content_hash: str | None = None
+
+
+@dataclass(frozen=True)
+class MultimodalInput:
+    """One text or opaque media reference in the shared embedding space."""
+
+    modality: Literal["text", "image", "video"]
+    content: str | MediaObjectReference
+
+
+class MultimodalEmbeddingProvider(Protocol):
+    """Boundary for providers that embed text and media in one space."""
+
+    metadata: EmbeddingSpaceMetadata
+
+    def embed(self, texts: list[str]) -> list[list[float]]: ...
+    def embed_multimodal(
+        self, inputs: list[MultimodalInput]
+    ) -> list[list[float]]: ...
 
 
 class ZhipuEmbedder:
@@ -118,7 +160,7 @@ class ZhipuEmbedder:
                 raise
             raise EmbeddingError("embedding response is invalid") from exc
 
-    def _fetch_batch_response(self, request: Request):
+    def _fetch_batch_response(self, request: Request) -> Any:
         """Perform the network request, retrying only transient failures.
 
         Only the failing batch is re-sent; the whole item is never re-embedded
@@ -191,3 +233,15 @@ def _normalize_vector(
             raise EmbeddingError(value_error)
         normalized.append(converted)
     return normalized
+
+
+def __getattr__(name: str):
+    """Resolve the optional local adapter without creating an import cycle."""
+
+    if name not in {"WemmEmbedder", "WemmLocalEmbedder"}:
+        raise AttributeError(name)
+    from app.ingest.wemm_local import WemmLocalEmbedder
+
+    globals()["WemmLocalEmbedder"] = WemmLocalEmbedder
+    globals()["WemmEmbedder"] = WemmLocalEmbedder
+    return WemmLocalEmbedder

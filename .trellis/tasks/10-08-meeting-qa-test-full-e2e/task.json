@@ -1,0 +1,32 @@
+{
+  "id": "meeting-qa-test-full-e2e",
+  "name": "meeting-qa-test-full-e2e",
+  "title": "会议问答检索评测：test 集全量（RQ1 扩到 281 题）",
+  "description": "用 QMSum test 集全部 281 题重跑 RQ1 检索评测（只测检索、不跑 Agent）：35 场会议同一测试账号，范围 A/B、36 种设置、Hit/Recall@k、候选池召回率、会议定位拆解，具体题/概括题分开出数。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "evals/meeting_gold,rq1,retrieval",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-10-08",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/tasks/10-08-meeting-qa-test-full-e2e/prd.md",
+    ".trellis/tasks/10-08-meeting-qa-test-full-e2e/design.md",
+    ".trellis/tasks/10-08-meeting-qa-test-full-e2e/implement.md",
+    "evals/meeting_gold/retrieval_study.py",
+    "evals/meeting_gold/production_path.py"
+  ],
+  "notes": "",
+  "meta": {}
+}

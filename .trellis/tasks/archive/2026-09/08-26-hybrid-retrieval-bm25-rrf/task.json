@@ -1,0 +1,29 @@
+{
+  "id": "hybrid-retrieval-bm25-rrf",
+  "name": "hybrid-retrieval-bm25-rrf",
+  "title": "升级混合召回：标准 BM25、RRF 与检索评测",
+  "description": "建立可复现检索评测，准确区分 PostgreSQL FTS 与标准 BM25，以 RRF 融合 lexical/pgvector，并为 Neon lakebase_text 提供可回滚迁移。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "backend,retrieval,ingestion,evals,database,deployment,docs",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-26",
+  "completedAt": "2026-09-04",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "cleanup_disposition": "abandoned_stale",
+    "cleanup_date": "2026-09-04"
+  }
+}

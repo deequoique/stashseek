@@ -21,8 +21,7 @@
 ```
 
 combined runtime 不应再额外启动一个 public `web-server`；否则 Web、API 和 MCP 会
-出现重复入口和不一致的安全边界。需要独立静态前端时，按[部署独立前端](deploy-frontend.md)
-选择 split topology。
+出现重复入口和不一致的安全边界。插件客户端独立构建和分发，按[使用插件工作区](use-extension-workspace.md)完成安装。
 
 ## 1. 准备主机和 secret
 
@@ -64,20 +63,24 @@ Compose 不应启动 PostgreSQL。不要复用 Web auth secret、gateway secret�
 
 ## 2. 构建并固定一个 release
 
-每次发布让 Python 环境、前端 `web/dist` 和 schema 绑定同一个 commit。至少完成：
+每次发布让 Python 环境、插件客户端 `extension/dist` 和 schema 绑定同一个 commit。至少完成：
 
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
-corepack pnpm --dir web install --frozen-lockfile
-corepack pnpm --dir web check:api
-corepack pnpm --dir web test
-corepack pnpm --dir web typecheck
-corepack pnpm --dir web lint
-corepack pnpm --dir web build
+corepack pnpm --dir extension install --frozen-lockfile
+corepack pnpm --dir extension check:api
+corepack pnpm --dir extension test
+corepack pnpm --dir extension typecheck
+corepack pnpm --dir extension lint
+corepack pnpm --dir extension build
 ```
 
-保留 release 的 commit、Alembic schema head、`web/dist` 和 app entrypoint 清单；不要
+`extension/dist` 同时是网页版的静态目录（`index.html` 为入口），由 `WEB_STATIC_DIR`（默认
+`extension/dist`）指向；受限生产入口会在 release 目录里自动完成这次构建，并创建
+`web/dist -> ../extension/dist` 兼容链接，详见 [OVHcloud + Caddy 生产部署](../operations/production/ovh-caddy.md)。
+
+保留 release 的 commit、Alembic schema head、`extension/dist` 和 app entrypoint 清单；不要
 在多个 release 之间复用可变 `.venv` 或覆盖 active release。
 
 如果使用仓库内的受限生产入口，部署请求必须是当前 `origin/main` 的完整 40 位小写
@@ -135,7 +138,7 @@ deploy <40-lowercase-hex-sha>
 - gateway、Redis、MinIO、Web/MCP loopback 端口不公开；
 - URL capability path（若启用）不写入 access log，必须使用 HTTPS；
 - 保留 MCP SDK 的 DNS rebinding/Host 校验，不信任任意 forwarded host；
-- split 前端时，未知 `/api/*` 返回 JSON 404，不得回退成 SPA HTML。
+- split 插件客户端时，未知 `/api/*` 返回 JSON 404，不得回退成 插件客户端 HTML。
 
 修改代理前先验证完整候选配置，再优雅 reload；如果新 route 破坏同机旧 route，
 只回滚本次 StashSeek Chat site block。不要通过 wildcard CORS、domain cookie 或
@@ -146,12 +149,12 @@ deploy <40-lowercase-hex-sha>
 应用和代理都已启动后，从最终 public origin 检查：
 
 ```text
-GET /                      -> SPA index
-GET /login                 -> SPA index
-GET /library               -> SPA index
+插件工作区从扩展本地页面打开；API origin 只返回 API 响应
+插件 HashRouter 路由在扩展工作区内处理
+插件 HashRouter 路由在扩展工作区内处理
 GET /api/v1/health         -> 200 JSON
 GET /api/v1/capabilities   -> 200 JSON
-GET /api/v1/does-not-exist -> JSON 404，而不是 SPA HTML
+GET /api/v1/does-not-exist -> JSON 404，而不是 插件客户端 HTML
 POST /mcp                  -> 使用有效 grant 完成 initialize
 ```
 

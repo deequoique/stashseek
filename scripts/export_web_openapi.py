@@ -16,13 +16,13 @@ from app.api.auth_schemas import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-# Both clients ship from the same backend contract: the production web site
-# and the browser extension each keep a checked-in copy that must stay equal to
-# the real route composition.
-OUTPUTS = (
-    ROOT / "web" / "src" / "api" / "openapi.json",
-    ROOT / "extension" / "src" / "api" / "openapi.json",
-)
+OUTPUT = ROOT / "extension" / "src" / "api" / "openapi.json"
+
+# status -> (default phrases FastAPI may emit, canonical contract wording)
+STANDARD_PHRASES = {
+    "413": ({"Request Entity Too Large", "Content Too Large"}, "Request Entity Too Large"),
+    "422": ({"Unprocessable Entity", "Unprocessable Content"}, "Unprocessable Entity"),
+}
 
 
 def rendered_schema() -> str:
@@ -37,9 +37,11 @@ def rendered_schema() -> str:
             submission=placeholder,
             transcript=placeholder,
             email_auth=placeholder,
+            external_auth=placeholder,
             browser_companion=placeholder,
             browser_capture_submission=placeholder,
             extension_sessions=placeholder,
+            bilibili=placeholder,
         ),
         expected_origin="https://contract.invalid",
         cookie_secure=True,
@@ -47,10 +49,23 @@ def rendered_schema() -> str:
         web_login_channels=("email",),
     )
     document = app.openapi()
-    # The legacy channel UI remains an explicitly non-production compatibility
-    # path for embedders that still advertise Telegram/WeChat.  Keep its
-    # generated request aliases available without mounting those routes in the
-    # canonical browser document.
+    # Python's standard HTTP 413 and 422 phrases differ across supported
+    # versions (3.13 renamed both).  Keep the existing generated contract
+    # stable without changing custom text.
+    for path in document["paths"].values():
+        for operation in path.values():
+            if not isinstance(operation, dict):
+                continue
+            responses = operation.get("responses", {})
+            for status, (aliases, canonical) in STANDARD_PHRASES.items():
+                response = responses.get(status)
+                if isinstance(response, dict) and response.get("description") in aliases:
+                    response["description"] = canonical
+    # Keep compatibility request schemas available for channel integrations
+    # without treating them as the extension workspace's login contract.  The
+    # legacy channel UI remains an explicitly non-production compatibility path
+    # for embedders that still advertise Telegram/WeChat; keep its generated
+    # request aliases without mounting those routes in the canonical document.
     schemas = document["components"]["schemas"]
     for model in (
         ChallengeCreateRequest,
@@ -77,15 +92,12 @@ def main() -> None:
     args = parser.parse_args()
     expected = rendered_schema()
     if args.check:
-        for output in OUTPUTS:
-            actual = output.read_text(encoding="utf-8") if output.exists() else ""
-            if actual != expected:
-                relative = output.relative_to(ROOT).as_posix()
-                raise SystemExit(f"{relative} is stale; regenerate it")
+        actual = OUTPUT.read_text(encoding="utf-8") if OUTPUT.exists() else ""
+        if actual != expected:
+            raise SystemExit("extension/src/api/openapi.json is stale; regenerate it")
         return
-    for output in OUTPUTS:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(expected, encoding="utf-8", newline="\n")
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    OUTPUT.write_text(expected, encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

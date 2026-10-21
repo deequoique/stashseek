@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/09-04-agent-evaluator-release-gate/research/meeting-gold-reuse-2026-10-07.md", "reason": "核对实现复用了已有的跑题脚本和计分，而不是另起一套。"}
+{"file": "evals/meeting_gold/README.md", "reason": "核对 meeting_gold 已有命令和输出没有被改变。"}
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "核对 T1–T9 的判定与检索预算、扩展约束、重试语义一致。"}
+{"file": ".trellis/spec/backend/agent-execution-streaming.md", "reason": "核对评测挂钩没有改变 Agent 行为或流式事件。"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "核对报告和日志中没有回答原文、工具参数、账号 ID、密钥。"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "核对故障注入走的是线上真实恢复路径，判定没有把假装成功算作通过。"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "核对只连测试分支，单元测试不连数据库。"}

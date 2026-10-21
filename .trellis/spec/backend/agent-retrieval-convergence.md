@@ -97,11 +97,37 @@ remain server-owned.
 NORMAL_RETRIEVAL_CALLS_LIMIT = 5
 NORMAL_SEARCH_CALLS_LIMIT = 2
 NORMAL_EXPANSION_CALLS_LIMIT = 3
-MAX_SOURCE_ITEMS = 5
+MAX_SOURCE_ITEMS = 5                  # Composer selection / sources cap; raw-mode window only
 SEARCH_RESULT_LIMIT = 10
-SEARCH_CANDIDATE_POOL_LIMIT = 50
 COMPRESSED_EVIDENCE_LIMIT = 8
 COMPOSER_EVIDENCE_EXCERPT_CHARS = 1200  # fits one upper-bound (200-word) segment; see ingestion-chunking-embedding.md
+
+# app/retrieval/fusion.py (pure; generic over anything with segment_id/item_id/score)
+@dataclass(frozen=True)
+class FusionConfig:
+    method: Literal["rrf", "raw"] = "rrf"
+    rrf_k: int = 60
+    lexical_weight: float = 1.0
+    vector_weight: float = 1.0
+    candidate_pool_limit: int = 50
+    per_item_cap: int = 3
+
+def fuse_rrf(lists: Sequence[Sequence[Hit]], *, k: int = 60, weights: Sequence[float]) -> list[Hit]
+def fuse_raw(lists: Sequence[Sequence[Hit]]) -> list[Hit]
+def select_window(fused: Sequence[Hit], *, limit: int, per_item_cap: int) -> list[Hit]
+
+# app/config.py — RETRIEVAL_FUSION (rrf|raw), RETRIEVAL_RRF_K (1–1000),
+# RETRIEVAL_LEXICAL_WEIGHT / RETRIEVAL_VECTOR_WEIGHT (0–10, not both 0),
+# RETRIEVAL_CANDIDATE_POOL_LIMIT (10–200), RETRIEVAL_PER_ITEM_CAP (1–10)
+def Settings.retrieval_fusion_config(self) -> FusionConfig
+
+# app/agent/services.py
+KnowledgeServices(tenant, session_factory, *, embedder=None, max_results=SEARCH_RESULT_LIMIT,
+                  reference_scope=None, fusion: FusionConfig | None = None)
+
+# app/agent/types.py
+class Citation(BaseModel):
+    kind: Literal["segment", "title"] = "segment"   # default omitted from model_dump(); only "title" is ever written
 
 class AgentDeps:
     citations: dict[int, Citation]       # keyed by segment_id, insertion order
@@ -155,8 +181,8 @@ for each answer-agent attempt. It must be positive and must not exceed
   `skipped/budget_exhausted` payload. It performs no embedding, SQL, or
   storage work, records no Citation, and never pretends that a search found
   no hits.
-- Once the current turn has executed any retrieval tool (`search_segments`
-  or an expansion), the primary Turn Agent's own final text is
+- Once the current turn has executed any retrieval tool (`search_segments`,
+  `search_media`, or an expansion), the primary Turn Agent's own final text is
   never shown to the user, by prompt contract: the model is instructed to stop
   after a minimal "检索完成" completion rather than writing answer prose or
   `[S<segment_id>]` markers. The server does not depend on the model obeying
@@ -167,12 +193,45 @@ for each answer-agent attempt. It must be positive and must not exceed
   inventory/management reads) are unaffected and keep returning the primary
   model's natural text.
 - `search_segments` is public-limit bounded to 10. It obtains a bounded
-  over-fetch pool (`min(50, max(20, limit * 5))`) from each hybrid retrieval
-  backend, removes exact duplicate segment IDs using the best score, ranks
-  item groups by their best hit, chooses at most five items, emits one best
-  representative for each, then fills remaining slots by score with distinct
-  segments from those selected items. All database hydration remains tenant
-  scoped.
+  over-fetch pool (`min(candidate_pool_limit, max(20, limit * 5))`) from each
+  retrieval backend, keeps the lexical and vector lists separate, and fuses
+  them by **rank**, never by raw score (`ts_rank_cd`, trigram similarity and
+  cosine are not on one scale; a lexical hit at 0.009 can never beat a cosine
+  of 0.5 in a raw merge). With the default `method="rrf"` each list is
+  deduplicated by segment ID (best raw score), the hit at rank `r` contributes
+  `weight / (k + r)`, contributions are summed per segment, the result is
+  ordered `(score desc, segment_id asc)`, and `select_window` builds the
+  window in two passes: first the fused order with at most `per_item_cap`
+  hits per video, then, if fewer than `limit` were taken, the remaining hits
+  in fused order regardless of the cap. The cap therefore only reserves
+  diversity; it never shrinks the window, and an `item_id`-scoped search
+  (one video in the pool) degenerates to plain rank truncation. There is no
+  five-video cap on the candidate window any more; `MAX_SOURCE_ITEMS` still
+  bounds the Composer's final selection and the rendered sources.
+  `method="raw"` is the rollback switch and the evaluation baseline:
+  `fuse_raw` (best raw score per segment) followed by `_diversify_hits` (five
+  videos, one representative each, then fill), exactly what the RQ1 study
+  computes. `Citation._retrieval_score` carries the fused score. All database
+  hydration remains tenant scoped and takes the score from the selected hit.
+- The Chinese lexical path does not use pg_trgm any more: Chinese segments
+  store `fts = to_tsvector('simple', <CJK bigrams + ASCII words>)` and a
+  query containing CJK is tokenized the same way and matched with
+  `websearch_to_tsquery('simple', 'a OR b OR …')`, ranked by `ts_rank_cd`
+  (see `ingestion-chunking-embedding.md`, scenario "title row and Chinese
+  fts"). The English path (`websearch_to_tsquery('english')`, all terms
+  required) is unchanged. A query with no token returns `[]` from the lexical
+  path and the vector path still runs.
+- Every ready item has one **title row** (`seq = -1`,
+  `boundary_kind = "title"`, text = title + description excerpt) with its own
+  embedding and `fts`; it joins both retrieval paths like a body segment. When
+  hydrated it becomes `Citation(kind="title", start_sec=None, url=item.url,
+  excerpt=<title text>)`: the Composer sees `视频《T》的标题与简介：…` instead
+  of a timestamp, the sources block renders `标题与简介：…`, and the browser
+  shows the item link without a time. `get_neighbors` and `open_at` exclude
+  title rows (`Segment.boundary_kind != "title"`), so a title row is never a
+  neighbor anchor or an "open at" target. The persisted-source codec treats
+  `kind in {"segment", "title"}` as text rows; any other tag is still
+  non-text.
 - A social/capability answer may finish without retrieval. Once a knowledge search succeeds, empty results remain distinct from transient read failure. Clean final empty search state produces server-owned `not_found/no_evidence`; non-empty evidence always enters the structured Composer. Exhausted read recovery returns `read_unavailable`, while a composable inventory read may still return bounded canonical partial read text.
 - Primary-agent usage-limit or timeout failures with trusted citations enter
   the bounded answer Agent. Without citations they use phase-accurate
@@ -211,7 +270,10 @@ for each answer-agent attempt. It must be positive and must not exceed
   already generated together with its original citations, so a dropped
   citation's sentence is attributed to that section's remaining citations
   (accepted risk); the stream-plan path stays exact because section text is
-  generated after the plan's citations are locked.
+  generated after the plan's citations are locked. A draft that mixes media
+  citations with segment citations keeps the prior fail-closed
+  `duplicate_citation`/`too_many_segments` behavior; media citations are not
+  normalized.
 - Every Composer request sends `AGENT_COMPOSER_MAX_TOKENS` as the provider's
   actual `max_tokens` generation cap. For DeepSeek Chat Completions, the model
   profile must retain DeepSeek response/tool semantics, map the field to
@@ -281,7 +343,8 @@ for each answer-agent attempt. It must be positive and must not exceed
 | non-empty search candidates | enter structured Composer; unsupported sections render fixed server text |
 | natural answer has unknown/missing IDs or six item IDs | run the bounded Composer against the same evidence allow-list |
 | answer draft is invalid, truncated, over limit, timed out, or provider fails | consume one of three answer attempts; after exhaustion return `failed/answer_unavailable` with no Citations or draft persistence |
-| draft/plan repeats or exceeds the eight-segment cap | normalize by section round-robin; re-check item/scope on the normalized selection; emit one `citation_normalized` event; no attempt consumed |
+| segment-only draft/plan repeats or exceeds the eight-segment cap | normalize by section round-robin; re-check item/scope on the normalized selection; emit one `citation_normalized` event; no attempt consumed |
+| a draft mixes media and segment citations and repeats or exceeds the cap | keep existing fail-closed `duplicate_citation`/`too_many_segments`; consume an attempt |
 | provider stream is empty/unsupported before any section is public | use one whole-answer compatibility delta; do not expose a section lifecycle |
 | provider stream fails after a section is public | emit/propagate section abort and a failed terminal state; do not silently replay the answer |
 | streamed section is cancelled, disconnected, timed out, or incomplete | remove the temporary section and persist no partial conversation turn |
@@ -296,9 +359,17 @@ for each answer-agent attempt. It must be positive and must not exceed
   in one response; both execute sequentially under the 2-search budget, a
   third would get `budget_exhausted`, and the structured Composer uses only
   the cached source IDs.
-- Good: one video dominates raw segment scores but bounded over-fetch exposes
-  five relevant item groups. The answer shows one top-level row per video and
-  preserves two distant links for the selected first video.
+- Good: one video dominates raw segment scores, but rank fusion plus the
+  per-video cap of 3 keeps at least four videos in the ten-slot window, and a
+  lexical-only hit with a raw score of 0.009 still enters by rank. The answer
+  shows one top-level row per video and preserves distant links for the
+  selected first video.
+- Good: the question only matches a video's title ("什么时候买内存"): the
+  title row is retrieved, cited as `kind="title"`, rendered as 标题与简介 with
+  an untimed link, and never offered as a neighbor anchor.
+- Base: `RETRIEVAL_FUSION=raw` restores the legacy merge and five-video window
+  without a code change; the RQ1 study's production-equivalence check runs
+  against both configurations.
 - Base: one search provides sufficient evidence. The Composer returns a
   valid cited answer, and canonical history contains only the normalized
   question and final answer.
@@ -339,7 +410,24 @@ for each answer-agent attempt. It must be positive and must not exceed
   unchanged, while model-authored URLs/source headings remain rejected.
 - Cover hybrid duplicate collapse, one-item crowding, six-item selection,
   distant same-item segments, public limit clamping, bounded candidate pool,
-  and PostgreSQL tenant predicates during hydration.
+  and PostgreSQL tenant predicates during hydration — the legacy window
+  assertions under `FusionConfig(method="raw")`, the rank-fusion assertions
+  under the default config (`tests/test_knowledge_services.py`; the real
+  pgvector test in `tests/test_multiuser_integration.py` is parametrized
+  raw/rrf).
+- Cover the fusion module directly (`tests/test_retrieval_fusion.py`): a
+  segment present in both lists accumulates rank contributions, an empty or
+  zero-weight list is skipped, `k` changes scale but not order, ties break on
+  `segment_id`, and `select_window` honours `per_item_cap` and `limit`.
+- Cover the Chinese tokenizer and query SQL (`tests/test_zh_tokens.py`,
+  `tests/test_bm25_search_zh.py`): bigrams, ASCII words, particle bigrams
+  skipped, the 64-token query cap, and compiled SQL that uses
+  `websearch_to_tsquery('simple', …)` + `ts_rank_cd` with no `similarity`,
+  `ILIKE` or `lang LIKE`; the English branch SQL is unchanged.
+- Cover settings validation (`tests/test_retrieval_config.py`) and title rows:
+  citation projection (`kind`, no `start_sec`, item URL), exclusion from
+  `get_neighbors`/`open_at`, Composer and sources rendering, and the
+  persisted-source codec round trip.
 - Cover segment-citation normalization directly: no-op under the cap,
   in-section duplicate removal, a cross-section duplicate kept and counted
   once, round-robin clamping that leaves every grounded section with at least
@@ -347,7 +435,7 @@ for each answer-agent attempt. It must be positive and must not exceed
   wiring with an over-cap and a duplicate selection, asserting a grounded
   answer, a de-duplicated public Citation list, one `citation_normalized`
   event, and unchanged fail-closed behavior for unknown IDs, too many items,
-  and missing scope items.
+  missing scope items, and media-mixed drafts.
 - Re-run action/pending-confirmation, persistence, duplicate message,
   multi-user tenant isolation, source grouping, diagnostics privacy, and the
   complete test suite.
@@ -385,6 +473,24 @@ if deps.reserve_retrieval(run_step=ctx.run_step, kind=kind) is not EXECUTE:
 # the outer recovery stage allows at most three total attempts.
 answer = await composer.run(question, deps=ComposerDeps(allowed_citations))
 ```
+
+#### Wrong (fusion)
+
+```python
+hits = bm25_search(...) + vector_search(...)          # 0.009 next to 0.52
+selected = sorted(hits, key=lambda h: h.score)[-10:]  # lexical never surfaces
+by_item = first_five_items(selected)                  # sixth video dropped
+```
+
+#### Correct (fusion)
+
+```python
+fused = fuse_rrf([lexical, vector], k=cfg.rrf_k, weights=[cfg.lexical_weight, cfg.vector_weight])
+selected = select_window(fused, limit=limit, per_item_cap=cfg.per_item_cap)
+```
+
+Raw scores from different backends are never compared; videos are not capped
+in the candidate window, only in the Composer's final selection.
 
 ## Scenario: Video URL context and optional item narrowing
 
@@ -633,4 +739,110 @@ candidates = select(Segment.id, Segment.embedding).where(
 ranked = filter_first_vector_rank(db, candidates, id_column="id",
                                    embedding_column="embedding",
                                    query_vector=query_vector, k=k)
+```
+
+## Scenario: browser citation marker numbering
+
+### 1. Scope / Trigger
+
+Apply this contract whenever the web API (`app/api/conversation_routes.py`)
+returns answer text to the browser: the JSON answer, the SSE stream, the
+`/turns` history and the sidebar preview. Origin: task
+`10-20-inline-citation-chips` (2026-10-20). The browser renders in-text
+citations as inline chips, but the public citation DTO deliberately carries no
+internal row identifiers, so the server must express each marker as a position
+in the public list.
+
+### 2. Signatures
+
+```python
+# app/web/citation_markers.py (pure, no database)
+MARKER_RE = re.compile(r"\[S(\d+)\]")
+def position_ordinals(segment_ids: Iterable[int | None]) -> dict[int, int]   # id -> 1-based list position
+def renumber_markers(text: str, ordinals: Mapping[int, int]) -> str          # [S<id>] -> [^n]; unknown id: marker (and one leading space) removed
+class MarkerNumbering:                                                       # streaming accumulator
+    def extend(self, citations: Sequence[Citation]) -> list[int]
+    ordinals: Mapping[int, int]
+    def rewrite(self, delta: str) -> str
+    def ordered(self, values, *, key=None) -> list                            # numbered first (by number), then the rest in input order
+
+# app/api/conversation_routes.py
+browser_citations_with_sources(values, session) -> list[tuple[Citation, ConversationCitationResponse]]  # kept order
+project_answer(answer, session, numbering: MarkerNumbering | None = None) -> ConversationResponse
+_safe_citation_rows(sources) -> list[tuple[int | None, ConversationCitationResponse]]
+```
+
+### 3. Contracts
+
+- The wire marker is `[^n]`; `n` is the 1-based position of the citation in
+  the `citations` array of the same response. The number is never a separate
+  field and never an internal ID. `[1]` was rejected because model prose can
+  contain it; `[^` is not Markdown without remark-gfm and old clients show it
+  as plain text.
+- Numbering only counts citations that survive `project_browser_sources`
+  (unsafe URL, missing fields). A marker whose citation was dropped is deleted
+  together with one preceding space, so numbers stay contiguous.
+- JSON answer and `completed` response: ordinals come from the final public
+  list. Streaming: one `MarkerNumbering` per request; `section_started`
+  extends it with that section's retained citations in order (sections never
+  share a segment, enforced by the existing validator), `text_delta` is
+  rewritten per delta (safe because `_StreamingTextGuard` never splits a
+  marker), and the `completed` list is `numbering.ordered(...)`, so the
+  numbers the browser assigned while streaming match the final list.
+  Citations never referenced in the text come last.
+- History (`/turns`): ordinals come from the persisted `sources` rows that
+  survive `_safe_citation_rows` (legacy rows without `segment_id` cannot be
+  numbered, so their markers are removed). Page-Q&A threads are renumbered the
+  same way. The sidebar preview has no citation list and only strips markers.
+- Persisted `assistant_text`, the `来源：` block (also rewritten, the browser
+  strips it), MCP and LangBot text are unchanged and still use `[S<id>]`.
+- No log or diagnostic field carries the text or the identifiers.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| citation filtered out of the public list | its markers removed, remaining numbers contiguous |
+| section citation filtered during streaming | existing `section_started` validator already aborts the stream (lengths differ) |
+| legacy history row without `segment_id` | markers removed; no internal ID reaches the browser |
+| same segment cited twice | same `[^n]` both times |
+| marker for an id not in any list | removed |
+
+### 5. Good / Base / Bad Cases
+
+- Good: two streamed sections with two citations each produce `[^1]…[^4]` in
+  deltas and a four-element `completed.citations` in the same order.
+- Base: a non-streamed answer with three citations returns `[^1]`–`[^3]` and
+  the same three citations.
+- Bad: renumber from the internal `answer.citations` order before projection
+  (misaligned after a drop), expose `segment_id` to the browser, or rewrite
+  MCP/LangBot text.
+
+### 6. Tests Required
+
+- `tests/test_citation_markers.py`: single/multiple/repeated markers, removal
+  with leading space, `来源：` block rewritten, `extend` continuity across two
+  batches, `ordered` keeps unreferenced citations last.
+- `tests/test_conversation_streaming.py`: section numbering, `completed`
+  order, filtered citation on the JSON route, compat whole-answer path, no
+  `[S` in `completed.response.text`.
+- `tests/test_conversation_list_queries.py`: history with a filtered row and a
+  title row, legacy rows without `segment_id`, sidebar preview.
+- `tests/test_mcp_server.py` still sees `[S<id>]`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+ordinals = {c.segment_id: i + 1 for i, c in enumerate(answer.citations)}   # before projection
+return ConversationResponse(text=answer.text, citations=browser_citations(answer.citations, session))
+```
+
+#### Correct
+
+```python
+retained = browser_citations_with_sources(answer.citations, session)
+ordinals = position_ordinals(c.segment_id for c, _ in retained)
+return ConversationResponse(text=renumber_markers(answer.text, ordinals), citations=[r for _, r in retained])
 ```

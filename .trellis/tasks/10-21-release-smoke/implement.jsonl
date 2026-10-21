@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/deployment-lifecycle.md", "reason": "Profile-aware startup, migration gate and process ownership for the local smoke and the production deploy"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Neon runtime URLs, migration-head synchronization and deployment safety for the three migrations"}
+{"file": ".trellis/spec/backend/web-browser-runtime.md", "reason": "Website, session and static-serving contract to verify after deploy"}
+{"file": ".trellis/tasks/10-21-release-readiness/prd.md", "reason": "Parent task: cross-child acceptance and the release order"}
+{"file": ".trellis/tasks/10-20-cn-recall-fusion/research/tenant211-compare.md", "reason": "Post-deploy reindex verification target"}

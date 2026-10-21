@@ -1,0 +1,28 @@
+{
+  "id": "low-human-video-evaluation",
+  "name": "low-human-video-evaluation",
+  "title": "低人工成本的视频识别评估方案与工具选型",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-09-05",
+  "completedAt": "2026-10-15",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "08-24-video-recognition-benchmark",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "closed_reason": "superseded-2026-10-15: Vision/OCR removed, no further ASR model testing"
+  }
+}

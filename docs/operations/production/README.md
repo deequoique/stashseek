@@ -5,7 +5,6 @@
 一般生产部署请先阅读[部署 StashSeek Chat](../../how-to/deploy-production.md)。
 
 - [在 OVHcloud 与 Caddy 上部署](ovh-caddy.md)
-- [在 Debian/Ubuntu 与 Nginx 上原子发布独立前端](debian-nginx-frontend.md)
 - [运行仅限 Telegram 的私有 LangBot](langbot-telegram.md)
 - [临时使用家庭网络访问 YouTube](youtube-home-egress.md)
 - [通过住宅代理长期访问 YouTube](youtube-residential-egress.md)

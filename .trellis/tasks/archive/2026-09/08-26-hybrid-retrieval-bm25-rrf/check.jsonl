@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/index.md","reason":"Apply backend quality and testing checks to the completed change."}
+{"file":".trellis/spec/backend/agent-retrieval-convergence.md","reason":"Verify ranking changes do not weaken limits, tenant scope, source diversity or Citation/Composer contracts."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Verify migration topology, Neon admission, isolated branch tests and rollback safety."}
+{"file":".trellis/spec/backend/provider-tls-diagnostics.md","reason":"Verify failure categories remain distinct and production diagnostics stay content-free."}
+{"file":".trellis/spec/backend/knowledge-item-management.md","reason":"Verify deleted and archived content remains excluded from every retrieval backend and hydration."}
+{"file":".trellis/tasks/08-26-hybrid-retrieval-bm25-rrf/research/current-state-and-bm25-options.md","reason":"Check that implementation uses supported lakebase_text rather than deprecated pg_search and accurately labels PostgreSQL FTS fallback."}

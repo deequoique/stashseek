@@ -71,6 +71,23 @@ class ToolPolicy:
             return tool_def
         return None
 
+    def prepare_media_inspection(self, ctx: RunContext[AgentDeps], tool_def):
+        """Expose inspection only when the run has candidates and a service."""
+
+        if (
+            not ctx.deps.multimodal_retrieval_enabled
+            or ctx.deps.vision_service is None
+            or ctx.deps.media_manifest is None
+            or ctx.deps.media_evidence_adapter is None
+        ):
+            return None
+        if not ctx.deps.media_manifest.candidates:
+            return None
+        if (ctx.deps.media_manifest.tenant_id != ctx.deps.active_tenant_id
+                or ctx.deps.media_manifest.run_id != ctx.deps.active_retrieval_run_id):
+            return None
+        return tool_def
+
     def prepare_management(self, ctx: RunContext[AgentDeps], tool_def):
         """Hide inventory/item-management tools for explicit URL questions."""
 

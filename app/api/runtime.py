@@ -1,4 +1,4 @@
-"""Production composition for the same-origin Web API and static SPA."""
+"""Production composition for the extension API and channel runtime."""
 
 from __future__ import annotations
 
@@ -8,9 +8,11 @@ from app.api.app import WebApiServices, create_app
 from app.api.conversation_routes import resolve_browser_session_identity
 from app.api.email_auth_routes import EmailWebAuthAdapter
 from app.api.extension_routes import ExtensionSessionService
+from app.asr.types import ASR_PLATFORMS
 from app.config import Settings, get_settings
 from app.browser_capture_submission import BrowserCaptureSubmissionService
 from app.browser_companion import BrowserCompanionService
+from app.bilibili.service import build_bilibili_service
 from app.db import get_session_factory
 from app.ingest.submission import build_ingest_submission_service
 from app.object_store import RawObjectStore
@@ -46,19 +48,31 @@ class _LazyChannelService:
             yield event
 
 
-def build_web_app(
+def build_api_app(
     settings: Settings | None = None,
     *,
     session_factory=None,
     publisher=None,
     object_store=None,
     email_auth=None,
+    external_auth=None,
+    external_providers=None,
     channel_service=None,
+    bilibili=None,
     mount_static: bool | None = None,
 ):
-    """Wire concrete services while keeping test doubles explicit and local."""
+    """Wire concrete services while keeping test doubles explicit and local.
+
+    The same React bundle serves the browser extension workspace and the
+    website: when ``WEB_SERVE_STATIC`` is on (the default) the built
+    ``WEB_STATIC_DIR`` (``extension/dist``) is mounted as the SPA, and
+    ``mount_static`` overrides the setting for tests and API-only runtimes.
+    """
 
     settings = settings or get_settings()
+    serve_static = (
+        settings.web_serve_static if mount_static is None else mount_static
+    )
     if not settings.web_cookie_secure:
         raise ValueError("WEB_COOKIE_SECURE must stay enabled for __Host- cookies")
     factory = session_factory or get_session_factory()
@@ -100,6 +114,16 @@ def build_web_app(
         # Tests and embedders may inject the deterministic in-memory service;
         # production still builds the configured provider-backed service here.
         email_auth = email_auth or build_email_auth_service(settings, factory)
+        if external_auth is None:
+            from app.external_auth import ExternalLoginService
+            from app.external_providers import build_external_providers
+
+            providers = (
+                build_external_providers(settings)
+                if external_providers is None
+                else external_providers
+            )
+            external_auth = ExternalLoginService(email_auth, settings, providers)
         web_auth = EmailWebAuthAdapter(email_auth)
         expected_origin = getattr(settings, "web_public_origin", None) or (
             tuple(getattr(settings, "browser_companion_allowed_origins", ())) or
@@ -134,9 +158,13 @@ def build_web_app(
         )
         expected_origin = settings.web_origin
         public_login_channels = settings.web_login_channels
+    bilibili_public_enabled = bool(
+        getattr(settings, "bilibili_public_enabled", False)
+    )
     services = WebApiServices(
         web_auth=web_auth,
         email_auth=email_auth,
+        external_auth=external_auth,
         channel_service=channel_service or _LazyChannelService(settings, factory),
         session_resolver=(email_auth or web_auth).resolve_session,
         session_identity_resolver=lambda session: resolve_browser_session_identity(
@@ -150,20 +178,25 @@ def build_web_app(
             publisher,
             quota_policy=submission.quota_policy,
             save_enabled=True,
+            bilibili_public_enabled=bilibili_public_enabled,
         ),
         submission=submission,
-        transcript=TranscriptService(factory, store),
+        transcript=TranscriptService(
+            factory, store, bilibili_public_enabled=bilibili_public_enabled
+        ),
         browser_companion=browser_companion,
         browser_capture_submission=browser_capture_submission,
         extension_sessions=ExtensionSessionService(email_auth) if email_auth is not None else None,
         # Settings test doubles without the flag keep the route unmounted.
         include_page_qa_routes=bool(getattr(settings, "page_qa_enabled", False)),
         asr_audio_store=store,
-    )
-    serve_static = (
-        settings.web_serve_static
-        if mount_static is None
-        else mount_static
+        # Settings test doubles without the flag advertise no transcription.
+        transcription_platforms=(
+            tuple(sorted(ASR_PLATFORMS))
+            if getattr(settings, "asr_enabled", False)
+            else ()
+        ),
+        bilibili=bilibili or build_bilibili_service(settings, factory, submission),
     )
     return create_app(
         services=services,
@@ -171,6 +204,11 @@ def build_web_app(
         cookie_secure=True,
         publish_budget_seconds=settings.web_publish_budget_seconds,
         save_enabled=True,
+        bilibili_public_enabled=bilibili_public_enabled,
         web_login_channels=public_login_channels,
         static_dir=settings.web_static_dir if serve_static else None,
     )
+
+
+# Compatibility for embedders that still import the historical factory name.
+build_web_app = build_api_app

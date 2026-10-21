@@ -1,0 +1,11 @@
+{"file":".trellis/tasks/08-18-channel-save-link-routing/prd.md","reason":"Acceptance criteria to verify."}
+{"file":".trellis/tasks/08-18-channel-save-link-routing/design.md","reason":"Expected trust boundaries, state machine, compatibility, and rollback behavior."}
+{"file":".trellis/tasks/08-18-channel-save-link-routing/research/channel-save-link-route-analysis-2026-08-18.md","reason":"Original failure sequence that regression tests must reproduce."}
+{"file":".trellis/spec/backend/agent-retrieval-convergence.md","reason":"Verify natural answer and terminal action invariants remain intact."}
+{"file":".trellis/spec/backend/langbot-channel-runtime.md","reason":"Verify bridge compatibility, deduplication, redaction, and fail-closed routing."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Verify catalog ownership, stable code compatibility, safe rendering, and no unknown new writes."}
+{"file":".trellis/spec/backend/youtube-connector.md","reason":"Verify Bilibili follows the established bounded connector runtime without regressing YouTube."}
+{"file":".trellis/spec/backend/ingest-completion-queue.md","reason":"Verify Bilibili terminal outcomes and completion notification retain durability semantics."}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"Verify reason-code diagnostics do not expose messages, URLs, or drafts."}
+{"file": ".trellis/tasks/08-19-trusted-response-boundary/prd.md", "reason": "Parent cross-child acceptance criteria and trust boundary."}
+{"file": ".trellis/tasks/08-19-trusted-response-boundary/design.md", "reason": "Verify no second canonical/action text path is introduced."}

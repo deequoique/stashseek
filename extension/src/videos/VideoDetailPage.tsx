@@ -10,14 +10,16 @@ import {
   retryItem,
   updateWhySaved,
 } from "../api/client";
+import { TITLE_SEARCH_ROUTE } from "../ingest/ingestCopy";
 import { LibraryErrorState, LibraryLoadingState } from "../library/LibraryStates";
-import { RouteLink } from "../app/RouteTransition";
+import { RouteLink, useRouteNavigate } from "../app/RouteTransition";
 import { VideoDetailView } from "./VideoDetailView";
 
 export function VideoDetailPage() {
   const { id = "" } = useParams();
   const location = useLocation();
   const queryClient = useQueryClient();
+  const navigate = useRouteNavigate();
   const item = useQuery({
     queryKey: ["library-item", id],
     queryFn: () => getLibraryItem(id),
@@ -78,11 +80,13 @@ export function VideoDetailPage() {
           transcriptError={transcript.isError}
           actionPending={action.isPending}
           actionError={action.isError}
+          actionQuotaExceeded={action.error instanceof ApiError && action.error.status === 429}
           onLoadMore={() => void transcript.fetchNextPage()}
           onRetryTranscript={() => void transcript.refetch()}
           onArchive={() => action.mutate({ type: "archive" })}
           onRestore={() => action.mutate({ type: "restore" })}
           onRetry={() => action.mutate({ type: "retry" })}
+          onSearchTitles={() => navigate(TITLE_SEARCH_ROUTE)}
           onUpdateWhySaved={async (value) => {
             await action.mutateAsync({ type: "why", value });
           }}

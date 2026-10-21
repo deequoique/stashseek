@@ -26,6 +26,7 @@ EXPECTED_FILTER_RULES = [
     r"(^|\.)youtube\.com$",
     r"(^|\.)googlevideo\.com$",
     r"(^|\.)bilibili\.com$",
+    r"(^|\.)b23\.tv$",
     r"(^|\.)hdslb\.com$",
     r"(^|\.)bilivideo\.com$",
     r"(^|\.)bilivideo\.cn$",
@@ -398,7 +399,7 @@ def _server_filter_rules() -> list[str]:
     return (EGRESS_DIR / "tinyproxy.filter").read_text(encoding="utf-8").splitlines()
 
 
-def test_server_and_home_filters_are_the_same_seven_rules():
+def test_server_and_home_filters_are_the_same_eight_rules():
     assert _server_filter_rules() == EXPECTED_FILTER_RULES
     assert _helper_filter_rules() == EXPECTED_FILTER_RULES
 
@@ -417,6 +418,7 @@ def _allowed(host: str) -> bool:
         "www.bilibili.com",
         "bilibili.com",
         "api.bilibili.com",
+        "b23.tv",
         "aisubtitle.hdslb.com",
         "i0.hdslb.com",
         "upos-sz-mirrorcos.bilivideo.com",

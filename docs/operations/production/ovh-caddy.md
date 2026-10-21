@@ -8,7 +8,8 @@
 
 ```text
 Caddy :443 -> 127.0.0.1:8800
-               |-- / and /api/v1/*: SPA + email-authenticated Web API
+               |-- /: 网页版 SPA（extension/dist/index.html）
+               |-- /api/v1/*: 插件客户端 + email-authenticated Web API
                `-- /mcp: Bearer-authenticated Streamable HTTP MCP
 
 Celery worker: ingest,maintenance
@@ -128,7 +129,7 @@ reload Caddy。立即对每个已有 hostname 和 upstream 做 smoke test；如�
 
 以 service account 将授权 repository clone 到 `/opt/notebook-agent/repository`。
 在 `/opt/notebook-agent/releases/<sha>` 创建精确的 detached `main` release，在其
-独立的 `.venv` 中安装 Python 依赖，安装锁定的 Web 依赖，并构建 `web/dist`。
+独立的 `.venv` 中安装 Python 依赖，安装锁定的 Web 依赖，并构建 `extension/dist`。
 
 切换前，确认只有一个 Alembic head。切换 `current` 后，启动
 `notebook-agent-migrate.service`；它必须完成 `upgrade head`、`current` 和
@@ -152,6 +153,40 @@ notebook-agent.service
 
 保存和 item-management 能力没有环境开关。只有全部闸门均为绿色后，才能让组合运行时
 接收用户流量，然后重新运行 readiness 检查。
+
+## 网页前端构建与静态目录
+
+网页版和插件工作区共用 `extension/` 的同一次 Vite 构建（`index.html` 是网页入口，
+`workspace.html`、`sidepanel.html` 是插件页面）。`deploy/scripts/notebook-agent-deploy`
+创建新 release 时，在安装 Python 依赖之后、写入 `.release-built` 之前，以
+`notebook-agent` 用户在 `<release>/extension` 下执行
+`corepack pnpm install --frozen-lockfile` 和 `corepack pnpm build`。任一步失败，
+dispatcher 立即以非 0 退出，`current` 不会切换；该 release 目录没有 `.release-built`，
+重新部署同一个 SHA 会被拒绝（退出码 70），排查后需由 operator 手动移除这个半成品
+worktree。
+
+主机前置条件：`notebook-agent` 用户的 PATH 上有 Node 22 以上和 corepack（`packageManager`
+是 `pnpm@11.16.0`），发布前用
+`sudo -u notebook-agent corepack pnpm --version` 确认；缺失时构建失败、本次部署中止。
+
+构建成功后，dispatcher 在 release 目录创建兼容链接
+`<release>/web/dist -> ../extension/dist`。运行时单元读取的静态目录是相对
+`WorkingDirectory=/opt/notebook-agent/current` 解析的，因此旧版主机单元里的
+`WEB_STATIC_DIR=web/dist` 和新版 `extension/dist` 都能启动。
+
+一次性主机步骤（主机管理的单元不由 dispatcher 安装，可在首次部署之后做）：
+
+```bash
+sudo systemctl edit --full notebook-agent.service   # WEB_STATIC_DIR=web/dist -> extension/dist
+sudo systemctl daemon-reload
+# 单元在下一次部署重启时生效；之后 web/dist 链接不再被引用，但保留无害。
+```
+
+仓库里的 `deploy/systemd/notebook-agent.service` 已声明 `WEB_SERVE_STATIC=true`、
+`WEB_STATIC_DIR=extension/dist`、`WEB_COOKIE_SECURE=true`、
+`WEB_FORWARDED_ALLOW_IPS=127.0.0.1`；`WEB_PUBLIC_ORIGIN` 属于主机，不写进仓库。
+部署后确认 `https://stashseek.deequoique.tech/` 返回网页版、`/privacy` 返回隐私页、
+不存在的 `/api/v1/...` 返回 JSON 404 而不是 SPA 外壳。
 
 ## 动态 evaluator grant
 

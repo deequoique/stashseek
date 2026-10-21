@@ -27,7 +27,7 @@ def settings(**overrides):
         "web_cookie_secure": True,
         "web_publish_budget_seconds": 1.5,
         "web_serve_static": True,
-        "web_static_dir": "web/dist",
+        "web_static_dir": "extension/dist",
         "trash_retention_days": 30,
         "ingest_max_active_per_user": 10,
         "ingest_daily_new_item_limit": 50,
@@ -74,6 +74,7 @@ def test_runtime_email_composition_is_canonical_and_mounts_compatibility_routes(
         publisher=lambda _dispatch_id: "task",
         object_store=object(),
         email_auth=EmailAuth(),
+        external_auth=SimpleNamespace(available_providers=()),
         mount_static=False,
     )
 
@@ -82,7 +83,10 @@ def test_runtime_email_composition_is_canonical_and_mounts_compatibility_routes(
 
     paths = app.openapi()["paths"]
     assert capabilities.json()["web_login_channels"] == ["email"]
+    assert capabilities.json()["external_login_providers"] == []
     assert "/api/v1/auth/verify" in paths
+    assert "/api/v1/auth/external/{provider}/start" in paths
+    assert "/api/v1/auth/external/pending/verify" in paths
     assert "/api/v1/conversations/{conversation_id}/messages" in paths
     assert "/api/v1/link-tokens/consume" in paths
 
@@ -117,6 +121,83 @@ def test_runtime_always_enables_web_save_capability():
 
     assert response.status_code == 200
     assert response.json()["save_enabled"] is True
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({"asr_enabled": True}, ["bilibili", "youtube"]),
+        ({"asr_enabled": False}, []),
+        ({}, []),  # settings doubles without the flag advertise nothing
+    ],
+)
+def test_runtime_advertises_transcription_platforms_only_when_asr_is_enabled(
+    overrides, expected
+):
+    app = build_web_app(
+        settings(**overrides),
+        session_factory=lambda: None,
+        publisher=lambda _dispatch_id: "task",
+        object_store=object(),
+        mount_static=False,
+    )
+
+    with TestClient(app, base_url="https://testserver") as client:
+        response = client.get("/api/v1/capabilities")
+
+    assert response.status_code == 200
+    assert response.json()["transcription_platforms"] == expected
+
+
+def test_runtime_serves_the_website_bundle_when_static_is_enabled(tmp_path):
+    build = tmp_path / "extension-dist"
+    (build / "assets").mkdir(parents=True)
+    (build / "index.html").write_text(
+        "<!doctype html><html><body><div id=\"root\"></div>"
+        "<script type=\"module\" src=\"/assets/main-abc.js\"></script></body></html>",
+        encoding="utf-8",
+    )
+    (build / "assets" / "main-abc.js").write_text("console.log('web');", encoding="utf-8")
+
+    app = build_web_app(
+        settings(web_serve_static=True, web_static_dir=str(build)),
+        session_factory=lambda: None,
+        publisher=lambda _dispatch_id: "task",
+        object_store=object(),
+    )
+
+    with TestClient(app, base_url="https://testserver") as client:
+        root = client.get("/")
+        library = client.get("/library")
+        asset = client.get("/assets/main-abc.js")
+        health = client.get("/api/v1/health")
+        privacy = client.get("/privacy")
+        missing_api = client.get("/api/v1/does-not-exist")
+
+    assert root.status_code == 200
+    assert root.headers["content-type"].startswith("text/html")
+    assert 'id="root"' in root.text
+    assert library.status_code == 200 and 'id="root"' in library.text
+    assert asset.status_code == 200 and "console.log" in asset.text
+    assert health.status_code == 200
+    # The public privacy page is registered before the SPA catch-all.
+    assert privacy.status_code == 200
+    assert 'id="root"' not in privacy.text
+    assert missing_api.status_code == 404
+    assert 'id="root"' not in missing_api.text
+
+
+def test_runtime_fails_fast_when_the_enabled_static_build_has_no_index(tmp_path):
+    empty_build = tmp_path / "unbuilt-extension-dist"
+    empty_build.mkdir()
+
+    with pytest.raises(ValueError, match="index.html"):
+        build_web_app(
+            settings(web_serve_static=True, web_static_dir=str(empty_build)),
+            session_factory=lambda: None,
+            publisher=lambda _dispatch_id: "task",
+            object_store=object(),
+        )
 
 
 def test_runtime_can_run_api_only_without_a_static_build(tmp_path):

@@ -347,7 +347,7 @@ def timestamp_url(platform: str, url: str, seconds: float) -> str:
         # signed parameters are dropped.
         part = _bilibili_part(parts.query, strict=False)
         query = {"p": str(part)} if part > 1 else {}
-        query["t"] = str(max(0, int(seconds)))
+        query["t"] = str(max(0, min(2_147_483_647, int(seconds))))
     elif platform == "ntu_kaltura":
         # NTULearnVideo's supported deep-link parameter has not been verified.
         # Preserve the safe canonical source instead of inventing one.

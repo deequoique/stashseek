@@ -36,7 +36,7 @@ class VerifyRequest(_Model):
     code: str = Field(min_length=6, max_length=6)
 
 
-class ExtensionSessionResponse(_Model):
+class SessionResponse(_Model):
     access_token: str | None = None
     token_type: str = "Bearer"
     expires_at: datetime
@@ -73,7 +73,7 @@ class ExtensionSessionService:
             self._prune(force=True)
         return ChallengeResponse(challenge_id=challenge_id, expires_at=expires)
 
-    def verify(self, challenge_id: str, code: str) -> ExtensionSessionResponse:
+    def verify(self, challenge_id: str, code: str) -> SessionResponse:
         self._prune()
         key = self._digest(challenge_id)
         entry = self._challenges.pop(key, None)
@@ -125,7 +125,7 @@ class ExtensionSessionService:
 
     @staticmethod
     def _response(token, expires, app_user_id, email):
-        return ExtensionSessionResponse(
+        return SessionResponse(
             access_token=token,
             expires_at=expires,
             user={"id": str(app_user_id), "email": email},
@@ -145,11 +145,11 @@ def build_extension_router(service: ExtensionSessionService, *, allowed_origins=
         except Exception as exc:
             raise HTTPException(status_code=400, detail="extension_session_invalid") from exc
 
-    @router.post("/auth/verify", response_model=ExtensionSessionResponse)
+    @router.post("/auth/verify", response_model=SessionResponse)
     def verify(payload: VerifyRequest):
         return service.verify(payload.challenge_id, payload.code)
 
-    @router.get("/auth/session", response_model=ExtensionSessionResponse)
+    @router.get("/auth/session", response_model=SessionResponse)
     def session(credentials: Bearer):
         if credentials is None or credentials.scheme.lower() != "bearer":
             raise HTTPException(status_code=401, detail="extension_session_invalid")

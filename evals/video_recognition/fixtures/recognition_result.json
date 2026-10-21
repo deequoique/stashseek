@@ -1,0 +1,15 @@
+{
+  "protocol_version": "recognition-result.v1",
+  "run_id": "fixture-run",
+  "candidate_id": "asr-whisper-1",
+  "sample_id": "YT-01",
+  "run_index": 1,
+  "modality": "asr",
+  "terminal_state": "provider_incomplete",
+  "latency_ms": null,
+  "usage": {"audio_seconds": 0.0, "image_count": 0},
+  "asr": null,
+  "vision": null,
+  "ocr": null,
+  "error": {"protocol_version": "recognition-error.v1", "error_code": "provider_credentials_missing", "error_class": "ProviderCredentialsMissing", "retryable": false, "phase": "provider"}
+}

@@ -1,0 +1,6 @@
+{"file":".trellis/tasks/08-18-bilibili-url-plugin/prd.md","reason":"Requirements and acceptance criteria for Bilibili URL and companion support."}
+{"file":".trellis/tasks/08-18-bilibili-url-plugin/design.md","reason":"Cross-layer contracts, sequencing, compatibility, and rollback decisions."}
+{"file":".trellis/tasks/08-18-bilibili-url-plugin/research/feasibility-2026-08-18.md","reason":"Verified repository and yt-dlp feasibility evidence, risks, and MVP boundary."}
+{"file":".trellis/spec/backend/youtube-connector.md","reason":"Reuse yt-dlp, CA, timeout, proxy, and redacted error boundaries for a second video connector."}
+{"file":".trellis/spec/backend/browser-companion-capture.md","reason":"Required capture.v1, secret-free browser capture, platform validation, and worker behavior."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Required data-flow and boundary checklist for backend, extension, API, and web changes."}

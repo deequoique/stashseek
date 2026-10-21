@@ -1,6 +1,7 @@
 export const apiOrigins = Object.freeze({
   production: "https://stashseek.deequoique.tech",
   local: "http://127.0.0.1:8000",
+  localHttps: "https://localhost:8443",
 });
 
 export function buildTarget(value = "production") {

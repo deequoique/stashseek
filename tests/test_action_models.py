@@ -46,6 +46,7 @@ def test_ingest_dispatch_has_request_and_active_item_idempotency():
         "error_code",
         "created_at",
         "updated_at",
+        "asr_handoff_at",
     }
     assert any(
         constraint.name == "uq_ingest_dispatch_request_item"

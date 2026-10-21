@@ -73,6 +73,13 @@ BrowserCompanionPairing -> BrowserCompanionGrant -> BrowserCapture -> IngestDisp
   - `BROWSER_COMPANION_ALLOWED_ORIGINS` lists both extension IDs
     (`deploy/systemd/notebook-agent.service`); one build never serves the other
     API origin.
+- Install entry points in the UI (landing nav, hero and closing CTA, the
+  signed-in topbar, the browser companion page) link to
+  `BROWSER_COMPANION_STORE_URL` (`app/browserCompanion.ts`, no `authuser`/`hl`
+  query) in a new tab. The production zip stays only as a secondary
+  "下载离线安装包" fallback for users who cannot reach the store.
+  `isExtensionContext()` (`chrome-extension:` protocol) hides these entries
+  inside the extension workspace.
 - Two credentials stay separate:
   - The capture Bearer remains `capture:write` plus self-revoke.
   - Library, chat, and page Q&A use the separate extension **session** Bearer

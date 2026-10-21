@@ -41,6 +41,7 @@ export function SidePanel({ deps = defaultDeps }: { deps?: PanelDeps }) {
   const [auth, setAuth] = useState<AuthState>({ phase: "checking" });
   const [paired, setPaired] = useState(false);
   const [pageQa, setPageQa] = useState(false);
+  const [transcriptionPlatforms, setTranscriptionPlatforms] = useState<readonly string[]>([]);
   const [check, setCheck] = useState(0);
 
   useEffect(() => {
@@ -56,6 +57,7 @@ export function SidePanel({ deps = defaultDeps }: { deps?: PanelDeps }) {
         const capabilities = await withTimeout(deps.getCapabilities(), deps.requestTimeoutMs);
         if (!live) return;
         setPageQa(capabilities.page_qa === true);
+        setTranscriptionPlatforms(capabilities.transcription_platforms ?? []);
         setAuth({ phase: "ready" });
       } catch (error) {
         if (!live) return;
@@ -106,6 +108,7 @@ export function SidePanel({ deps = defaultDeps }: { deps?: PanelDeps }) {
       deps={deps}
       paired={paired}
       pageQa={pageQa}
+      transcriptionPlatforms={transcriptionPlatforms}
       onPairedChange={setPaired}
       onSessionInvalid={onSessionInvalid}
       onLogout={onLogout}

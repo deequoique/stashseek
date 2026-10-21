@@ -11,6 +11,8 @@ import {
   finishEntry,
   newCollectEntry,
   parseStored,
+  progressSignature,
+  restartTracking,
   toStored,
 } from "./collectModel";
 import { errorCode, isGrantRejected } from "./copy";
@@ -38,13 +40,28 @@ export interface CollectHost {
 export interface CollectController {
   /** One click: read the page if needed, save through capture or URL import, then follow progress. */
   collect(): Promise<void>;
+  /** Runs ingestion again on the item of a finished entry that the server lists a retry for, then follows it. */
+  retry(entryId: string): Promise<void>;
   /** Picks up an unfinished action of this video from before the panel was reopened. */
   resume(conversationId: string, videoKey: string): Promise<void>;
   stopPolling(): void;
 }
 
-export function isActiveCollect(entry: { kind: string; phase?: string }): boolean {
-  return entry.kind === "collect" && entry.phase !== "done";
+export function isActiveCollect(entry: { kind: string; phase?: string; retryState?: string }): boolean {
+  return entry.kind === "collect" && (entry.phase !== "done" || entry.retryState === "pending");
+}
+
+export type CollectButtonState = "idle" | "saving" | "saved";
+
+/**
+ * What the 「收藏视频」 button is doing. The save is over as soon as the server has queued the item:
+ * the processing that follows is shown by the card in the thread, so the button only says "saved"
+ * while the item is followed, instead of staying "saving" until every stage has finished.
+ */
+export function collectButtonState(thread: readonly { kind: string; phase?: string; retryState?: string }[]): CollectButtonState {
+  const active = thread.find(isActiveCollect);
+  if (!active) return "idle";
+  return active.phase === "tracking" ? "saved" : "saving";
 }
 
 function youtubeUrl(videoKey: string): string | null {
@@ -114,7 +131,7 @@ export function useCollect(host: CollectHost): CollectController {
         const next = applyItem(current, item, deps().now());
         patchEntry(conversationId, entryId, () => next);
         if (next.phase === "done") settle(next.videoKey);
-        else if (next.stage !== current.stage) void deps().collectStore.save(next.videoKey, toStored(next));
+        else if (progressSignature(next) !== progressSignature(current)) void deps().collectStore.save(next.videoKey, toStored(next));
         return next.phase === "done" ? "stop" : "continue";
       },
       onError: (error) => {
@@ -262,6 +279,39 @@ export function useCollect(host: CollectHost): CollectController {
     }
   }, [patchEntry, readEntry, stopPolling, track]);
 
+  const retry = useCallback(async (entryId: string) => {
+    const h = hostRef.current;
+    const session = h.sessionRef.current;
+    const entry = session?.thread.find((candidate): candidate is CollectEntry => candidate.kind === "collect" && candidate.id === entryId);
+    if (!session || !entry || entry.phase !== "done" || !entry.retryable || !entry.itemPublicId) return;
+    if (session.thread.some(isActiveCollect)) return;
+    const deps = h.depsRef.current;
+    const { conversationId } = session;
+    const patch = (change: (current: CollectEntry) => CollectEntry) => patchEntry(conversationId, entryId, change);
+    const stillHere = () => h.sessionRef.current?.conversationId === conversationId;
+
+    patch((current) => ({ ...current, retryState: "pending" }));
+    try {
+      const item = await deps.retryItem(entry.itemPublicId);
+      if (!stillHere()) return;
+      const started = deps.now();
+      patch((current) => applyItem(restartTracking(current, started), item, started));
+      const next = readEntry(conversationId, entryId);
+      if (!next) return;
+      if (next.phase === "done") {
+        void deps.collectStore.clear(next.videoKey);
+        return;
+      }
+      void deps.collectStore.save(next.videoKey, toStored(next));
+      track(conversationId, entryId);
+    } catch (error) {
+      if (!stillHere()) return;
+      if (error instanceof ApiError && error.status === 401) h.onSessionInvalid();
+      const quota = error instanceof ApiError && error.status === 429;
+      patch((current) => ({ ...current, retryState: quota ? "quota_exceeded" : "failed" }));
+    }
+  }, [patchEntry, readEntry, track]);
+
   const resume = useCallback(async (conversationId: string, videoKey: string) => {
     const h = hostRef.current;
     const deps = h.depsRef.current;
@@ -280,5 +330,5 @@ export function useCollect(host: CollectHost): CollectController {
     track(conversationId, entry.id);
   }, [track]);
 
-  return { collect, resume, stopPolling };
+  return { collect, retry, resume, stopPolling };
 }

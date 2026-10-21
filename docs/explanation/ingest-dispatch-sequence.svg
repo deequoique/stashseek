@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1710" viewBox="0 0 1600 1710">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,3 L0,6 z" fill="#334155"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,3 L0,6 z" fill="#166534"/>
+    </marker>
+    <style>
+      .title { font: 700 30px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; fill: #475569; }
+      .lane { font: 700 16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; fill: #0f172a; text-anchor: middle; }
+      .label { font: 400 15px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; fill: #1e293b; }
+      .small { font: 400 13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; fill: #475569; }
+      .note { font: 600 14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; fill: #166534; }
+      .error { font: 600 14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; fill: #991b1b; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1710" fill="#ffffff"/>
+  <text x="800" y="48" class="title" text-anchor="middle">视频入队与 IngestDispatch 生命周期</text>
+  <text x="800" y="78" class="subtitle" text-anchor="middle">当前实现：数据库事务登记任务，Celery 异步处理，Worker 通过 dispatch 状态保证幂等</text>
+
+  <!-- lanes -->
+  <rect x="35" y="105" width="1530" height="85" rx="12" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="155" y="155" class="lane">👤 用户</text>
+  <text x="405" y="155" class="lane">⚙️ Ingestion API</text>
+  <text x="675" y="155" class="lane">💾 PostgreSQL</text>
+  <text x="945" y="155" class="lane">📬 Celery Broker</text>
+  <text x="1215" y="155" class="lane">⚙️ Worker</text>
+  <text x="1450" y="155" class="lane">🌐 视频平台</text>
+
+  <line x1="155" y1="190" x2="155" y2="1640" stroke="#94a3b8" stroke-dasharray="6 7"/>
+  <line x1="405" y1="190" x2="405" y2="1640" stroke="#94a3b8" stroke-dasharray="6 7"/>
+  <line x1="675" y1="190" x2="675" y2="1640" stroke="#94a3b8" stroke-dasharray="6 7"/>
+  <line x1="945" y1="190" x2="945" y2="1640" stroke="#94a3b8" stroke-dasharray="6 7"/>
+  <line x1="1215" y1="190" x2="1215" y2="1640" stroke="#94a3b8" stroke-dasharray="6 7"/>
+  <line x1="1450" y1="190" x2="1450" y2="1640" stroke="#94a3b8" stroke-dasharray="6 7"/>
+
+  <!-- intake -->
+  <line x1="155" y1="230" x2="405" y2="230" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="280" y="218" class="label" text-anchor="middle">保存视频 URL</text>
+  <rect x="290" y="250" width="230" height="48" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+  <text x="405" y="280" class="label" text-anchor="middle">规范化 URL / 校验权限</text>
+
+  <!-- transaction box -->
+  <rect x="245" y="325" width="570" height="330" rx="12" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+  <text x="275" y="357" class="note">入库事务（短事务）</text>
+  <line x1="405" y1="385" x2="675" y2="385" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="540" y="374" class="label" text-anchor="middle">检查内容是否存在</text>
+  <line x1="405" y1="440" x2="675" y2="440" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="540" y="429" class="label" text-anchor="middle">INSERT ContentItem</text>
+  <text x="540" y="450" class="small" text-anchor="middle">state = pending</text>
+  <line x1="405" y1="505" x2="675" y2="505" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="540" y="494" class="label" text-anchor="middle">INSERT IngestDispatch</text>
+  <text x="540" y="515" class="small" text-anchor="middle">attempt = 1, state = pending</text>
+  <line x1="675" y1="565" x2="405" y2="565" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="540" y="554" class="label" text-anchor="middle">COMMIT</text>
+  <rect x="280" y="590" width="500" height="43" rx="7" fill="#dcfce7" stroke="#86efac"/>
+  <text x="530" y="617" class="note" text-anchor="middle">唯一约束 + request_key：防止重复入库</text>
+
+  <line x1="405" y1="700" x2="155" y2="700" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="280" y="688" class="label" text-anchor="middle">返回：已接收，等待处理</text>
+
+  <!-- publish -->
+  <line x1="405" y1="770" x2="945" y2="770" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="675" y="758" class="label" text-anchor="middle">发布 fetch_text_task(dispatch_id)</text>
+  <line x1="945" y1="825" x2="405" y2="825" stroke="#166534" stroke-width="2" marker-end="url(#arrowGreen)"/>
+  <text x="675" y="813" class="label" text-anchor="middle">成功：返回 task_id</text>
+  <line x1="405" y1="875" x2="675" y2="875" stroke="#166534" stroke-width="2" marker-end="url(#arrowGreen)"/>
+  <text x="540" y="863" class="label" text-anchor="middle">dispatch = enqueued，COMMIT</text>
+
+  <line x1="945" y1="930" x2="405" y2="930" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="675" y="918" class="error" text-anchor="middle">失败/超时：dispatch = failed</text>
+  <text x="675" y="950" class="small" text-anchor="middle">error_code = queue_unavailable；后续 retry 创建新的 attempt</text>
+
+  <!-- worker -->
+  <line x1="945" y1="1035" x2="1215" y2="1035" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="1080" y="1023" class="label" text-anchor="middle">投递 dispatch_id</text>
+  <line x1="1215" y1="1090" x2="675" y2="1090" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="945" y="1078" class="label" text-anchor="middle">加锁并 claim dispatch</text>
+  <rect x="1040" y="1120" width="350" height="55" rx="8" fill="#fef3c7" stroke="#d97706"/>
+  <text x="1215" y="1143" class="label" text-anchor="middle">已被其他 Worker 领取？</text>
+  <text x="1215" y="1163" class="small" text-anchor="middle">是 → duplicate / no-op</text>
+  <line x1="1215" y1="1215" x2="1450" y2="1215" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="1332" y="1203" class="label" text-anchor="middle">否：state = running</text>
+  <line x1="1215" y1="1270" x2="1450" y2="1270" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="1332" y="1258" class="label" text-anchor="middle">拉取标题、章节、字幕</text>
+  <line x1="1450" y1="1325" x2="1215" y2="1325" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="1332" y="1313" class="label" text-anchor="middle">返回内容或错误</text>
+
+  <rect x="970" y="1370" width="490" height="190" rx="12" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+  <text x="995" y="1402" class="label">Worker 结果</text>
+  <text x="1010" y="1435" class="label">✅ 成功：分块、embedding → ContentItem = ready</text>
+  <text x="1010" y="1468" class="label">   dispatch = completed</text>
+  <text x="1010" y="1505" class="label">♻️ 可重试错误：dispatch 回到 enqueued</text>
+  <text x="1010" y="1538" class="label">❌ 不可恢复错误：ContentItem / dispatch = failed</text>
+  <line x1="1215" y1="1560" x2="675" y2="1560" stroke="#166534" stroke-width="2" marker-end="url(#arrowGreen)"/>
+  <text x="945" y="1548" class="label" text-anchor="middle">写入最终状态，COMMIT</text>
+
+  <rect x="65" y="1600" width="1470" height="62" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="800" y="1626" class="label" text-anchor="middle">ContentItem = 用户保存的内容本体</text>
+  <text x="800" y="1650" class="label" text-anchor="middle">IngestDispatch = 一次异步处理尝试：记录状态、attempt、task_id、错误，并支持幂等和重试</text>
+</svg>

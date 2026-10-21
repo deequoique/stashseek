@@ -32,9 +32,25 @@ Pure logic should remain a pure function. `shouldPollLibrary()` is a function, n
 - A mutation may await the exact detail query required for a safe local-state
   handoff. Run related list invalidation in the background when its latency
   does not determine primary-action readiness.
+- Public capabilities may load alongside Session validation. After a verified
+  Session and enabled chat, prefetch only the first history page and its newest
+  transcript in the active private QueryClient, without delaying navigation.
+  Preload and rendered queries share options/keys and bounded freshness so
+  pending requests deduplicate. Empty history does not create a conversation
+  until ChatPage owns that action; preload failure never becomes an empty result.
+- Pass Query AbortSignal through Session, capabilities, history and transcript
+  reads. Account/cache rotation cancels the
+  previous client, and a cancelled read must not invoke the global unauthorized
+  handler or schedule a transcript request after logout.
 - After resource creation returns enough canonical IDs, seed its exact detail
   cache with a safe empty projection before background list convergence; do not
   block the composer on an avoidable initial detail GET.
+- Public Bilibili preview reads use private, abortable resource keys
+  `bilibili-favorites-preview`, `bilibili-favorites-parts` and
+  `bilibili-parts-preview`, with no automatic retry or eager page traversal.
+  Their short-lived proof data is removed on view disposal. Explicit import
+  freezes one payload/key and never schedules an automatic follow-up batch;
+  see [Bilibili Import](./bilibili-import.md).
 
 ---
 

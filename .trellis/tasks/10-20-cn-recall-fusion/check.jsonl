@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Verify the updated fusion/window/title-row contract and that Composer limits, Citation allow-list and diagnostics stay server-owned"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Check that no new production log field carries query text, segment IDs, titles or scores"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Check tests and evals point at the Neon test branch and that no migration is required for the title row"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend code standards for the check pass"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check the title row is excluded from neighbors/open_at/evals mapping and rendered consistently in Composer and sources"}
+{"file": ".trellis/tasks/10-20-cn-recall-fusion/research/diagnosis-20261020.md", "reason": "Baseline numbers to compare the before/after candidate pools against"}

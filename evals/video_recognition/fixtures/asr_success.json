@@ -1,0 +1,20 @@
+{
+  "protocol_version": "asr.v1",
+  "run_id": "fixture-run",
+  "sample_id": "YT-01",
+  "input_window_id": "yt-01.audio.1",
+  "provider": "fixture",
+  "model_version": "fixture-asr-v1",
+  "language": "en",
+  "segments": [
+    {"text": "A benchmark speech segment", "start_sec": 5.0, "end_sec": 14.0, "words": [
+      {"text": "A", "start_sec": 5.0, "end_sec": 5.2, "confidence": 1.0},
+      {"text": "benchmark", "start_sec": 5.3, "end_sec": 6.0, "confidence": 1.0},
+      {"text": "speech", "start_sec": 6.1, "end_sec": 6.8, "confidence": 1.0},
+      {"text": "segment", "start_sec": 6.9, "end_sec": 7.7, "confidence": 1.0}
+    ]},
+    {"text": "A second bounded segment", "start_sec": 20.0, "end_sec": 28.0, "words": []}
+  ],
+  "usage": {"audio_seconds": 30.0, "image_count": 0, "estimated_cost_usd": 0.0},
+  "latency_ms": 1.0
+}

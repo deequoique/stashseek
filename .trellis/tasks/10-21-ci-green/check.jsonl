@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify every workflow command passes and no config was loosened"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Verify openapi.json and schema.d.ts were regenerated, not edited"}

@@ -22,6 +22,7 @@ from app.agent.runtime import (
     build_composer,
 )
 from app.agent.actions import ActionOutcome
+from app.agent.answer_pipeline import COMPOSER_INSTRUCTIONS, _render_composer_evidence
 from app.agent.services import EmbeddingUnavailable, ItemDetails, RetrievalUnavailable
 from app.agent.types import AgentAnswer, AgentRequest, AnswerDraft, AnswerSection, Citation
 from app.agent.streaming import public_step_code
@@ -416,6 +417,7 @@ def test_model_tool_schemas_never_expose_trusted_identifiers():
     assert set(tools) == {
         "todo_write",
         "search_segments",
+        "inspect_media",
         "get_neighbors",
         "get_item",
         "open_at",
@@ -445,23 +447,60 @@ def test_model_tool_schemas_never_expose_trusted_identifiers():
         }.isdisjoint(properties)
 
 
-def test_bounded_autonomy_instructions_never_name_an_unregistered_tool():
-    """The system prompt must not steer the model toward a tool that isn't
+@pytest.mark.asyncio
+async def test_bounded_autonomy_instructions_never_name_an_unregistered_tool():
+    """With the rollout flags off the model is never steered toward a media tool.
 
-    registered. A prior release-port draft left a stale ``search_media``
-    mention in the retrieval-tool list (that tool belongs to the in-progress
-    multimodal feature and is not wired up by ``register_retrieval_tools``
-    in this build), which would prompt the model to attempt calling a
-    nonexistent tool.
+    The media tools are *registered* on every Agent (``inspect_media`` stays in
+    the toolset and hides itself through its ``prepare`` gate), so the check is
+    made on the *effective* surface: the tool definitions and instructions that
+    actually reach the provider after every ``prepare`` gate has run. A prior
+    release-port draft left a stale ``search_media`` mention in the
+    retrieval-tool list, which would prompt the model to call a tool that is
+    not offered.
     """
 
     from app.agent.agent_builder import BOUNDED_AUTONOMY_INSTRUCTIONS
 
-    agent = build_agent(TestModel())
-    registered_tools = set(agent._function_toolset.tools)
-    for candidate in ("search_media", "inspect_media"):
-        assert candidate not in registered_tools
-        assert candidate not in BOUNDED_AUTONOMY_INSTRUCTIONS
+    media_tools = {"search_media", "inspect_media"}
+    settings = Settings()
+    assert settings.multimodal_retrieval_enabled is False
+    assert settings.wemm_enabled is False
+    offered: set[str] = set()
+    instructions: list[str] = []
+
+    def model(_messages, info):
+        offered.update(tool.name for tool in info.function_tools)
+        instructions.append(info.instructions or "")
+        return ModelResponse(parts=[TextPart("hello")])
+
+    # The media collaborators are wired in on purpose: only the rollout flags
+    # may keep the media tools away from the model.
+    await KnowledgeAgent(
+        FunctionModel(model),
+        replace(settings, agent_timeout_seconds=2),
+        lambda _request: object(),
+        media_search_service=object(),
+        media_evidence_adapter=object(),
+        vision_service=object(),
+    ).run(request())
+
+    # Control: the capture saw the normal tool surface and the real prompt.
+    assert "search_segments" in offered
+    assert instructions and BOUNDED_AUTONOMY_INSTRUCTIONS in instructions[0]
+    # Registered-but-hidden is expected for inspect_media; it must not be offered.
+    assert offered.isdisjoint(media_tools)
+    # The media-specific dynamic instruction is absent from the provider prompt.
+    assert "visual content questions" not in instructions[0]
+    assert "inspect_media" not in instructions[0]
+    # The only static mention of a media tool is the passive "any retrieval
+    # tool" completion rule; no line may tell the model to call one.
+    mentions = [
+        line
+        for line in BOUNDED_AUTONOMY_INSTRUCTIONS.splitlines()
+        if any(name in line for name in media_tools)
+    ]
+    assert all("等任何检索工具" in line for line in mentions), mentions
 
 
 def test_runtime_facade_exports_supported_surface():
@@ -1074,11 +1113,11 @@ async def test_answer_agent_feedback_covers_unparseable_first_attempt():
         "只选择与问题相关的视频",
         "每个选中的视频至少引用一个 segment",
         "更重要的视频可以引用多个 segment",
-        "grounded section 必须有非空 text 和 citation_ids",
+        "grounded section 必须有非空 text，并在 citation_ids 或 media_citation_ids 中选择证据",
         "所有 section citation_ids 按 section 顺序合并后就是最终选择（最多 8 个），不得重复",
         "全部引用最多来自 5 个视频",
         "只能使用可用候选证据中的 ID",
-        "section text 不得包含 URL、来源块或 [S…] 标记",
+        "section text 不得包含 URL、HTML、来源块或 [S…]/[M…] 标记",
     ):
         assert constraint in instructions[0]
         assert constraint in instructions[1]
@@ -1961,6 +2000,90 @@ def test_multi_source_output_groups_top_five_videos_and_keeps_distant_timestamps
     assert "https://example.test/one?t=900" in rendered
     assert "Video six" not in rendered
     assert "chapter" not in rendered.lower()
+
+
+def _title_citation(**overrides) -> Citation:
+    values = dict(
+        item_id=9,
+        segment_id=90,
+        title="电脑价格",
+        excerpt="电脑价格\n  等等党 内存 显卡",
+        url="https://example.test/video",
+        kind="title",
+    )
+    values.update(overrides)
+    return Citation(**values)
+
+
+def test_title_row_is_labelled_in_composer_evidence_without_a_time():
+    text_row = Citation(
+        item_id=1, segment_id=11, title="Video one", excerpt="spoken words",
+        url="https://example.test/one?t=10", start_sec=10,
+    )
+
+    rendered = _render_composer_evidence(
+        [text_row, _title_citation()], excerpt_chars=1200
+    )
+    lines = rendered.splitlines()
+
+    assert lines[0] == "可用证据（仅可引用以下 ID）："
+    assert lines[1] == "ID 11，视频《Video one》，时间 10 秒：spoken words"
+    assert lines[2] == "ID 90，视频《电脑价格》的标题与简介：电脑价格 等等党 内存 显卡"
+    assert "时间" not in lines[2]
+
+
+def test_title_row_excerpt_respects_the_composer_excerpt_cap():
+    rendered = _render_composer_evidence(
+        [_title_citation(excerpt="标题\n" + "简" * 50)], excerpt_chars=10
+    )
+
+    assert rendered.splitlines()[1] == "ID 90，视频《电脑价格》的标题与简介：标题 简简简简简简简"
+
+
+def test_composer_instructions_tell_the_model_titles_are_not_spoken_facts():
+    assert "标题与简介" in COMPOSER_INSTRUCTIONS
+    assert "具体事实以正文片段为准" in COMPOSER_INSTRUCTIONS
+
+
+def test_title_row_source_line_is_labelled_and_keeps_the_item_link():
+    text_row = Citation(
+        item_id=1, segment_id=11, title="Video one", excerpt="spoken   words",
+        url="https://example.test/one?t=10", start_sec=10,
+    )
+    long_title = _title_citation(
+        segment_id=91, item_id=2, title="Long", url="https://example.test/long",
+        excerpt="标题\n" + "简" * 300,
+    )
+
+    rendered = _append_sources(
+        "answer [S11] [S90]", [text_row, _title_citation(), long_title]
+    )
+
+    assert "  - [S11] https://example.test/one?t=10 — spoken words" in rendered
+    assert (
+        "  - [S90] https://example.test/video — 标题与简介：电脑价格 等等党 内存 显卡"
+        in rendered
+    )
+    long_line = next(line for line in rendered.splitlines() if "[S91]" in line)
+    assert long_line.startswith("  - [S91] https://example.test/long — 标题与简介：标题 ")
+    assert long_line.endswith("…")
+    # The shared 180-character cap (177 characters plus an ellipsis) applies
+    # to the excerpt itself, not to the label.
+    assert len(long_line.removeprefix("  - [S91] https://example.test/long — 标题与简介：")) == 178
+
+
+def test_title_citation_serialization_carries_kind_and_default_does_not():
+    title = _title_citation()
+    plain = Citation(
+        item_id=1, segment_id=11, title="Video one", excerpt="spoken words",
+        url="https://example.test/one", start_sec=1,
+    )
+
+    assert title.model_dump()["kind"] == "title"
+    assert title.model_dump()["start_sec"] is None
+    assert title.model_dump(mode="json")["kind"] == "title"
+    assert "kind" not in plain.model_dump()
+    assert Citation.model_validate(title.model_dump()) == title
 
 
 @pytest.mark.asyncio

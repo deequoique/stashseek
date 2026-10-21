@@ -192,7 +192,7 @@ def test_dependency_compose_has_no_postgres_and_publishes_only_loopback():
 
 
 def test_production_workflow_requires_ci_environment_and_serialization():
-    workflow = _text(".github/workflows/web-auth-contract.yml")
+    workflow = _text(".github/workflows/extension-api-contract.yml")
 
     gates = workflow[: workflow.index("  deploy-production:")]
     assert "python -m venv .venv" in gates
@@ -201,7 +201,7 @@ def test_production_workflow_requires_ci_environment_and_serialization():
     assert ".venv/bin/alembic heads" in gates
 
     deploy = workflow[workflow.index("  deploy-production:") :]
-    assert "needs: deterministic-web-gates" in deploy
+    assert "needs: deterministic-extension-gates" in deploy
     assert "name: Production" in deploy
     assert "cancel-in-progress: false" in deploy
     assert '"deploy $GITHUB_SHA"' in deploy
@@ -226,7 +226,7 @@ def test_deploy_dispatcher_accepts_only_an_exact_sha_and_keeps_data():
     assert "rm -" not in script
     assert "docker compose down" not in script
     assert ".release-built" in script
-    assert '/usr/bin/env --chdir="$release_dir/web"' in script
+    assert '/usr/bin/env --chdir="$release_dir/web"' not in script
     assert "dependency admission failed; previous release restored" in script
     assert "application startup failed; previous release restored" in script
     assert "http://127.0.0.1:8765/health" in script

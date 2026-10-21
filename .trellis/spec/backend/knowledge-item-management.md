@@ -69,8 +69,13 @@ items. It also covers ingestion work that races with deletion or restoration.
   independent defense in depth.
 - Re-saving the same URL during retention restores the existing row. A new
   non-null `why_saved` replaces the old value; null preserves it.
-- Explicit retry is accepted only for a stable failed active item with no
-  active dispatch. Dispatch and item failure after broker publication failure
+- Explicit retry is accepted for a stable active item whose lifecycle is
+  `failed` or `needs_action` (item states `failed`, `needs_asr`, `no_text`)
+  with no active dispatch, except login-required reasons (`needs_extension`,
+  Bilibili login subtitles), which need a browser re-collect instead. The same
+  rule drives Web `available_actions`, `ContentLibraryService.retry` and the
+  Agent/MCP `retry_item`; see `ingest-status-model.md`. A `ready` item is
+  never re-run, even when a post-body stage failed. Dispatch and item failure after broker publication failure
   are committed atomically; retry admission repairs the known legacy
   `pending item + queue_unavailable dispatch` split state.
 - The ingestion worker persists a deterministic raw-object cleanup intent

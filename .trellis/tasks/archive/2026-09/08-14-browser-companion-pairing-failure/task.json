@@ -1,0 +1,29 @@
+{
+  "id": "browser-companion-pairing-failure",
+  "name": "browser-companion-pairing-failure",
+  "title": "Browser companion pairing failure investigation",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "extension,web-api,pairing,local-runtime",
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-08-14",
+  "completedAt": "2026-09-04",
+  "branch": "dev",
+  "base_branch": "dev",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "cleanup_disposition": "abandoned_stale",
+    "cleanup_date": "2026-09-04"
+  }
+}

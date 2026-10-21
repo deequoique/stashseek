@@ -47,9 +47,11 @@ from app.agent.services import (
     RetrievalUnavailable,
 )
 from app.agent.streaming import AgentPlanItem, AgentStreamEvent, public_step_code
-from app.agent.types import AgentAnswer, AgentRequest
+from app.agent.types import AgentAnswer, AgentRequest, MediaCitation
 from app.config import Settings
 from app.diagnostics import RequestDiagnostics, classify_usage_limit
+from app.ingest.embed import MultimodalEmbeddingProvider
+from app.retrieval.media import MediaRetrievalService, compose_media_answer, render_media_answer
 from app.ingest.submission import parse_message_references
 
 BOUNDED_UNAVAILABLE_REMAINDER = "后续读取暂时不可用，未完成的部分不会被臆测。"
@@ -94,7 +96,6 @@ def _is_no_search_social_or_capability(text: str) -> bool:
         "whatcanyoudo",
         "howcanyouhelp",
     }
-
 
 def _allow_blocked_todo_clarification(
     deps: AgentDeps,
@@ -290,10 +291,16 @@ class KnowledgeAgent:
         composer_model: Model | str | None = None,
         stream_model: Model | str | None = None,
         section_stream_factory: SectionStreamFactory | None = None,
+        multimodal_embedding_provider: MultimodalEmbeddingProvider | None = None,
+        media_search_service: MediaRetrievalService | None = None,
+        media_evidence_adapter=None,
+        vision_service=None,
     ) -> None:
         self._agent = build_agent(
             model,
             tool_timeout=settings.agent_tool_timeout_seconds,
+            multimodal_retrieval_enabled=bool(getattr(settings, "multimodal_retrieval_enabled", False)),
+            media_search_service=media_search_service,
         )
         # FunctionModel is widely used by the offline suite and explicitly
         # requires a stream_function for streamed model requests. Detect that
@@ -324,6 +331,11 @@ class KnowledgeAgent:
         self._settings = settings
         self._service_factory = service_factory
         self._action_factory = action_factory
+        self._multimodal_embedding_provider = multimodal_embedding_provider
+        self._answer_model = answer_model
+        self._media_search_service = media_search_service
+        self._media_evidence_adapter = media_evidence_adapter
+        self._vision_service = vision_service
 
     async def run(
         self,
@@ -483,7 +495,9 @@ class KnowledgeAgent:
         # a section plan is applicable. Actions, read failures, canonical
         # answers, and no-evidence outcomes stay on the compatibility path.
         natural_text = getattr(primary.value, "output", None)
-        streamable = bool(deps.citations and isinstance(natural_text, str))
+        streamable = bool(
+            deps.citations and not deps.media_evidence and isinstance(natural_text, str)
+        )
         if streamable:
             try:
                 deps.todo_store.finalize(
@@ -564,6 +578,21 @@ class KnowledgeAgent:
             context=request.context,
             todo_store=TurnTodoStore(),
             recovery_ledger=RecoveryLedger(),
+            active_tenant_id=request.tenant.app_user_id,
+            active_retrieval_run_id=request.request_id,
+            multimodal_embedding_provider=(
+                self._multimodal_embedding_provider
+                if self._settings.multimodal_retrieval_enabled else None
+            ),
+            multimodal_retrieval_enabled=self._settings.multimodal_retrieval_enabled,
+            media_evidence_adapter=(
+                self._media_evidence_adapter
+                if self._settings.multimodal_retrieval_enabled else None
+            ),
+            vision_service=(
+                self._vision_service
+                if self._settings.multimodal_retrieval_enabled else None
+            ),
         )
         deps.recovery_policy = RecoveryPolicy(deps.recovery_ledger)
         return deps
@@ -1052,7 +1081,77 @@ class KnowledgeAgent:
                 _canonical_history(request.question, validated.text),
             )
 
+        if deps.multimodal_retrieval_enabled and deps.media_evidence:
+            if deps.successful_searches:
+                try:
+                    evidence = tuple(deps.media_evidence.values())
+                    citations = tuple(deps.citations.values())
+                    self._recheck_media_evidence(deps, evidence)
+                    draft = await compose_media_answer(
+                        self._answer_model,
+                        request,
+                        evidence,
+                        timeout_seconds=self._settings.agent_timeout_seconds,
+                        output_tokens_limit=self._settings.agent_composer_max_tokens,
+                        citations=citations,
+                    )
+                    self._recheck_selected_media(deps, evidence, draft)
+                    text, _sources = render_media_answer(
+                        draft, evidence, citations=citations,
+                    )
+                    selected_ids = {
+                        evidence_id
+                        for section in draft.sections
+                        for evidence_id in section.evidence_ids
+                    }
+                    media_citations = [
+                        MediaCitation(
+                            evidence_id=item.evidence_id,
+                            media_id=item.candidate.media_id,
+                            item_id=item.candidate.item_id,
+                            title=item.title,
+                            location=item.location,
+                            start_sec=item.inspection.start_sec,
+                            end_sec=item.inspection.end_sec,
+                            evidence=list(item.inspection.evidence),
+                        )
+                        for item in evidence
+                        if item.evidence_id in selected_ids
+                    ]
+                    return AgentExecution(
+                        AgentAnswer(
+                            status="ok",
+                            text=text,
+                            citations=[item for item in citations if f"S{item.segment_id}" in selected_ids],
+                            media_citations=media_citations,
+                            action_results=list(deps.actions.read_action_results),
+                            thread_id=request.thread_public_id,
+                        ),
+                        _canonical_history(request.question, text),
+                    )
+                except Exception:
+                    return self._failure(
+                        request,
+                        "媒体证据回答暂时不可用，请稍后重试。",
+                        "answer_unavailable",
+                        diagnostics,
+                        log_event=False,
+                    )
         if deps.successful_searches and not deps.citations:
+            if (deps.multimodal_retrieval_enabled and deps.media_manifest is not None
+                    and deps.media_manifest.candidates):
+                return AgentExecution(
+                    AgentAnswer(
+                        status="ok",
+                        text="已找到相似媒体候选，但当前没有可用于回答的已验证视觉证据。",
+                        action_results=list(deps.actions.read_action_results),
+                        thread_id=request.thread_public_id,
+                    ),
+                    _canonical_history(
+                        request.question,
+                        "已找到相似媒体候选，但当前没有可用于回答的已验证视觉证据。",
+                    ),
+                )
             return self._answer_pipeline.no_evidence(
                 request, diagnostics, deps.actions.read_action_results
             )
@@ -1077,6 +1176,35 @@ class KnowledgeAgent:
             "answer_unavailable",
             diagnostics,
             log_event=False,
+        )
+
+    @staticmethod
+    def _recheck_media_evidence(deps, evidence) -> None:
+        from app.agent.media import MediaState
+
+        adapter = deps.media_evidence_adapter
+        if not deps.multimodal_retrieval_enabled or adapter is None:
+            raise RuntimeError("media evidence adapter unavailable")
+        for item in evidence:
+            item.__post_init__()
+            if (item.candidate.tenant_id != deps.active_tenant_id
+                    or item.candidate.run_id != deps.active_retrieval_run_id
+                    or deps.media_manifest is None
+                    or deps.media_manifest.get(item.candidate.media_id) != item.candidate):
+                raise RuntimeError("media evidence scope mismatch")
+            state = adapter.recheck(item.candidate, phase="before_answer")
+            if type(state) is not MediaState or not state.inspectable:
+                raise RuntimeError("media evidence is no longer answerable")
+
+    @staticmethod
+    def _recheck_selected_media(deps, evidence, draft) -> None:
+        selected_ids = {
+            evidence_id
+            for section in draft.sections
+            for evidence_id in section.evidence_ids
+        }
+        KnowledgeAgent._recheck_media_evidence(
+            deps, tuple(item for item in evidence if item.evidence_id in selected_ids)
         )
 
     @staticmethod

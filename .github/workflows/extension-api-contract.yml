@@ -1,8 +1,5 @@
 name: Extension and API contract
 
-# Verification only. Production deployment is owned by web-auth-contract.yml, so
-# a push to main requests exactly one Production approval.
-
 on:
   push:
     branches: [main]
@@ -63,3 +60,34 @@ jobs:
       - name: Extension checks
         run: pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm run audit
         working-directory: extension
+
+  deploy-production:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: deterministic-extension-gates
+    runs-on: ubuntu-latest
+    environment:
+      name: Production
+      url: https://stashseek.deequoique.tech
+    concurrency:
+      group: stashseek-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Configure restricted SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          umask 077
+          install -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/stashseek-production"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+      - name: Deploy approved main revision
+        env:
+          DEPLOY_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          DEPLOY_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+        run: |
+          set -eu
+          ssh -i "$HOME/.ssh/stashseek-production" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "deploy $GITHUB_SHA"

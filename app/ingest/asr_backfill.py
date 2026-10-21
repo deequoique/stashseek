@@ -214,6 +214,7 @@ def _publish_failed(dispatch_id: int, factory) -> None:
             dispatch.updated_at = datetime.now(UTC)
             if item is not None and item.state == "pending":
                 item.state = "needs_asr"
+                item.fail_reason = "asr_handoff_failed"
             db.commit()
     except Exception:
         return

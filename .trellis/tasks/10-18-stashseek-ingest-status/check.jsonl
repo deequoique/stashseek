@@ -1,0 +1,9 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Migration must be single-head and match models for alembic check"}
+{"file": ".trellis/spec/backend/knowledge-item-management.md", "reason": "Retry, tenant isolation and deleted/archived gates"}
+{"file": ".trellis/spec/backend/ingest-completion-queue.md", "reason": "Completion events unchanged: completed events keep error_code NULL"}
+{"file": ".trellis/spec/backend/asr-transcription.md", "reason": "ASR codes and privacy (no provider text leaks)"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Required checks and test expectations"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Contract regeneration and no casts"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "API field added server-side must be consumed consistently by side panel, library and detail"}
+{"file": ".trellis/spec/guides/branch-and-delegation-workflow.md", "reason": "DATABASE_URL test-branch rule for any pytest run"}
+{"file": ".trellis/tasks/10-18-stashseek-ingest-status/research/api-and-retrieval.md", "reason": "Backward-compat rules for old extension clients"}

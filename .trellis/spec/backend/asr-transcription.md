@@ -20,12 +20,14 @@ fetch_text_task (queue ingest)
   -> process_item(asr_handoff=True):
        (a) connector returns NeedsASR, or
        (b) the latest ready browser capture has caption_status="unavailable",
-     and ASR_ENABLED, and the platform qualifies (a: youtube/bilibili, b: youtube only)
+     and ASR_ENABLED, and the platform qualifies (a and b: youtube/bilibili)
      -> item stays "fetching"; return "asr_pending"
-  -> _handoff_dispatch_to_asr: lock; running -> enqueued, task_id=NULL; commit
+     otherwise -> needs_asr + fail_reason (asr_unsupported_platform | asr_disabled | asr_unavailable)
+  -> _handoff_dispatch_to_asr: lock; running -> enqueued, task_id=NULL, asr_handoff_at=now(); commit
      -> publish transcribe_dispatch_task (queue asr)
         publish failure -> _complete_dispatch(from_states=("enqueued",),
-                           converge_item_state="needs_asr") => one completed/needs_asr event
+                           converge_item_state="needs_asr", converge_reason="asr_handoff_failed")
+                           => one completed/needs_asr event
 transcribe_dispatch_task (queue asr, concurrency 1, time_limit 3600 / soft 3480)
   -> process_dispatch(processor=_asr_processor)
      -> process_item(connector=AsrFallbackConnector(inner, AsrTranscriber))
@@ -43,16 +45,16 @@ transcribe_dispatch_task (queue asr, concurrency 1, time_limit 3600 / soft 3480)
   - A dispatch that has handed off must never emit a `needs_asr` event, except on the publish-failure convergence path.
 - **Eligibility.** The handoff happens on exactly two branches of `process_item`, and both require `asr_handoff=True` and `settings.asr_enabled`:
   - the connector-path `NeedsASR` branch for a `youtube` or `bilibili` item that is not pre-stored from a capture;
-  - the browser-capture branch, when the latest ready tenant-matching `BrowserCapture` has `caption_status="unavailable"` and `item.platform == "youtube"`.
+  - the browser-capture branch, when the latest ready tenant-matching `BrowserCapture` has `caption_status="unavailable"` and `item.platform` is `youtube` or `bilibili` (`_ASR_CAPTURE_PLATFORMS`; Bilibili added 2026-10-19, task `10-18-stashseek-ingest-status`, so legacy caption-less Bilibili captures can reach ASR on retry. The current side panel never submits a caption-less capture: it falls back to URL import).
 
-  Among captures only `ntu_kaltura` is excluded: its media is private and the server cannot fetch audio. A capture whose captions were available never reaches ASR. Everything else keeps `needs_asr` and `text_source="none"`. Direct `process_item` callers without `asr_handoff=True`, such as the CLI `ingest` / `ingest_url`, also keep the old behavior.
+  Among captures only `ntu_kaltura` is excluded: its media is private and the server cannot fetch audio. A capture whose captions were available never reaches ASR. Everything else keeps `needs_asr` and `text_source="none"`, and records why in `item.fail_reason` (`_needs_asr_reason`, platform checked first): `asr_unsupported_platform` when the platform is not eligible, else `asr_disabled` when `ASR_ENABLED` is off, else `asr_unavailable` (hand-off skipped by the caller). See `ingest-status-model.md`. Direct `process_item` callers without `asr_handoff=True`, such as the CLI `ingest` / `ingest_url`, also keep the old behavior.
 - **Capture-origin items on the asr queue.** `_asr_processor` passes `connector=` explicitly, so `process_item` skips the capture lookup and runs the connector path: `fetch_meta` replaces the capture-supplied metadata and chapters, then `AsrFallbackConnector` transcribes. This matters because capture chapters use `start_sec`/`end_sec`, while `chunk()` reads `start_time`/`end_time`. The ASR path chunks only with platform (yt-dlp) chapters, never with capture chapters. If the server now finds captions that the browser could not, the normal caption path runs instead.
 - **Backfill selection** (`app/ingest/asr_backfill.py`, `asr-backfill`) takes oldest-first `needs_asr` items that are not deleted, purge-claimed or archived, and have no active dispatch. It also needs one of:
   - platform `youtube`/`bilibili` with no `BrowserCapture` row;
   - platform `youtube` whose latest `ready` capture for the same tenant (`created_at DESC, id DESC`, the capture `process_item` resolves) has `caption_status='unavailable'`.
 
   `ntu_kaltura` items, captures whose captions were available, and items with only `staging`/`failed` captures are never selected.
-- **Item state during ASR** is `fetching`. No new state or migration exists.
+- **Item state during ASR** is `fetching`. No new item state exists. The durable "transcribing" signal is `ingest_dispatch.asr_handoff_at` (migration `cff884c74a1e`), set under the handoff row lock; a retry creates a new dispatch with a NULL marker. The legacy `stage` field still reports `fetching` for URL imports; `stages[0].detail == "transcribing"` is the public signal.
 - **`text_source`** is `asr_whisper` for every ASR provider, until a migration adds a dedicated value. The real provider appears only in the `asr_transcription` diagnostic.
 - **Stable error codes** come from `app.asr.types.ASR_ERROR_CODES`:
   - `asr_too_long`

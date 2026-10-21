@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Migration-head synchronization and the rule that tests and DDL only touch the Neon test branch"}
+{"file": ".trellis/spec/backend/agent-retrieval-convergence.md", "reason": "Which agent tools exist and how media tools are gated; the no-exposure assertions must match this contract"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend code standards for removing dead models and modules"}
+{"file": ".trellis/tasks/10-21-release-readiness/prd.md", "reason": "Parent task: why the WeMM work-in-progress must not ship and the cross-child acceptance"}
+{"file": ".trellis/tasks/09-09-multimodal-retrieval-rollout/prd.md", "reason": "Original WeMM rollout plan; the quarantine keeps its interface layer and defers tables/ingest to the model-swap task"}

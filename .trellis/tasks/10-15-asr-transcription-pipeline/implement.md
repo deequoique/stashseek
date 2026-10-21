@@ -101,3 +101,17 @@
   - 未过滤直播视频（可以加 `--match-filters "!is_live"`）；
   - 新增专用的 `text_source` 枚举值需要迁移；
   - 生产环境的启用步骤见 `docs/operations/production/ovh-caddy.md`。
+
+## 生产上线记录（2026-10-16）
+
+- PR #27（合并提交 566f843）已部署。服务器准备工作：
+  - 安装 ffmpeg；
+  - 启用 asr worker；
+  - 用 boto3 为 MinIO `asr-tmp/` 设置 1 天过期规则；
+  - 写入 `DASHSCOPE_API_KEY`、`ASR_PUBLIC_BASE_URL`、`ASR_AUDIO_URL_SECRET`。key 由用户输入。
+- 未配置 whisper 备选（用户决定）。
+- 设置 `ASR_ENABLED=true` 并重启。从公网验证签名地址：正确签名返回 200，篡改或过期返回 404。
+- 金丝雀：YouTube `NEEtBeHsKII`（无字幕，普通话，152 秒），由用户在插件里保存。
+  - 链路：经 ingest 和 `asr_pending` 进入 asr 队列，Fun-ASR 通过签名地址回源，条目变为 `ready`，从保存到完成约 49 秒。
+  - 只产生一个 `completed/ready` 事件；生成 3 个片段；`asr-tmp/` 下没有残留。
+  - `asr_transcription` 诊断：计费 96 秒，约 ¥0.025，`fallback_used=false`。

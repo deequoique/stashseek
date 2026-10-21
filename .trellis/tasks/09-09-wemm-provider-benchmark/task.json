@@ -1,0 +1,29 @@
+{
+  "id": "wemm-provider-benchmark",
+  "name": "wemm-provider-benchmark",
+  "title": "冻结 WeMM Provider 协议与基准",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "lane",
+  "assignee": "lane",
+  "createdAt": "2026-09-09",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "冻结 WeMM provider contract、模型维度和跨模态质量基准。",
+    "execution": "required-by-user-2026-10-07"
+  }
+}

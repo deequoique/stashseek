@@ -81,6 +81,9 @@ CREATE TABLE content_item (
   user_id INTEGER NOT NULL,
   platform TEXT NOT NULL,
   platform_id TEXT NOT NULL,
+  bilibili_bvid TEXT,
+  bilibili_cid TEXT,
+  bilibili_page INTEGER,
   kind TEXT NOT NULL,
   url TEXT NOT NULL,
   title TEXT,
@@ -124,7 +127,8 @@ CREATE TABLE ingest_dispatch (
   task_id TEXT,
   error_code TEXT,
   created_at DATETIME,
-  updated_at DATETIME
+  updated_at DATETIME,
+  asr_handoff_at DATETIME
 )
 """
 

@@ -1,5 +1,5 @@
 import { resolveApiOrigin } from "../api-client";
-import { getCapabilities, getLibraryItem, getSession, streamPageQuestion, submitVideoBatch } from "../api/client";
+import { getCapabilities, getLibraryItem, getSession, retryItem, streamPageQuestion, submitVideoBatch } from "../api/client";
 import type { StoredCollect } from "./collectModel";
 import { newConversationId } from "./pageIdentity";
 import { workerApi, type WorkerApi } from "./workerApi";
@@ -30,11 +30,13 @@ export interface PanelDeps {
   worker: WorkerApi;
   tabs: TabsApi;
   getSession: () => Promise<unknown>;
-  getCapabilities: () => Promise<{ page_qa?: boolean }>;
+  getCapabilities: () => Promise<{ page_qa?: boolean; transcription_platforms?: readonly string[] }>;
   streamQuestion: typeof streamPageQuestion;
   /** Library batch import by URL (extension session Bearer). */
   submitBatch: typeof submitVideoBatch;
   getItem: typeof getLibraryItem;
+  /** Runs ingestion again on an unfinished item (the client sends its own idempotency key). */
+  retryItem: typeof retryItem;
   collectStore: CollectStore;
   /** Epoch milliseconds. */
   now: () => number;
@@ -135,6 +137,7 @@ export const defaultDeps: PanelDeps = {
   streamQuestion: streamPageQuestion,
   submitBatch: submitVideoBatch,
   getItem: getLibraryItem,
+  retryItem,
   collectStore: sessionCollectStore,
   now: () => Date.now(),
   isVisible: () => document.visibilityState === "visible",

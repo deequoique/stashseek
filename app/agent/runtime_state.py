@@ -12,10 +12,18 @@ from pydantic_ai.messages import ModelMessage
 from app.agent.actions import AgentActionRuntime
 from app.agent.autonomy import RecoveryLedger, RecoveryPolicy, TodoValidationError, TurnTodoStore
 from app.agent.context import TurnContext
+from app.agent.media import (
+    MediaCandidateAdapter,
+    MediaCandidateManifest,
+    MediaEvidence,
+    MediaInspectionCache,
+    VisionService,
+)
 from app.agent.services import KnowledgeServices
-from app.agent.types import AgentAnswer, Citation
+from app.agent.types import AgentAnswer, Citation, UnifiedRetrievalResult
 from app.diagnostics import RequestDiagnostics
 from app.ingest.submission import normalize_item_reference
+from app.ingest.embed import MultimodalEmbeddingProvider
 
 NORMAL_RETRIEVAL_CALLS_LIMIT = 5
 NORMAL_SEARCH_CALLS_LIMIT = 2
@@ -63,8 +71,12 @@ def _citation_matches_scope(
     citation: Citation,
     scope: tuple[tuple[str, str], ...],
 ) -> bool:
-    """Validate a citation URL against the current-message subject set."""
+    """Match trusted exact item identity, with legacy URL compatibility only."""
 
+    if citation._source_reference is not None:
+        return citation._source_reference in set(scope)
+    # CID-qualified identities have no URL-derived representation: an ordinal
+    # or model-authored browser resolver cannot authorize that source.
     try:
         reference = normalize_item_reference(citation.url)
     except (ValueError, TypeError):
@@ -112,7 +124,33 @@ class AgentDeps:
     read_recovery_exhausted: bool = False
     todo_used: bool = False
     tool_observations: list[ToolProgressObservation] = field(default_factory=list)
+    # Populated only by the current retrieval run. Model arguments are checked
+    # against this exact opaque-ID set; they never authorize media access.
+    media_manifest: MediaCandidateManifest | None = None
+    vision_service: VisionService | None = None
+    media_inspection_cache: MediaInspectionCache = field(
+        default_factory=MediaInspectionCache
+    )
+    media_evidence_adapter: MediaCandidateAdapter | None = None
+    media_evidence: dict[str, MediaEvidence] = field(default_factory=dict)
     _tool_lock: threading.Lock = field(default_factory=threading.Lock)
+    media_inspection_calls: int = 0
+    # Set by the orchestrator for new runs; None preserves direct-construction
+    # compatibility for isolated tool consumers.
+    active_tenant_id: int | None = None
+    active_retrieval_run_id: str | None = None
+    # Optional rollout-only provider. The legacy text service never consumes
+    # this field, so enabling the flag cannot alter Segment retrieval.
+    multimodal_embedding_provider: MultimodalEmbeddingProvider | None = None
+    multimodal_retrieval_enabled: bool = False
+    last_retrieval_result: UnifiedRetrievalResult | None = None
+
+    def reserve_media_inspection(self, limit: int) -> bool:
+        with self._tool_lock:
+            if self.media_inspection_calls >= limit:
+                return False
+            self.media_inspection_calls += 1
+            return True
 
     def reserve_retrieval(
         self, *, run_step: int, kind: RetrievalKind
@@ -221,6 +259,10 @@ class ComposerDeps:
     last_failure_reason: str | None = None
     required_item_ids: frozenset[int] = frozenset()
     max_segments: int = COMPRESSED_EVIDENCE_LIMIT
+    # Optional inspected media evidence selected during this run.  Keeping it
+    # on the Composer deps makes the text-only path compatible with the
+    # multimodal answer renderer while preserving an empty default.
+    media_evidence: dict[str, MediaEvidence] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
